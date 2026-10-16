@@ -441,8 +441,16 @@ def _write_flat_csv_direct(
         writer = csv.writer(stream, delimiter=delimiter)
         writer.writerow(header)
         for selection in _bounded_grid_selections(expected_shape, _CSV_BLOCK_CELLS):
-            power_block = np.asarray(power_array[selection])
-            phase_block = np.asarray(phase_array[selection]) if include_phase else None
+            if grid.storage_kind == "complex":
+                # Derive the exported power/phase in float64 from the stored
+                # field; complex64 derivation added ~9 dB of round-trip error.
+                field_block = np.asarray(grid.rcs_slice(selection), dtype=np.complex128)
+                power_block = grid._squared_magnitude(field_block)
+                phase_block = (grid._phase_from_field(field_block, dtype=np.float64)
+                               if include_phase else None)
+            else:
+                power_block = np.asarray(power_array[selection])
+                phase_block = np.asarray(phase_array[selection]) if include_phase else None
             for ai, azimuth in enumerate(grid.azimuths[selection[0]]):
                 for ei, elevation in enumerate(grid.elevations[selection[1]]):
                     for fi, frequency in enumerate(grid.frequencies[selection[2]]):

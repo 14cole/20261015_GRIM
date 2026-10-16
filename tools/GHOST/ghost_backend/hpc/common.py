@@ -831,7 +831,11 @@ def read_unit_grims(results_dir: 'os.PathLike') -> 'List[Dict[str, Any]]':
             out.append({
                 "pol": legacy_pol,
                 "polarizations": polarizations,
-                "freq_ghz": float(match.group("freq")),
+                # The filename carries the frequency rounded to 3 decimals;
+                # the unit's own axis is exact and must match its attestation.
+                "freq_ghz": (float(np.asarray(d["frequencies"], float).reshape(-1)[0])
+                             if np.asarray(d["frequencies"]).size == 1
+                             else float(match.group("freq"))),
                 "stem": match.group("stem"),
                 "path": p,
                 "angles_deg": np.asarray(d["azimuths"], float),

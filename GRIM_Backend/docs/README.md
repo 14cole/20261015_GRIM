@@ -596,6 +596,17 @@ power interpolation and keep phase unknown. Regridding to a coarser spacing is
 not an anti-alias filter. The GUI reports that fact in status and performs the
 requested regrid without a second prompt.
 
+Linear complex interpolation is exact at source samples, but between two
+samples whose phase differs by `dphi` the magnitude drops by up to
+`20*log10(cos(dphi/2))` dB: about 0.5 dB at 38 degrees, 1 dB at 54 degrees and
+3 dB at 90 degrees of phase change per step. For a scatterer at distance `R`
+from the phase center, `dphi` is about `4*pi*R*df/c` per frequency step and
+`4*pi*f*R*dtheta/c` per angle step (radians). Regrid and Align measure the
+largest source phase step, record it with the predicted loss in provenance
+(`regrid_support_json` / `align_sampling_json`), and warn above 0.67 rad.
+Finer source sampling, or translating the phase center to the target first,
+reduces the loss.
+
 ### Join / Merge
 
 **Join / Merge…** forms the union of all four axes using existing coordinates,

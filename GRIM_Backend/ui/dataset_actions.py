@@ -3907,8 +3907,13 @@ class DatasetOpsMixin:
         def publish(payload) -> None:
             results, skipped = payload
             recorder = getattr(self, "python_recorder", None)
+            undersampled = []
             for source_index, name, aligned in results:
                 history = f"Align ({mode}) to {ref_name}: {name}"
+                sampling = json.loads(aligned.extra.get("align_sampling_json", "{}") or "{}")
+                if sampling.get("sampling_warning"):
+                    history += f"; {sampling['sampling_warning']}"
+                    undersampled.append(name)
                 output_name = f"{name} [Aligned]"
                 output_id = self._add_dataset_row(
                     aligned, output_name, history, file_name=""
@@ -3933,6 +3938,11 @@ class DatasetOpsMixin:
                 message = "Align created 0 datasets."
             else:
                 message = f"Align created {produced} dataset(s)."
+            if undersampled:
+                message += (
+                    " Coarse source phase sampling; interpolated magnitude can drop: "
+                    + _compact_item_summary(undersampled) + " (see History)."
+                )
             if skipped:
                 message += f" Skipped: {_compact_item_summary(skipped)}"
             self.status.showMessage(message)
@@ -4134,6 +4144,7 @@ class DatasetOpsMixin:
 
         def publish(payload) -> None:
             results, skipped = payload
+            undersampled = []
             for (
                 dataset_index,
                 name,
@@ -4156,6 +4167,12 @@ class DatasetOpsMixin:
                 )
                 if maximum_gap is not None:
                     history += f"; maximum gap={maximum_gap:g} {display_unit}"
+                if coverage.get("sampling_warning"):
+                    history += f"; {coverage['sampling_warning']}"
+                    undersampled.append(
+                        f"{name} (up to {abs(coverage['predicted_worst_midpoint_loss_db'] or 0.0):.1f} dB)"
+                        if coverage.get("predicted_worst_midpoint_loss_db") is not None else name
+                    )
                 output_name = f"{name} [Regrid {axis}]"
                 output_id = self._add_dataset_row(
                     interpolated, output_name, history, file_name=""
@@ -4186,6 +4203,11 @@ class DatasetOpsMixin:
                     " Point-sampled without anti-alias filtering: "
                     + _compact_item_summary(downsampled)
                     + "."
+                )
+            if undersampled:
+                message += (
+                    " Coarse source phase sampling; interpolated magnitude can drop: "
+                    + _compact_item_summary(undersampled) + "."
                 )
             if skipped:
                 message += f" Skipped: {_compact_item_summary(skipped)}"

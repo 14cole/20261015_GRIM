@@ -374,7 +374,10 @@ class RcsGrid(
             target[zero] = 0.0 + 0.0j
             valid = np.isfinite(p) & np.isfinite(ph) & ~zero
             if np.any(valid):
-                target[valid] = (np.sqrt(p[valid]) * np.exp(1j * ph[valid])).astype(complex_dtype)
+                # Convert in float64 and round once to the storage precision;
+                # float32 sqrt/exp added error beyond complex64 storage itself.
+                target[valid] = (np.sqrt(p[valid].astype(np.float64))
+                                 * np.exp(1j * ph[valid].astype(np.float64))).astype(complex_dtype)
         return out
 
     def _complete_authoritative_raw_arrays(self):

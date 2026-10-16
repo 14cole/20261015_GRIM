@@ -113,9 +113,19 @@ def plan_isar(azimuth_degrees, frequency_hz, *, elevation_degrees=0.0,
     warnings = []
     if not explicit:
         warnings.append("Scene bounds use nominal periodic limits. Enter the occupied scene extent for a useful focus estimate.")
-    if max(az_step, freq_step) >= np.pi:
+    step = max(az_step, freq_step)
+    if explicit and step >= np.pi:
+        # Nominal bounds sit at the periodic limit by construction, so this
+        # would fire on every default run; it is meaningful only for a real extent.
         warnings.append("The requested scene exceeds the native per-step sampling limit. Interpolation does not recover missing information.")
-    elif max(az_step, freq_step) > np.pi / 2:
+    elif explicit and step > 0.94 and selected == "fft":
+        # Fast PFA interpolates I/Q linearly: midpoint loss is cos(step/2).
+        loss_db = abs(20 * np.log10(np.cos(step / 2)))
+        warnings.append(
+            f"Phase changes up to {np.rad2deg(step):.0f}° per sample near the scene edge; "
+            f"Fast PFA's linear interpolation can lose up to {loss_db:.1f} dB there. "
+            "Accurate PFA is recommended.")
+    elif explicit and step > np.pi / 2:
         warnings.append("Phase changes exceed π/2 per sample near the scene edge; interpolation amplitude loss can be significant.")
     if selected == "fft" and curvature > np.pi / 4:
         warnings.append("Fast-grid range-curvature error exceeds π/4 at the scene edge. Accurate PFA is recommended for coherent imaging.")

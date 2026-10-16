@@ -14,6 +14,16 @@ unit. Phase is in radians internally. Complex64 retains two float32 components;
 complex128 retains two float64 components. Converting power and phase to I/Q
 can change the last few floating-point bits of values derived afterward.
 
+Complex64 rounds each sample to about -144 dB relative to its own field
+(2**-24), roughly -149 dB rms relative to a typical body response. A coherent
+difference such as featured minus clean therefore stays accurate to about
+-30 dB relative to the residual when the residual is up to about 100 dB below
+the body. Long chains of complex64-preserving operations (shift, offset,
+flip, divide) add roughly 3 dB of rounding noise per doubling of the chain
+length. Store noise-free solver data as complex128 when deltas more than
+about 110 dB below the body matter. Statistics and CSV export compute in
+double precision regardless of storage.
+
 Raw solver fields keep their original normalization and precision. Their raw
 real and imaginary metadata arrays are views of a single complex field, not
 additional sample copies. GRIM applies the existing quantity-dependent scale
@@ -22,6 +32,14 @@ interpreted as physical RCS I/Q without that scale. The scale is
 `sqrt(4*pi)` for sigma_3d and `1/(2*sqrt(k))` for sigma_2d, except for a
 legacy GHOST delta tagged `power_domain="delta_amp_sq"` and
 `rcs_domain="delta"`, whose raw amplitude is already physical (scale 1).
+
+For GHOST 2-D (sigma_2d) data the physical I/Q is the solver's stored bare
+integral `B` times `1/(2*sqrt(k))`, so its phase is `arg(B)`, 90 degrees behind
+the asymptotic coefficient `A = jB`. The 2-D VV channel is the TE (H_z) scalar
+and HH the TM (E_z) scalar; in E-field terms the 2-D VV-HH phase therefore
+carries an extra 180 degrees relative to 3-D (BoR) files. Power is unaffected,
+but polarimetric phase comparisons and coherent mixing of 2-D with 3-D data
+outside the assembly tools must account for it.
 
 ## Dataset operations
 
@@ -39,6 +57,10 @@ square: a power variance with unknown phase. Complex min, max, median, and
 percentile are not defined (complex numbers have no magnitude ordering); use
 the magnitude or dB domains for them. ISAR and range imaging refuse a
 power-only dataset.
+
+Interpolation (Regrid, Align) is linear in I/Q; see the README Regrid section
+for the `cos(dphi/2)` magnitude loss between coarsely phase-sampled points and
+the recorded sampling warning.
 
 Axis selection and exact sample rearrangement preserve the complex samples.
 Operations that actually change values retain their existing interpolation,

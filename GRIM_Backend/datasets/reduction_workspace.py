@@ -143,8 +143,11 @@ def reduce_dataset(dataset, domain, axes, statistic, percentile=50.):
         output_cells = max(1, BLOCK_CELLS // population_size)
         for selection in _bounded_grid_selections(reduced_shape, output_cells):
             source = tuple(slice(None) if axis in axes else part for axis, part in enumerate(selection))
-            result[selection] = reducer(domain_values(dataset, source, domain, field_reader),
-                                        *args, axis=axes, keepdims=True)
+            values = np.asarray(domain_values(dataset, source, domain, field_reader))
+            # Reduce in float64/complex128 like the streamed path; float32
+            # cancellation otherwise costs precision in mean and variance.
+            values = values.astype(np.complex128 if values.dtype.kind == "c" else np.float64, copy=False)
+            result[selection] = reducer(values, *args, axis=axes, keepdims=True)
         return result
     for index in np.ndindex(reduced_shape):
         blocks = _population_blocks(dataset, axes, index, domain, field_reader)

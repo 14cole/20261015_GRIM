@@ -420,7 +420,7 @@ class GridStorageMixin:
         field = self._complex_samples(selection, owned=False)
         return _readonly(self._squared_magnitude(field)), self._phase_from_field(field)
 
-    def _phase_from_field(self, field):
+    def _phase_from_field(self, field, dtype=None):
         """Derive wrapped phase from a complex slice with two temporaries."""
         wrap = str(self.units.get("phase_wrap", "")).strip()
         # ``arctan2`` on the component views is what ``np.angle`` computes
@@ -440,7 +440,7 @@ class GridStorageMixin:
         elif wrap == "-180_180":
             np.greater_equal(result, np.pi, out=scratch)
             np.copyto(result, -np.pi, where=scratch)
-        return _readonly(result.astype(self.real_dtype, copy=False))
+        return _readonly(result.astype(dtype or self.real_dtype, copy=False))
 
     def _expose_legacy_samples(self):
         if self._legacy_samples:

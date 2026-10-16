@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import warnings
 import math
 
 import numpy as np
@@ -35,6 +36,50 @@ class _NormalizedField:
 
     def __getitem__(self, selection):
         return np.asarray(self.grid.rcs_slice(selection), dtype=self.dtype)
+
+
+# Phase change per source step above which linear I/Q interpolation loses
+# more than about 0.5 dB at the midpoint (cos(dphi/2)).
+_PHASE_STEP_WARNING_RAD = 0.67
+
+
+def _largest_phase_step(low, high, interpolated, axis):
+    """Largest |phase(high) - phase(low)| over interpolated, non-null pairs."""
+    shape = [1] * low.ndim
+    shape[axis] = -1
+    mask = np.broadcast_to(np.asarray(interpolated).reshape(shape), low.shape)
+    magnitude = np.minimum(np.abs(low), np.abs(high))
+    finite = np.isfinite(magnitude)
+    if not np.any(finite & mask):
+        return 0.0
+    floor = 0.01 * float(np.max(magnitude[finite]))
+    usable = mask & finite & (magnitude > floor)
+    if not np.any(usable):
+        return 0.0
+    return float(np.max(np.abs(np.angle(high[usable] * np.conj(low[usable])))))
+
+
+def _phase_step_summary(phase_steps):
+    """Sampling report for linear I/Q interpolation (None when not measured)."""
+    if not phase_steps:
+        return None
+    step = max(phase_steps)
+    with np.errstate(divide="ignore"):
+        loss = float(20.0 * np.log10(max(np.cos(step / 2.0), 0.0)))
+    summary = {
+        "max_source_step_phase_rad": step,
+        "predicted_worst_midpoint_loss_db": loss if np.isfinite(loss) else None,
+    }
+    if step > _PHASE_STEP_WARNING_RAD:
+        summary["sampling_warning"] = (
+            f"Phase changes by up to {np.rad2deg(step):.0f} deg between source samples; "
+            f"linear I/Q interpolation can lose up to {abs(loss):.1f} dB between them. "
+            "Use finer source sampling or translate the phase center to the target first."
+            if np.isfinite(loss) else
+            "Phase changes by about 180 deg between source samples; the data is "
+            "undersampled and interpolated values are unreliable."
+        )
+    return summary
 
 
 def _merge_interpolated_phase(power, phase, field):
@@ -490,6 +535,7 @@ class GridAxesMixin:
         use_complex = (complex_storage or self.phase_coverage() != "none"
                        or self._complete_authoritative_raw_arrays() is not None)
         complex_interp = _NormalizedField(self) if use_complex else None
+        phase_steps = []
         for axis, old, new in steps:
             if power_interp is not None:
                 power_interp = self._interp_real_axis(
@@ -497,7 +543,7 @@ class GridAxesMixin:
                 )
             if complex_interp is not None:
                 complex_interp = self._interp_complex_axis(
-                    complex_interp, old, new, axis
+                    complex_interp, old, new, axis, phase_steps=phase_steps
                 )
         if not steps:
             if complex_interp is not None:
@@ -519,6 +565,14 @@ class GridAxesMixin:
         self._invalidate_assembly_sampling_hash(
             interp_extra, "align-interpolate"
         )
+        sampling = _phase_step_summary(phase_steps)
+        if sampling:
+            interp_extra["align_sampling_json"] = json.dumps(
+                {"schema": "grim.align-sampling.v1", **sampling},
+                sort_keys=True, separators=(",", ":"),
+            )
+            if "sampling_warning" in sampling:
+                warnings.warn(sampling["sampling_warning"], RuntimeWarning, stacklevel=2)
         return self._new_grid(
             other.azimuths,
             other.elevations,
@@ -539,9 +593,9 @@ class GridAxesMixin:
             raise ValueError(f"{name} axis must be strictly increasing for interp")
 
     @staticmethod
-    def _interp_complex_axis(data, x_old, x_new, axis):
+    def _interp_complex_axis(data, x_old, x_new, axis, phase_steps=None):
         from GRIM_Backend.datasets.grid import RcsGrid
-        return RcsGrid._interp_linear_axis(data, x_old, x_new, axis)
+        return RcsGrid._interp_linear_axis(data, x_old, x_new, axis, phase_steps=phase_steps)
 
     @staticmethod
     def _interp_real_axis(data, x_old, x_new, axis):
@@ -567,8 +621,15 @@ class GridAxesMixin:
         return np.where(exact, old[nearest], new), exact
 
     @staticmethod
-    def _interp_linear_axis(data, x_old, x_new, axis):
-        """Vectorized adjacent-bin interpolation; NaNs remain local."""
+    def _interp_linear_axis(data, x_old, x_new, axis, phase_steps=None):
+        """Vectorized adjacent-bin interpolation; NaNs remain local.
+
+        Linear I/Q interpolation between samples whose phase differs by
+        ``dphi`` loses ``20*log10(cos(dphi/2))`` dB at the midpoint. When a
+        ``phase_steps`` list is supplied for complex data, the largest phase
+        step across each interpolated pair is appended to it (pairs more than
+        40 dB below the block peak are ignored as near-null noise).
+        """
         from GRIM_Backend.datasets.grid import RcsGrid
         if not hasattr(data, 'shape') or not hasattr(data, 'dtype'):
             data = np.asarray(data)
@@ -601,6 +662,8 @@ class GridAxesMixin:
             indices[axis] = right[targets]
             high = data[np.ix_(*indices)]
             output[selection] = low * (1.0 - w) + high * w
+            if phase_steps is not None and np.iscomplexobj(low):
+                phase_steps.append(_largest_phase_step(low, high, (left != right)[targets], axis))
         return output
 
     @dataset_operation('interpolate_axis')
@@ -645,10 +708,11 @@ class GridAxesMixin:
         # Unknown phase cannot produce usable complex interpolation. Retained
         # raw amplitudes still take precedence even when rcs_phase is unknown.
         has_phase = self.phase_coverage() != "none"
+        phase_steps = []
         if has_phase or self._complete_authoritative_raw_arrays() is not None:
             complex_interp = self._interp_complex_axis(
                 _NormalizedField(self),
-                old_axes[axis_idx], new_arr, axis_idx,
+                old_axes[axis_idx], new_arr, axis_idx, phase_steps=phase_steps,
             )
             if not complex_storage:
                 _merge_interpolated_phase(power_interp, phase_interp, complex_interp)
@@ -667,7 +731,11 @@ class GridAxesMixin:
         self._invalidate_assembly_sampling_hash(
             interp_extra, f"interpolate-{key}"
         )
+        sampling = _phase_step_summary(phase_steps)
+        if sampling and "sampling_warning" in sampling:
+            warnings.warn(sampling["sampling_warning"], RuntimeWarning, stacklevel=2)
         interp_extra["regrid_support_json"] = json.dumps({
+            **(sampling or {}),
             "schema": "grim.regrid-support.v1",
             "axis": key,
             "axis_unit": (self.units or {}).get(key, "GHz" if key == "frequency" else "deg"),
