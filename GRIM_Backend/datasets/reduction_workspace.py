@@ -23,9 +23,11 @@ def workspace_array(shape, dtype, *, ram_limit_bytes=RAM_WORKSPACE_BYTES):
         return allocate_result(shape, dtype)
 
 
-def domain_values(dataset, selection, domain):
+def domain_values(dataset, selection, domain, field_reader=None):
     if domain == "complex":
-        return dataset.rcs_slice(selection)
+        # A reader from _bounded_complex_slice_reader validates legacy arrays
+        # once instead of hashing the whole grid for every block.
+        return field_reader(selection) if field_reader is not None else dataset.rcs_slice(selection)
     values = dataset.power[selection]
     if domain in {"db", "dbsm"}:
         return dataset.linear_to_dbsm(values)
@@ -35,12 +37,12 @@ def domain_values(dataset, selection, domain):
     return values
 
 
-def _population_blocks(dataset, axes, output_index, domain):
+def _population_blocks(dataset, axes, output_index, domain, field_reader=None):
     shape = tuple(size if axis in axes else 1 for axis, size in enumerate(dataset.shape))
     for block in _bounded_grid_selections(shape, BLOCK_CELLS):
         selection = tuple(part if axis in axes else slice(output_index[axis], output_index[axis] + 1)
                           for axis, part in enumerate(block))
-        yield np.asarray(domain_values(dataset, selection, domain)).reshape(-1)
+        yield np.asarray(domain_values(dataset, selection, domain, field_reader)).reshape(-1)
 
 
 def _exact_rank(blocks, population_size, dtype, statistic, percentile):
@@ -127,7 +129,8 @@ def reduce_dataset(dataset, domain, axes, statistic, percentile=50.):
     """Exact ranks or stable streaming reductions over each complete population."""
     reduced_shape = tuple(1 if axis in axes else count for axis, count in enumerate(dataset.shape))
     probe = tuple(slice(0, 1) for _axis in dataset.shape)
-    dtype = np.asarray(domain_values(dataset, probe, domain)).dtype
+    field_reader = dataset._bounded_complex_slice_reader()[0] if domain == "complex" else None
+    dtype = np.asarray(domain_values(dataset, probe, domain, field_reader)).dtype
     reducer = {"mean": np.nanmean, "std": np.nanstd, "median": np.nanmedian,
                "min": np.nanmin, "max": np.nanmax, "percentile": np.nanpercentile}[statistic]
     args = (float(percentile),) if statistic == "percentile" else ()
@@ -140,10 +143,11 @@ def reduce_dataset(dataset, domain, axes, statistic, percentile=50.):
         output_cells = max(1, BLOCK_CELLS // population_size)
         for selection in _bounded_grid_selections(reduced_shape, output_cells):
             source = tuple(slice(None) if axis in axes else part for axis, part in enumerate(selection))
-            result[selection] = reducer(domain_values(dataset, source, domain), *args, axis=axes, keepdims=True)
+            result[selection] = reducer(domain_values(dataset, source, domain, field_reader),
+                                        *args, axis=axes, keepdims=True)
         return result
     for index in np.ndindex(reduced_shape):
-        blocks = _population_blocks(dataset, axes, index, domain)
+        blocks = _population_blocks(dataset, axes, index, domain, field_reader)
         if statistic in {"median", "percentile"}:
             value = _exact_rank(blocks, population_size, dtype, statistic, percentile)
         else:

@@ -370,7 +370,7 @@ class RcsGrid(
         # a stored phase for diagnostics or treating missing power as zero.
         for block in result_blocks(power.shape):
             p, ph, target = power[block], phase[block], out[block]
-            zero = p == 0.0
+            zero = p <= 0.0  # negative legacy power is cleaned to 0 elsewhere
             target[zero] = 0.0 + 0.0j
             valid = np.isfinite(p) & np.isfinite(ph) & ~zero
             if np.any(valid):
@@ -454,7 +454,7 @@ class RcsGrid(
         """
 
         quantity = self.linear_quantity()
-        if quantity == "sigma_3d":
+        if quantity == "sigma_3d" or self._legacy_delta_amplitude_squared(self.extra):
             return True
         if quantity != "sigma_2d":
             return False
@@ -485,6 +485,8 @@ class RcsGrid(
             real_values, imag_values = real[selection], imag[selection]
         raw = np.empty(np.shape(real_values), dtype=np.complex128)
         raw.real, raw.imag = real_values, imag_values
+        if self._legacy_delta_amplitude_squared(self.extra):
+            return raw
         if quantity == "sigma_2d":
             freq_hz = self._frequency_value_to_hz(self.frequencies)
             k0 = (2.0 * np.pi * np.asarray(freq_hz, dtype=float)) / C0
@@ -539,7 +541,11 @@ class RcsGrid(
                 result = (lambda selection: self._authoritative_raw_amplitude_from_pair(pair, selection), np.dtype(np.float64))
                 return (*result, True) if include_authority else result
         if self._complex is not None:
-            result = (self.rcs_slice, np.dtype(np.float64) if self._storage_domain == "raw_field" else self._complex.real.dtype)
+            # The legacy-array check above already ran; repeating its
+            # whole-grid hash for every block made bounded loops quadratic.
+            def read(selection):
+                return self._complex_samples(selection, owned=True, _source_checked=True)
+            result = (read, np.dtype(np.float64) if self._storage_domain == "raw_field" else self._complex.real.dtype)
             return (*result, self._storage_domain == "raw_field") if include_authority else result
         pair = (
             self._complete_authoritative_raw_arrays()
@@ -590,7 +596,7 @@ class RcsGrid(
         """Copy/normalize the selected complex field without a whole-grid allocation."""
         return self._complex_samples(selection, owned=True)
 
-    def _complex_samples(self, selection, *, owned):
+    def _complex_samples(self, selection, *, owned, _source_checked=False):
         """Return the selected physical complex samples.
 
         ``owned=True`` guarantees a fresh writable array: a basic slice of the
@@ -600,7 +606,8 @@ class RcsGrid(
         derived read-only computations such as power and phase, which avoids
         one grid-sized copy per read.
         """
-        self._ensure_legacy_source_current()
+        if not _source_checked:
+            self._ensure_legacy_source_current()
         if self._complex is not None:
             if self._storage_domain == "raw_field":
                 return self._authoritative_raw_amplitude_from_pair((self._complex.real, self._complex.imag), selection)

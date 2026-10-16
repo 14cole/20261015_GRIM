@@ -719,7 +719,10 @@ def _validate_grim_payload(payload: 'Dict[str, Any]') -> 'None':
             if quantity == 'sigma_3d':
                 expected_power = 4.0 * math.pi * amp_abs2
             elif quantity == 'sigma_2d':
-                k0 = 2.0 * math.pi * axes['frequencies'] * 1.0e9 / C0
+                # Honour the declared frequency unit (GRIM may save MHz or Hz).
+                to_hz = {'hz': 1.0, 'khz': 1.0e3, 'mhz': 1.0e6, 'ghz': 1.0e9}.get(
+                    str(units_metadata.get('frequency', 'GHz')).strip().lower(), math.nan)
+                k0 = 2.0 * math.pi * axes['frequencies'] * to_hz / C0
                 expected_power = amp_abs2 / (
                     4.0 * k0[None, None, :, None]
                 )

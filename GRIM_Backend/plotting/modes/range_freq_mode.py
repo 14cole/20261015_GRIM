@@ -153,6 +153,8 @@ def prepare_range_frequency(request, cancel=None):
                 native = np.asarray(dataset.frequencies[plan.selection[2]], dtype=float)
                 frequencies_hz = np.asarray(dataset._frequency_value_to_hz(native), dtype=float)
                 problem = _uniform_problem(frequencies_hz)
+                if not problem and dataset.phase_coverage() == "none":
+                    problem = "needs phase; dataset stores power only"
                 if problem:
                     result.skipped.append(f"{plan.name} ({problem})")
                     continue

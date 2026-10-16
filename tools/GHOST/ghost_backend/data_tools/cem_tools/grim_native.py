@@ -16,6 +16,7 @@ import numpy as np
 
 from .errors import CemToolError
 from .native_samples import SampleComponent, decode_native_samples, encode_native_samples, grid_blocks
+from .native_samples import frequency_hz_factor, units_and_scale
 from .native_samples import raw_amplitude as native_raw_amplitude
 
 
@@ -876,7 +877,9 @@ def _normalization_per_frequency(
     a consistency check.
     """
     frequencies = np.asarray(payloads[0]["frequencies"], dtype=float)
-    wave_numbers = 2.0 * math.pi * frequencies * 1.0e9 / C0
+    # Honour the declared frequency unit; GRIM may save MHz or Hz axes.
+    units, _scale = units_and_scale(payloads[0], labels[0] if labels else "GRIM dataset")
+    wave_numbers = 2.0 * math.pi * frequencies * frequency_hz_factor(units) / C0
     factors = 1.0 / (4.0 * wave_numbers)
     for frequency_index, frequency in enumerate(frequencies):
         for payload, amplitude, label in zip(payloads, amplitudes, labels):

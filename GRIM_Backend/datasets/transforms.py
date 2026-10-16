@@ -411,17 +411,13 @@ def shift_dataset(
         if raw_pair is not None and result.linear_quantity() in {"sigma_2d", "sigma_3d"}:
             # Retain authoritative precision without materializing a complex
             # whole-grid response from the rounded display power.
-            real, imag = raw_pair
             power = allocate_result(result.shape, np.float64)
-            if result.linear_quantity() == "sigma_2d":
-                k = 2.0 * np.pi * result._frequency_value_to_hz(result.frequencies) / C0
             for selection in _bounded_grid_selections(result.shape, 262_144):
-                block = np.square(np.asarray(real[selection], dtype=np.float64))
-                block += np.square(np.asarray(imag[selection], dtype=np.float64))
-                if result.linear_quantity() == "sigma_2d":
-                    block /= (4.0 * k[selection[2]])[None, None, :, None]
-                else:
-                    block *= 4.0 * np.pi
+                # One normalizer for every raw pair, including tagged legacy
+                # deltas whose amplitude is already physical.
+                field = result._authoritative_raw_amplitude_from_pair(raw_pair, selection)
+                block = np.square(field.real)
+                block += np.square(field.imag)
                 power[selection] = block
             return _copy_grid(
                 result, rcs_power=power,
@@ -769,6 +765,13 @@ def decimate_axis(
         raise ValueError("mode must be 'power' or 'coherent'")
     if not isinstance(metadata_attested, (bool, np.bool_)):
         raise TypeError("metadata_attested must be True or False")
+    if mode_key == "coherent" and dataset.phase_coverage() == "none" and dataset.has_unknown_field_phase():
+        # Unknown-phase samples count as missing in a coherent bin; with no
+        # phase at all every output would silently be NaN.
+        raise ValueError(
+            "coherent decimation requires phase; this dataset stores power only "
+            "(unknown phase). Use mode='power'."
+        )
 
     axis_index = axis_map[axis_key]
     source_axis = np.asarray(dataset.get_axis(axis_key), dtype=float)

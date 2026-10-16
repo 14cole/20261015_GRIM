@@ -174,6 +174,10 @@ def load_pattern_any(path: 'str', *, pol_map: 'Optional[Dict[str, str]]' = None,
             f"with an envelope/power-added mode instead.")
 
 
+    if ext != ".grim" and str(grid.linear_quantity()).strip().lower() == "sigma_2d":
+        raise ValueError(
+            f"{path}: holds 2-D scattering width (sigma_2d); a point-scatterer "
+            "pattern must be a 3-D sigma_3d response.")
     amp = amp / math.sqrt(4.0 * math.pi)
     if ext == ".grim":
         try:
@@ -195,7 +199,9 @@ def load_pattern_any(path: 'str', *, pol_map: 'Optional[Dict[str, str]]' = None,
         pols = [pol_map.get(p, p) for p in pols]
     result = {"azimuths": np.asarray(grid.azimuths, float),
               "elevations": np.asarray(grid.elevations, float),
-              "frequencies": np.asarray(grid.frequencies, float),
+              # Placement uses GHz; GRIM loaders may declare MHz or Hz axes.
+              "frequencies": np.asarray(
+                  grid._frequency_value_to_hz(grid.frequencies), float) / 1.0e9,
               "polarizations": np.asarray(pols, dtype=str),
               "amp": amp}
     metadata_keys = (

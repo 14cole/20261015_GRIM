@@ -166,8 +166,10 @@ class OutFormatMixin:
         # The dBke -> sigma_2d arithmetic is the former per-row expression on
         # Python floats, so the stored values are identical. Rows are applied
         # in file order: the first record of a cell is kept, a later record
-        # may only supply a missing phase, and a conversion failure is raised
-        # when its row is reached, after conflicts on earlier rows.
+        # may only supply the missing phase of a zero-width (-Inf dBke) cell
+        # (a finite-width cell without phase conflicts with a phased repeat),
+        # and a conversion failure is raised when its row is reached, after
+        # conflicts on earlier rows.
         two_pi = 2.0 * np.pi
         for line_no, freq_ghz, azimuth_deg, rcs_dbke, phase_deg, _channel in _out_records(path):
             if freq_ghz is None:

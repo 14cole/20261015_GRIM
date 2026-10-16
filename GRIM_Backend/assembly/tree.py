@@ -3629,7 +3629,9 @@ def _combine_children(
 
     if C_coh is not None and P_incoh is None:
         quantity = ref.linear_quantity()
-        if quantity == "sigma_3d":
+        if RcsGrid._legacy_delta_amplitude_squared(extra):
+            raw_scale = 1.0
+        elif quantity == "sigma_3d":
             raw_scale = 1.0 / np.sqrt(4.0 * np.pi)
         elif quantity == "sigma_2d":
             frequency_hz = ref._frequency_value_to_hz(ref.frequencies)

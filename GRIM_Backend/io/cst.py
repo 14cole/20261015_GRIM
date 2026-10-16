@@ -1295,6 +1295,12 @@ class CstFormatMixin:
                 else:
                     first_line[index] = line_index
                     first_power[index], first_phase[index] = sample_power, sample_phase
+                if np.isfinite(sample_power) and sample_power > np.finfo(np.float32).max:
+                    # The float32 output would silently turn this into inf.
+                    raise ValueError(
+                        f"line {line_index}: legacy TXT magnitude for polarization="
+                        f"{polarization} overflows float32 linear power"
+                    )
                 power[index], phase[index] = sample_power, sample_phase
         del first_line, first_power, first_phase
 

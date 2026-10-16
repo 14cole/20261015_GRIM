@@ -1070,6 +1070,15 @@ def _isar_preflight_error(
     units = getattr(dataset, "units", None) or {}
     extra = getattr(dataset, "extra", None) or {}
 
+    coverage = getattr(dataset, "phase_coverage", None)
+    if callable(coverage) and coverage() == "none":
+        # Power-only data has no phase history. Its zero-power cells read as
+        # known 0+0j fields, so the per-slice finite check alone can pass.
+        return (
+            "ISAR imaging requires phase-aware samples; this dataset stores "
+            "power only (phase unknown)."
+        )
+
     raw_frequency_unit = units.get("frequency")
     if raw_frequency_unit is None or not str(raw_frequency_unit).strip():
         return (

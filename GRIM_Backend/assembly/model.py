@@ -892,10 +892,26 @@ _BASE_GRIM_REQUIRED_KEYS = frozenset(
         "elevations",
         "frequencies",
         "polarizations",
-        "rcs_power",
-        "rcs_phase",
     }
 )
+
+# Accepted sample layouts: version 1 always stores power and phase; version 2
+# stores exactly one representation named by ``storage_kind``.
+_BASE_GRIM_SAMPLE_LAYOUTS = (
+    frozenset({"rcs_power", "rcs_phase"}),
+    frozenset({"rcs_complex", "storage_kind"}),
+    frozenset({"rcs_power", "storage_kind"}),
+)
+
+
+def _missing_base_grim_samples(keys: frozenset) -> list[str]:
+    """Return the sample keys still missing for the closest accepted layout."""
+
+    if any(layout <= keys for layout in _BASE_GRIM_SAMPLE_LAYOUTS):
+        return []
+    if "storage_kind" in keys or "grim_format_version" in keys:
+        return ["rcs_complex or rcs_power"]
+    return sorted({"rcs_power", "rcs_phase"} - keys)
 
 
 def _npy_member_vector_count(
@@ -960,7 +976,7 @@ def _preflight_base_grim_zip(
             False,
             f"Invalid GRIM container: {exc}",
         )
-    missing = sorted(_BASE_GRIM_REQUIRED_KEYS - keys)
+    missing = sorted(_BASE_GRIM_REQUIRED_KEYS - keys) + _missing_base_grim_samples(keys)
     if missing:
         return BaseGrimPreflight(
             False,

@@ -197,6 +197,13 @@ def convention_scale(grim: 'Dict[str, Any]',
     if quantity == "sigma_2d":
         fr = np.asarray(frequencies_ghz if frequencies_ghz is not None
                         else grim["frequencies"], dtype=float)
+        if frequencies_ghz is None:
+            # Stored axes follow units.frequency (GRIM may save MHz or Hz).
+            to_hz = {"hz": 1.0, "khz": 1.0e3, "mhz": 1.0e6, "ghz": 1.0e9}.get(
+                str(units.get("frequency", "GHz")).strip().lower())
+            if to_hz is None:
+                raise ValueError("GRIM units.frequency must be Hz, kHz, MHz or GHz.")
+            fr = fr * (to_hz / 1.0e9)
         if fr.ndim != 1 or fr.size == 0 or not np.all(np.isfinite(fr)) \
                 or np.any(fr <= 0.0):
             raise ValueError(

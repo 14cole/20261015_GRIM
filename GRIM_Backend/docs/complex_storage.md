@@ -18,7 +18,10 @@ Raw solver fields keep their original normalization and precision. Their raw
 real and imaginary metadata arrays are views of a single complex field, not
 additional sample copies. GRIM applies the existing quantity-dependent scale
 when providing physical samples. Raw solver I/Q should therefore not be
-interpreted as physical RCS I/Q without that scale.
+interpreted as physical RCS I/Q without that scale. The scale is
+`sqrt(4*pi)` for sigma_3d and `1/(2*sqrt(k))` for sigma_2d, except for a
+legacy GHOST delta tagged `power_domain="delta_amp_sq"` and
+`rcs_domain="delta"`, whose raw amplitude is already physical (scale 1).
 
 ## Dataset operations
 
@@ -28,6 +31,14 @@ read complex samples directly. Operations that depend on power, including
 statistics and incoherent sums, read or produce linear power. Unknown phase
 remains unknown; GRIM does not assign a zero-degree phase to a nonzero
 magnitude-only measurement.
+
+Coherent (complex-domain) statistics and coherent decimation treat a nonzero
+sample without phase as missing, and refuse a power-only dataset outright.
+The complex standard deviation, `sqrt(E|z - mean|^2)`, is stored as its
+square: a power variance with unknown phase. Complex min, max, median, and
+percentile are not defined (complex numbers have no magnitude ordering); use
+the magnitude or dB domains for them. ISAR and range imaging refuse a
+power-only dataset.
 
 Axis selection and exact sample rearrangement preserve the complex samples.
 Operations that actually change values retain their existing interpolation,

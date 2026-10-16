@@ -71,6 +71,30 @@ class NativeFormatMixin:
                       "history", "units", "grim_format_version", "storage_kind",
                       "storage_domain")
 
+    @staticmethod
+    def _legacy_delta_amplitude_squared(extra):
+        """Return whether a raw pair is a tagged legacy delta stored as ``|A|**2``.
+
+        GHOST writes such deltas with ``power_domain='delta_amp_sq'`` and
+        ``rcs_domain='delta'``; their raw amplitude already is the physical
+        amplitude, so the quantity-dependent normalization factor is 1.
+        """
+        metadata = extra or {}
+
+        def tag(name):
+            value = metadata.get(name)
+            if value is None:
+                return ""
+            value = np.asarray(value)
+            if value.size != 1:
+                return ""
+            value = value.reshape(-1)[0]
+            if isinstance(value, (bytes, np.bytes_)):
+                value = bytes(value).decode("utf-8", "replace")
+            return str(value).strip()
+
+        return tag("power_domain") == "delta_amp_sq" and tag("rcs_domain") == "delta"
+
     def _extra_to_write(self):
         """Return metadata and ancillary arrays for native archive export.
 
@@ -306,7 +330,10 @@ class NativeFormatMixin:
                 normalized_units.get("rcs_log_unit", "dBsm")
             ).strip().casefold()
             quantity = "sigma_2d" if log_unit == "dbke" else "sigma_3d"
-        if quantity not in {"sigma_2d", "sigma_3d"}:
+        legacy_delta = cls._legacy_delta_amplitude_squared(metadata)
+        if legacy_delta:
+            quantity = "delta_amp_sq"
+        elif quantity not in {"sigma_2d", "sigma_3d"}:
             issue(
                 "unsupported_raw_complex_normalization",
                 "raw complex amplitude requires rcs_linear_quantity sigma_2d or sigma_3d",
@@ -345,7 +372,9 @@ class NativeFormatMixin:
                     "raw complex amplitude normalization requires positive finite frequencies",
                 )
                 return report
-            if quantity == "sigma_2d":
+            if legacy_delta:
+                power_scale = 1.0
+            elif quantity == "sigma_2d":
                 k0 = (
                     2.0
                     * np.pi

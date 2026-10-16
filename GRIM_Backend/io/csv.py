@@ -583,7 +583,12 @@ def _power_candidates(record, mode, quantity, frequency_unit, c0):
                     "line {}: {} must be finite or -inf".format(line_no, column)
                 )
             else:
-                ratio = 10.0 ** (value / 10.0)
+                try:
+                    ratio = 10.0 ** (value / 10.0)
+                except OverflowError:
+                    raise ValueError(
+                        "line {}: {} overflows finite linear power".format(line_no, column)
+                    ) from None
                 if column == "magnitude_dbke":
                     frequency_hz = record["frequency"] * _FREQUENCY_FACTORS[frequency_unit]
                     if not np.isfinite(frequency_hz) or frequency_hz <= 0.0:

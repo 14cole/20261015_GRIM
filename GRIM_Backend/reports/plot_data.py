@@ -489,15 +489,24 @@ def _series_y(
     frequency_values,
 ) -> np.ndarray:
     if quantity == "phase":
-        result = np.rad2deg(np.asarray(values, dtype=float))
+        # Wrap stored phase (which may carry unwrapped turns) into (-180, 180]
+        # as the plotting view shows it.
+        radians = np.asarray(values, dtype=float)
+        with np.errstate(invalid="ignore"):
+            result = np.rad2deg(np.angle(np.exp(1j * radians)))
+        result[~np.isfinite(radians)] = np.nan
     else:
         # The grid's stored power is already the physical linear RCS quantity.
         # Do not reconstruct a complex field just to display its magnitude.
+        # eps=0 keeps real levels below -120 dB; zero power has no finite dB
+        # value and is omitted (NaN) as on the interactive plots.
         result = dataset.grid.linear_to_default_db(
             np.asarray(values, dtype=float),
             frequency_value=frequency_values,
+            eps=0.0,
         )
     result = np.asarray(result, dtype=float)
+    result[~np.isfinite(result)] = np.nan
     if not np.any(np.isfinite(result)):
         raise ValueError(
             f"Dataset {dataset.name!r} has no finite {quantity} samples on the selected cut."

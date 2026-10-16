@@ -283,6 +283,10 @@ def prepare_azimuth_range(request, cancel=None, *, batch_bytes=8 * 1024**2):
     from .isar_mode import _window_array
     plan = request.plans[0]
     dataset = plan.dataset
+    if dataset.phase_coverage() == "none":
+        # Zero-power cells of power-only data read as 0+0j and would pass the
+        # usable-row check below without any real phase history.
+        raise ValueError("Range processing requires phase; this dataset stores power only.")
     azimuth, elevation, frequency, polarization = plan.selection
     az_values = np.asarray(dataset.azimuths[azimuth], dtype=float)
     freq_hz = np.asarray(dataset.frequencies[frequency], dtype=float) * _unit_to_hz_scale(

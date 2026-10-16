@@ -22,6 +22,17 @@ def grid_blocks(shape, max_cells=DECODE_BLOCK_CELLS):
         yield tuple(slice(start, min(n, start + step)) for start, n, step in zip(starts, shape, sizes))
 
 
+FREQUENCY_HZ_FACTORS = {"hz": 1., "khz": 1.e3, "mhz": 1.e6, "ghz": 1.e9}
+
+
+def frequency_hz_factor(units, label="GRIM dataset"):
+    """Return the factor converting the declared frequency unit (default GHz) to Hz."""
+    factor = FREQUENCY_HZ_FACTORS.get(str((units or {}).get("frequency", "GHz")).strip().lower())
+    if factor is None:
+        raise ValueError(f"{label}: unsupported native frequency unit.")
+    return factor
+
+
 def units_and_scale(payload, label="GRIM dataset"):
     try:
         text = np.asarray(payload.get("units", "{}")).item()
@@ -40,7 +51,7 @@ def units_and_scale(payload, label="GRIM dataset"):
     elif quantity == "sigma_3d":
         scale = np.sqrt(4. * np.pi)
     elif quantity == "sigma_2d":
-        factor = {"hz": 1., "khz": 1.e3, "mhz": 1.e6, "ghz": 1.e9}.get(str(units.get("frequency", "GHz")).lower())
+        factor = FREQUENCY_HZ_FACTORS.get(str(units.get("frequency", "GHz")).strip().lower())
         frequency = np.asarray(payload["frequencies"], dtype=float)
         if factor is None or np.any(~np.isfinite(frequency)) or np.any(frequency <= 0):
             raise ValueError(f"{label}: invalid native frequency units or values.")

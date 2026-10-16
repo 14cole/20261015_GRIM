@@ -485,17 +485,23 @@ class GridAxesMixin:
                 raise ValueError("interp would require extrapolation")
         complex_storage = self.storage_kind == "complex"
         power_interp = None if complex_storage else self.power
-        complex_interp = _NormalizedField(self)
+        # As in interpolate_axis: power-only data has no usable complex field
+        # (its zero cells would otherwise gain an invented zero phase).
+        use_complex = (complex_storage or self.phase_coverage() != "none"
+                       or self._complete_authoritative_raw_arrays() is not None)
+        complex_interp = _NormalizedField(self) if use_complex else None
         for axis, old, new in steps:
             if power_interp is not None:
                 power_interp = self._interp_real_axis(
                     power_interp, old, new, axis
                 )
-            complex_interp = self._interp_complex_axis(
-                complex_interp, old, new, axis
-            )
+            if complex_interp is not None:
+                complex_interp = self._interp_complex_axis(
+                    complex_interp, old, new, axis
+                )
         if not steps:
-            complex_interp = copy_result(complex_interp)
+            if complex_interp is not None:
+                complex_interp = copy_result(complex_interp)
             if power_interp is not None:
                 power_interp = copy_result(power_interp)
         if complex_storage:
@@ -504,7 +510,8 @@ class GridAxesMixin:
             phase_interp = allocate_result(power_interp.shape, np.float64, fill=np.nan)
             power_interp = (power_interp if power_interp.dtype == np.float64
                             else copy_result(power_interp, dtype=np.float64))
-            _merge_interpolated_phase(power_interp, phase_interp, complex_interp)
+            if complex_interp is not None:
+                _merge_interpolated_phase(power_interp, phase_interp, complex_interp)
             samples = {"rcs_power": power_interp, "rcs_phase": phase_interp}
         interp_extra = self._derived_response_extra(
             operation="align-interpolate", coherent=True

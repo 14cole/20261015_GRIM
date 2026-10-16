@@ -683,8 +683,19 @@ class GridArithmeticMixin:
             percentile = float(stat_key[1:])
             stat_key = "percentile"
 
-        if domain == "complex" and stat_key == "percentile":
-            raise ValueError("percentile on complex values is not supported; use magnitude, dbsm, or dbke domain")
+        if domain == "complex" and stat_key in {"percentile", "median", "min", "max"}:
+            # Complex numbers have no magnitude ordering; NumPy would order them
+            # lexicographically by real part, which has no physical meaning.
+            raise ValueError(
+                f"{stat_key} on complex values is not supported; use magnitude, dbsm, or dbke domain"
+            )
+        if domain == "complex" and self.phase_coverage() == "none" and self.has_unknown_field_phase():
+            # Unknown-phase samples count as missing in coherent reductions;
+            # with no phase at all the result would silently be all NaN.
+            raise ValueError(
+                "complex statistics require phase; this dataset stores power only "
+                "(unknown phase). Use magnitude, dbsm, or dbke domain."
+            )
         if stat_key == "std" and domain in {"db", "dbsm", "dbke"}:
             raise ValueError(
                 "standard deviation in a logarithmic domain is a dB spread, "
@@ -791,6 +802,19 @@ class GridArithmeticMixin:
                 statistics_extra, f"statistics-{stat_key}-{domain}"
             )
 
+        if domain == "complex" and stat_key == "std":
+            # The complex standard deviation sqrt(E|z - mean|^2) is a field
+            # amplitude with no phase; its square is the power variance.
+            spread = np.asarray(reduced)
+            return self._new_grid(
+                axis_values[0],
+                axis_values[1],
+                axis_values[2],
+                axis_values[3],
+                rcs_power=copy_result(np.square(spread.real), dtype=self.power.dtype),
+                rcs_domain="power_phase",
+                extra=statistics_extra,
+            )
         if domain == "complex":
             return self._new_grid(
                 axis_values[0],

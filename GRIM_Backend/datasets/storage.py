@@ -20,6 +20,13 @@ from GRIM_Backend.datasets.result_storage import (
 )
 
 
+def _promotion_operand(value):
+    """Python scalars promote weakly, so ``power=2.0`` keeps a float32 grid."""
+    if isinstance(value, (bool, int, float, complex)):
+        return value
+    return np.asarray(value).dtype
+
+
 def _readonly(value):
     array = np.asarray(value)
     array.flags.writeable = False
@@ -224,6 +231,28 @@ class GridStorageMixin:
         if not has_phase:
             return "none"
         return "partial" if has_unknown else "complete"
+
+    def has_unknown_field_phase(self):
+        """Return whether any nonzero finite-power sample lacks a phase.
+
+        A zero field is fully known without a phase, so it does not count.
+        Coherent operations (complex statistics, coherent decimation, ISAR
+        and range imaging) require this to be False.
+        """
+        self._ensure_legacy_source_current()
+        if self._storage_kind == "complex":
+            return False
+        power = np.asarray(self._power)
+        phase = None if self._phase is None else np.asarray(self._phase)
+        if power.size:
+            for selection in _bounded_grid_selections(power.shape, _RAW_COMPLEX_VALIDATION_BLOCK_CELLS):
+                block = power[selection]
+                unknown = np.isfinite(block) & (block != 0)
+                if phase is not None:
+                    unknown &= ~np.isfinite(phase[selection])
+                if np.any(unknown):
+                    return True
+        return False
 
     def _unknown_phase_count(self):
         """Count finite-power samples without a phase, in bounded blocks."""
@@ -559,7 +588,8 @@ class GridStorageMixin:
         if power is None and phase is None:
             return
         self._ensure_legacy_source_current()
-        dtype = np.result_type(self.real_dtype, *(np.asarray(value).dtype for value in (power, phase) if value is not None))
+        dtype = np.result_type(self.real_dtype, *(_promotion_operand(value) for value in (power, phase) if value is not None))
+        revived = None
         if self._complex is not None:
             field = self._physical_result()
             complex_dtype = np.complex128 if np.dtype(dtype).itemsize > 4 else np.complex64
@@ -572,6 +602,14 @@ class GridStorageMixin:
                 selected_power[...] = power
             if phase is not None:
                 selected_phase[...] = phase
+            else:
+                # A zero field has no direction; giving it a magnitude without
+                # a supplied phase leaves that phase unknown, not angle(0) = 0.
+                with np.errstate(invalid="ignore"):
+                    revived = (np.abs(selected) == 0) & (np.asarray(selected_power) > 0)
+                if np.any(revived):
+                    selected_phase = np.array(selected_phase, copy=True)
+                    selected_phase[revived] = np.nan
             selected_power = self._clean_power(selected_power)
             selected_phase = self._wrapped_phase_values(self._clean_phase(selected_phase))
             selected_phase[~np.isfinite(selected_power)] = np.nan
@@ -597,6 +635,8 @@ class GridStorageMixin:
             new_power[selection] = power
         if phase is not None:
             new_phase[selection] = phase
+        elif revived is not None and np.any(revived):
+            new_phase[selection] = np.where(revived, np.nan, new_phase[selection])
         new_power = self._clean_power(new_power)
         new_phase = self._wrapped_phase_values(self._clean_phase(new_phase))
         for block in result_blocks(new_power.shape):
@@ -618,9 +658,10 @@ class GridStorageMixin:
 
     def set_complex(self, selection, values):
         """Replace selected samples with known complex fields."""
+        operand = _promotion_operand(values)
         values = np.asarray(values)
         field_dtype = np.complex128 if self.real_dtype == np.float64 else np.complex64
-        field = self._physical_result(np.result_type(field_dtype, values.dtype))
+        field = self._physical_result(np.result_type(field_dtype, operand))
         field[selection] = values
         for block in result_blocks(field.shape):
             part = field[block]
