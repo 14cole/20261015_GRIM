@@ -1,0 +1,1624 @@
+"""Axis selection, alignment, interpolation, cropping, and wrapping."""
+from __future__ import annotations
+
+import copy
+import json
+import math
+
+import numpy as np
+
+from GRIM_Backend.datasets.result_storage import (
+    allocate_result, copy_result, take_result, select_result,
+)
+
+from GRIM_Backend.datasets.operations import dataset_operation
+from GRIM_Backend.datasets.memory import _bounded_grid_selections
+
+from GRIM_Backend.datasets.constants import (
+    C0,
+    _ADOPT_CLEAN_ARRAYS_TOKEN,
+    _ANGLE_UNITS,
+    _FREQUENCY_UNITS,
+)
+
+
+_RESULT_BLOCK_CELLS = 65_536
+
+
+class _NormalizedField:
+    """Read only the normalized I/Q samples requested by interpolation."""
+    dtype = np.dtype(np.complex128)
+
+    def __init__(self, grid):
+        self.grid = grid
+        self.shape = grid.shape
+
+    def __getitem__(self, selection):
+        return np.asarray(self.grid.rcs_slice(selection), dtype=self.dtype)
+
+
+def _merge_interpolated_phase(power, phase, field):
+    """Apply coherent interpolation where phase exists, retaining power elsewhere."""
+    for selection in _bounded_grid_selections(power.shape, _RESULT_BLOCK_CELLS):
+        values = field[selection]
+        valid = np.isfinite(values.real) & np.isfinite(values.imag)
+        power_block, phase_block = power[selection], phase[selection]
+        power_block[valid] = np.abs(values[valid]) ** 2
+        phase_block[valid] = np.angle(values[valid])
+
+
+def _mask_result_axis(values, axis, excluded, missing):
+    for selection in _bounded_grid_selections(values.shape, _RESULT_BLOCK_CELLS):
+        mask = excluded[selection[axis]]
+        if np.any(mask):
+            block_selection = [slice(None)] * values.ndim
+            block_selection[axis] = mask
+            values[selection][tuple(block_selection)] = missing
+
+
+class GridAxesMixin:
+    """Axis selection, alignment, interpolation, cropping, and wrapping."""
+
+    def _frequency_relabel(self, extra, samples, old_frequencies, new_frequencies):
+        """Keep the normalized 2-D response unchanged when frequency labels move.
+
+        Solver amplitudes encode sqrt(k) as part of their normalization. A
+        coordinate relabel changes k, but must not change the response sample.
+        The raw encoding lives either in ``samples`` (raw-field storage, as
+        returned by ``_sample_kwargs``) or in the already-permuted ``extra``
+        pair (power/phase storage with an authoritative pair); the matching
+        representation is rescaled so inline edits retain alignment.  Returns
+        the updated ``(extra, samples)``; returned sample arrays stay fresh and
+        clean, so the constructor may adopt them.
+        """
+        old = np.asarray(old_frequencies, dtype=float)
+        new = np.asarray(new_frequencies, dtype=float)
+        if np.array_equal(old, new) or self.linear_quantity() != "sigma_2d":
+            return extra, samples
+        raw_in_samples = samples.get("rcs_storage_domain") == "raw_field"
+        if not raw_in_samples and self._complete_authoritative_raw_arrays() is None:
+            return extra, samples
+        for key in ("solver_metadata_json", "solver_certification", "requested_radar_grid_json"):
+            extra.pop(key, None)
+        if np.any(old <= 0.0) or np.any(new <= 0.0):
+            # Keep permissive coordinate relabeling. Invalid frequency labels
+            # cannot encode solver-normalized amplitudes, so retain canonical
+            # response samples instead and leave the frequency issue to Audit.
+            if np.all(old > 0.0):
+                shape = samples["rcs"].shape if raw_in_samples else np.shape(extra["rcs_amp_real"])
+                field = allocate_result(shape, np.complex128)
+                k = 2.0 * np.pi * self._frequency_value_to_hz(old) / C0
+                normalization = 1.0 / (2.0 * np.sqrt(k))
+                for selection in _bounded_grid_selections(shape, _RESULT_BLOCK_CELLS):
+                    if raw_in_samples:
+                        values = np.asarray(samples["rcs"][selection], dtype=np.complex128)
+                    else:
+                        values = (np.asarray(extra["rcs_amp_real"][selection], dtype=np.float64)
+                                  + 1j * np.asarray(extra["rcs_amp_imag"][selection], dtype=np.float64))
+                    values = values * normalization[selection[2]][None, None, :, None]
+                    invalid = ~np.isfinite(values.real) | ~np.isfinite(values.imag)
+                    values[invalid] = np.nan + 1j * np.nan
+                    field[selection] = values
+                samples = {"rcs": field}
+            elif raw_in_samples:
+                raise ValueError(
+                    "raw sigma_2d samples cannot be normalized for nonpositive frequencies"
+                )
+            for key in ("rcs_amp_real", "rcs_amp_imag", "raw_complex_amplitude_preserved"):
+                extra.pop(key, None)
+            extra["frequency_relabel_normalization"] = (
+                "normalized response retained; raw solver encoding removed because relabeled frequencies are nonpositive"
+            )
+            return extra, samples
+        scale = np.sqrt(new / old)
+        if raw_in_samples:
+            field = samples["rcs"]
+            for selection in _bounded_grid_selections(field.shape, _RESULT_BLOCK_CELLS):
+                field[selection] *= scale[selection[2]][None, None, :, None]
+            samples = dict(samples, rcs=field)
+        else:
+            for key in ("rcs_amp_real", "rcs_amp_imag"):
+                original = extra[key]
+                updated = allocate_result(np.shape(original), np.float64)
+                for selection in _bounded_grid_selections(updated.shape, _RESULT_BLOCK_CELLS):
+                    updated[selection] = (np.asarray(original[selection], dtype=np.float64)
+                                          * scale[selection[2]][None, None, :, None])
+                extra[key] = updated
+        extra["frequency_relabel_normalization"] = (
+            "raw sigma_2d solver amplitudes rescaled to preserve normalized response"
+        )
+        return extra, samples
+
+    def _alignment_interpolation_plan(self, other):
+        """Shrink first so intermediate grids never exceed the input/output."""
+        steps = [
+            (axis, getattr(self, name), getattr(other, name))
+            for axis, name in enumerate(("azimuths", "elevations", "frequencies"))
+            if not np.array_equal(getattr(self, name), getattr(other, name))
+        ]
+        return sorted(steps, key=lambda step: len(step[2]) / len(step[1]))
+
+    def _alignment_interpolation_peak_bytes(self, other):
+        """Conservative temporary allocation estimate, excluding loaded inputs.
+
+        Account for complex reconstruction, both interpolated representations,
+        vectorized gather/ufunc scratch, and construction of the final grid.
+        Python integers avoid overflow on grids too large to allocate.
+        """
+        shape = list(self.power.shape)
+        largest = math.prod(shape)
+        for axis, _old, new in self._alignment_interpolation_plan(other):
+            shape[axis] = len(new)
+            largest = max(largest, math.prod(shape))
+        axis_cells = sum(len(axis) for axis in (
+            self.azimuths, self.elevations, self.frequencies,
+            other.azimuths, other.elevations, other.frequencies,
+        ))
+        return int(96 * largest + 64 * axis_cells + 4096)
+
+    @dataset_operation('edit_axis_value')
+    def edit_axis_value(self, name, index, value):
+        """Return a grid with one safely edited axis value.
+
+        Numeric coordinate edits are kept finite and unique, then the edited
+        axis is stable-sorted.  Every sample array follows the same permutation,
+        including passthrough arrays whose leading four dimensions match the
+        RCS grid.  Polarization edits are label-only: surrounding whitespace is
+        removed, blank labels and case-insensitive duplicates are rejected, and
+        channel order is preserved.
+
+        The operation is transactional: validation and all reordered arrays are
+        prepared before a new :class:`RcsGrid` is returned, so ``self`` is never
+        partially mutated when an edit is invalid.
+        """
+        from GRIM_Backend.datasets.grid import RcsGrid
+
+        axis_specs = {
+            "azimuth": ("azimuths", 0),
+            "elevation": ("elevations", 1),
+            "frequency": ("frequencies", 2),
+            "polarization": ("polarizations", 3),
+        }
+        try:
+            attribute, axis_index = axis_specs[str(name).strip().lower()]
+        except KeyError as exc:
+            raise ValueError(f"unknown axis name: {name}") from exc
+
+        if isinstance(index, (bool, np.bool_)) or not isinstance(
+            index, (int, np.integer)
+        ):
+            raise TypeError("axis index must be an integer")
+        item_index = int(index)
+        source_axis = np.asarray(getattr(self, attribute))
+        if item_index < 0 or item_index >= source_axis.size:
+            raise IndexError(
+                f"{name} axis index {item_index} is outside 0..{source_axis.size - 1}"
+            )
+
+        axes = [
+            np.array(self.azimuths, copy=True),
+            np.array(self.elevations, copy=True),
+            np.array(self.frequencies, copy=True),
+            np.array(self.polarizations, copy=True),
+        ]
+        order = np.arange(source_axis.size, dtype=int)
+        reordered = False
+
+        if axis_index == 3:
+            old_value = str(source_axis[item_index])
+            new_value = str(value).strip().upper()
+            if not new_value:
+                raise ValueError("polarization label must not be blank")
+            duplicate_key = new_value.casefold()
+            if any(
+                str(label).strip().casefold() == duplicate_key
+                for candidate_index, label in enumerate(source_axis)
+                if candidate_index != item_index
+            ):
+                raise ValueError(
+                    f"polarization label {new_value!r} duplicates another channel"
+                )
+            if new_value == old_value:
+                return self
+
+
+            labels = [str(label) for label in source_axis.tolist()]
+            labels[item_index] = new_value
+            axes[axis_index] = np.asarray(labels, dtype=str)
+            old_text = repr(old_value)
+            new_text = repr(new_value)
+        else:
+            old_value = float(source_axis[item_index])
+            try:
+                new_value = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name} axis value must be numeric") from exc
+            if not np.isfinite(new_value):
+                raise ValueError(f"{name} axis value must be finite")
+            if axis_index == 2 and new_value <= 0.0:
+                raise ValueError("frequency axis value must be greater than zero")
+            if new_value == old_value:
+                return self
+
+            edited_axis = np.asarray(source_axis, dtype=float).copy()
+            edited_axis[item_index] = new_value
+            if np.unique(edited_axis).size != edited_axis.size:
+                raise ValueError(
+                    f"{name} axis value {new_value:g} duplicates another coordinate"
+                )
+            order = np.argsort(edited_axis, kind="stable")
+            reordered = not np.array_equal(
+                order, np.arange(edited_axis.size, dtype=int)
+            )
+            axes[axis_index] = edited_axis[order]
+            old_text = f"{old_value:g}"
+            new_text = f"{new_value:g}"
+
+        samples = self._sample_kwargs(
+            transform=(lambda array: take_result(array, order, axis=axis_index))
+            if reordered else None
+        )
+
+        original_shape = tuple(self.power.shape)
+        stale_grid_metadata = {
+            "solver_metadata_json",
+            "production_mesh_certification_json",
+            "source_body_mesh_certification_json",
+            "requested_radar_grid_json",
+        }
+        if axis_index == 3:
+            stale_grid_metadata.update(
+                {"polarization_alias_primary", "polarization_aliases_json"}
+            )
+
+        raw_in_samples = samples.get("rcs_storage_domain") == "raw_field"
+        edited_extra = {}
+        for key, extra_value in self.extra.items():
+            if key in stale_grid_metadata:
+                continue
+            if raw_in_samples and key in self._RAW_AMPLITUDE_EXTRA_KEYS:
+                # The raw field travels in ``samples``; the constructor
+                # re-derives these views from the rearranged array.
+                continue
+            if reordered:
+                extra_array = np.asarray(extra_value)
+                if (
+                    extra_array.ndim >= 4
+                    and tuple(extra_array.shape[:4]) == original_shape
+                ):
+                    edited_extra[key] = take_result(
+                        extra_array, order, axis=axis_index
+                    )
+                    continue
+
+
+            edited_extra[key] = extra_value
+        self._drop_malformed_raw_metadata(edited_extra)
+        if axis_index == 2:
+            edited_extra, samples = self._frequency_relabel(
+                edited_extra, samples, np.asarray(self.frequencies)[order], axes[2]
+            )
+        self._invalidate_assembly_sampling_hash(
+            edited_extra, f"edit-{str(name).strip().lower()}-axis"
+        )
+        if axis_index in (0, 1):
+            edited_extra.pop("assembly_angular_coordinate_contract", None)
+
+        history_entry = (
+            f"Edit {name} axis[{item_index}]: {old_text} -> {new_text}"
+        )
+        if reordered:
+            history_entry += "; stable-sorted axis and sample arrays"
+        prior_history = str(self.history or "").strip()
+        history = (
+            f"{prior_history}\n{history_entry}" if prior_history else history_entry
+        )
+        return RcsGrid(
+            axes[0],
+            axes[1],
+            axes[2],
+            axes[3],
+            **samples,
+            rcs_domain=self.rcs_domain,
+            source_path=self.source_path,
+            history=history,
+            units=copy.deepcopy(self.units),
+            extra=edited_extra,
+            _adopt_clean_arrays=_ADOPT_CLEAN_ARRAYS_TOKEN,
+        )
+
+    @staticmethod
+    def _canonical_unit(value, aliases, default):
+        text = str(value or default).strip().lower()
+        return aliases.get(text, text)
+
+    def _supported_unit(self, axis_name, aliases, default):
+        """Return a canonical unit; use the supplied default for a missing value.
+
+        Reject explicit unknown units.
+        """
+
+        raw = (self.units or {}).get(axis_name)
+        canonical = self._canonical_unit(raw, aliases, default)
+        supported = set(aliases.values())
+        if canonical not in supported:
+            raise ValueError(
+                f"unsupported {axis_name} unit {raw!r}; expected one of "
+                + ", ".join(sorted(supported))
+            )
+        return canonical
+
+    def _angle_value_from_degrees(self, value, axis_name):
+        """Convert a degree-valued operation argument to an axis's unit."""
+
+        numeric = float(value)
+        if not np.isfinite(numeric):
+            raise ValueError(f"{axis_name} angle must be finite")
+        unit = self._supported_unit(axis_name, _ANGLE_UNITS, "deg")
+        return float(np.deg2rad(numeric)) if unit == "rad" else numeric
+
+    @dataset_operation('align_to')
+    def align_to(self, other, mode="exact"):
+        """Align this grid to another grid's axes.
+
+        Modes:
+            exact: require identical axes (returns self on success).
+            intersect: keep only axis values present in both grids.
+            interp: interpolate numeric axes to match other (no extrapolation).
+
+        Args:
+            other: Another RcsGrid instance.
+            mode: "exact", "intersect", or "interp".
+
+        Returns:
+            New RcsGrid aligned to other's axes.
+        """
+        from GRIM_Backend.datasets.grid import RcsGrid
+        if not isinstance(other, RcsGrid):
+            raise TypeError("other must be an RcsGrid")
+        self._assert_axis_metadata_compatible(other)
+
+        if mode == "exact":
+            if self.power.shape != other.power.shape:
+                raise ValueError(
+                    f"rcs shape {other.power.shape} != {self.power.shape}"
+                )
+            for name, left, right in (
+                ("azimuth", self.azimuths, other.azimuths),
+                ("elevation", self.elevations, other.elevations),
+                ("frequency", self.frequencies, other.frequencies),
+                ("polarization", self.polarizations, other.polarizations),
+            ):
+                if not np.array_equal(left, right):
+                    raise ValueError(f"{name} axis mismatch")
+            return self
+        if mode not in ("intersect", "interp"):
+            raise ValueError("mode must be 'exact', 'intersect', or 'interp'")
+
+        if mode == "intersect":
+            def _match_axis(axis_self, axis_other, tol=1e-6):
+                axis_self = np.asarray(axis_self).ravel()
+                axis_other = np.asarray(axis_other).ravel()
+                _common, matched = self._common_axis_alignment(
+                    (axis_self, axis_other), tol=tol
+                )
+                indices_self = [int(value) for value in matched[0]]
+                indices_other = [int(value) for value in matched[1]]
+                if not indices_self:
+                    raise ValueError("no overlapping axis values for intersect")
+
+
+                target_source_pairs = sorted(
+                    zip(indices_other, indices_self), key=lambda pair: pair[0]
+                )
+                target_indices = [pair[0] for pair in target_source_pairs]
+                source_indices = [pair[1] for pair in target_source_pairs]
+                return axis_other[target_indices], source_indices
+
+            az_unit = self._supported_unit("azimuth", _ANGLE_UNITS, "deg")
+            el_unit = self._supported_unit("elevation", _ANGLE_UNITS, "deg")
+            frequency_unit = self._supported_unit(
+                "frequency", _FREQUENCY_UNITS, "GHz"
+            )
+            az_tol = float(np.deg2rad(1.0e-6)) if az_unit == "rad" else 1.0e-6
+            el_tol = float(np.deg2rad(1.0e-6)) if el_unit == "rad" else 1.0e-6
+
+
+            f_tol = {
+                "Hz": 1.0e3,
+                "kHz": 1.0,
+                "MHz": 1.0e-3,
+                "GHz": 1.0e-6,
+            }[frequency_unit]
+            az_new, az_idx = _match_axis(
+                self.azimuths, other.azimuths, tol=az_tol
+            )
+            el_new, el_idx = _match_axis(
+                self.elevations, other.elevations, tol=el_tol
+            )
+            f_new, f_idx = _match_axis(
+                self.frequencies, other.frequencies, tol=f_tol
+            )
+            pol_new, pol_idx = _match_axis(self.polarizations, other.polarizations, tol=0.0)
+            selection = np.ix_(az_idx, el_idx, f_idx, pol_idx)
+            source_axes = (
+                np.asarray(self.azimuths)[az_idx],
+                np.asarray(self.elevations)[el_idx],
+                np.asarray(self.frequencies)[f_idx],
+                np.asarray(self.polarizations)[pol_idx],
+            )
+            relabeled = not all(
+                np.array_equal(source, target)
+                for source, target in zip(
+                    source_axes, (az_new, el_new, f_new, pol_new)
+                )
+            )
+            return self._new_grid(
+                az_new,
+                el_new,
+                f_new,
+                pol_new,
+                **self._sample_kwargs(selection),
+                rcs_domain="power_phase",
+                extra=self._exact_transform_extra(
+                    lambda value: select_result(value, selection),
+                    coordinate_change=("align-intersect-relabel" if relabeled else None),
+                ),
+                _adopt_clean_arrays=True,
+            )
+
+
+        if not np.array_equal(self.polarizations, other.polarizations):
+            raise ValueError("polarization axis mismatch for interp")
+
+        self._check_axis_sorted(self.azimuths, "azimuth")
+        self._check_axis_sorted(self.elevations, "elevation")
+        self._check_axis_sorted(self.frequencies, "frequency")
+        self._check_axis_sorted(other.azimuths, "azimuth")
+        self._check_axis_sorted(other.elevations, "elevation")
+        self._check_axis_sorted(other.frequencies, "frequency")
+
+
+        steps = self._alignment_interpolation_plan(other)
+        for _axis, old, new in steps:
+            if new.min() < old.min() or new.max() > old.max():
+                raise ValueError("interp would require extrapolation")
+        complex_storage = self.storage_kind == "complex"
+        power_interp = None if complex_storage else self.power
+        complex_interp = _NormalizedField(self)
+        for axis, old, new in steps:
+            if power_interp is not None:
+                power_interp = self._interp_real_axis(
+                    power_interp, old, new, axis
+                )
+            complex_interp = self._interp_complex_axis(
+                complex_interp, old, new, axis
+            )
+        if not steps:
+            complex_interp = copy_result(complex_interp)
+            if power_interp is not None:
+                power_interp = copy_result(power_interp)
+        if complex_storage:
+            samples = {"rcs": complex_interp}
+        else:
+            phase_interp = allocate_result(power_interp.shape, np.float64, fill=np.nan)
+            power_interp = (power_interp if power_interp.dtype == np.float64
+                            else copy_result(power_interp, dtype=np.float64))
+            _merge_interpolated_phase(power_interp, phase_interp, complex_interp)
+            samples = {"rcs_power": power_interp, "rcs_phase": phase_interp}
+        interp_extra = self._derived_response_extra(
+            operation="align-interpolate", coherent=True
+        )
+        self._invalidate_assembly_sampling_hash(
+            interp_extra, "align-interpolate"
+        )
+        return self._new_grid(
+            other.azimuths,
+            other.elevations,
+            other.frequencies,
+            other.polarizations,
+            **samples,
+            rcs_domain="power_phase",
+            extra=interp_extra,
+            _adopt_clean_arrays=True,
+        )
+
+    @staticmethod
+    def _check_axis_sorted(axis, name):
+        axis = np.asarray(axis)
+        if axis.size < 2:
+            return
+        if not np.all(np.diff(axis) > 0):
+            raise ValueError(f"{name} axis must be strictly increasing for interp")
+
+    @staticmethod
+    def _interp_complex_axis(data, x_old, x_new, axis):
+        from GRIM_Backend.datasets.grid import RcsGrid
+        return RcsGrid._interp_linear_axis(data, x_old, x_new, axis)
+
+    @staticmethod
+    def _interp_real_axis(data, x_old, x_new, axis):
+        from GRIM_Backend.datasets.grid import RcsGrid
+        return RcsGrid._interp_linear_axis(data, x_old, x_new, axis)
+
+    @staticmethod
+    def _snap_interpolation_coordinates(x_old, x_new):
+        """Snap only floating-point roundoff, not an engineering merge tolerance.
+
+        Unit conversion and start+step arithmetic may differ by a handful of
+        ULPs for the same coordinate. Resolve those to the actual source sample
+        before interpolation, including when an adjacent sample is missing.
+        """
+        old = np.asarray(x_old, dtype=float)
+        new = np.asarray(x_new, dtype=float)
+        right = np.clip(np.searchsorted(old, new), 0, len(old) - 1)
+        left = np.maximum(right - 1, 0)
+        nearest = np.where(np.abs(old[left] - new) <= np.abs(old[right] - new), left, right)
+        scale = max(float(np.max(np.abs(old))), np.finfo(np.float64).tiny)
+        tolerance = 8.0 * np.finfo(np.float64).eps * scale
+        exact = np.abs(old[nearest] - new) <= tolerance
+        return np.where(exact, old[nearest], new), exact
+
+    @staticmethod
+    def _interp_linear_axis(data, x_old, x_new, axis):
+        """Vectorized adjacent-bin interpolation; NaNs remain local."""
+        from GRIM_Backend.datasets.grid import RcsGrid
+        if not hasattr(data, 'shape') or not hasattr(data, 'dtype'):
+            data = np.asarray(data)
+        x_old = np.asarray(x_old, dtype=float)
+        x_new, _exact = RcsGrid._snap_interpolation_coordinates(x_old, x_new)
+        if x_new.min() < x_old.min() or x_new.max() > x_old.max():
+            raise ValueError("interp would require extrapolation")
+        right = np.searchsorted(x_old, x_new, side="left")
+        right = np.clip(right, 0, len(x_old) - 1)
+        exact = x_old[right] == x_new
+        left = np.where(exact, right, np.maximum(right - 1, 0))
+        denom = x_old[right] - x_old[left]
+        weight = np.divide(
+            x_new - x_old[left],
+            denom,
+            out=np.zeros_like(x_new, dtype=float),
+            where=denom != 0.0,
+        )
+        output_shape = list(data.shape)
+        output_shape[axis] = len(x_new)
+        output = allocate_result(output_shape, data.dtype)
+        for selection in _bounded_grid_selections(output.shape, _RESULT_BLOCK_CELLS):
+            targets = selection[axis]
+            reshape = [1] * len(output_shape)
+            reshape[axis] = targets.stop - targets.start
+            w = weight[targets].reshape(reshape)
+            indices = [np.arange(part.start, part.stop) for part in selection]
+            indices[axis] = left[targets]
+            low = data[np.ix_(*indices)]
+            indices[axis] = right[targets]
+            high = data[np.ix_(*indices)]
+            output[selection] = low * (1.0 - w) + high * w
+        return output
+
+    @dataset_operation('interpolate_axis')
+    def interpolate_axis(self, axis_name, new_values, *, max_gap=None, support="interpolate"):
+        """Linearly interpolate the grid onto new values along one numeric axis.
+
+        Other axes are left unchanged. Raises if `new_values` extends beyond
+        the existing axis range (no extrapolation). Optional ``max_gap`` is in
+        native axis units; targets inside larger gaps become missing. With
+        ``support='measured-only'``, only exact source coordinates are retained.
+        """
+        axis_map = {"azimuth": 0, "elevation": 1, "frequency": 2}
+        key = str(axis_name).strip().lower()
+        if key not in axis_map:
+            raise ValueError(f"axis must be one of {list(axis_map)}")
+        axis_idx = axis_map[key]
+        new_arr = np.asarray(new_values, dtype=float).ravel()
+        if new_arr.size == 0:
+            raise ValueError("new axis must have at least one value")
+        if not np.all(np.isfinite(new_arr)):
+            raise ValueError("new axis values must be finite")
+        if new_arr.size > 1 and not np.all(np.diff(new_arr) > 0):
+            raise ValueError("new axis must be strictly increasing")
+
+        old_axes = [self.azimuths, self.elevations, self.frequencies]
+        self._check_axis_sorted(old_axes[axis_idx], key)
+        exact, excluded = self._interpolation_support(
+            old_axes[axis_idx], new_arr, max_gap=max_gap, support=support
+        )
+
+        new_axes = list(old_axes)
+        new_axes[axis_idx] = new_arr
+
+        complex_storage = self.storage_kind == "complex"
+        if not complex_storage:
+            power_interp = self._interp_real_axis(
+                self.power, old_axes[axis_idx], new_arr, axis_idx
+            )
+            power_interp = (power_interp if power_interp.dtype == np.float64
+                            else copy_result(power_interp, dtype=np.float64))
+            phase_interp = allocate_result(power_interp.shape, np.float64, fill=np.nan)
+        # Unknown phase cannot produce usable complex interpolation. Retained
+        # raw amplitudes still take precedence even when rcs_phase is unknown.
+        has_phase = self.phase_coverage() != "none"
+        if has_phase or self._complete_authoritative_raw_arrays() is not None:
+            complex_interp = self._interp_complex_axis(
+                _NormalizedField(self),
+                old_axes[axis_idx], new_arr, axis_idx,
+            )
+            if not complex_storage:
+                _merge_interpolated_phase(power_interp, phase_interp, complex_interp)
+        if np.any(excluded):
+            if complex_storage:
+                _mask_result_axis(complex_interp, axis_idx, excluded, np.nan + 1j * np.nan)
+            else:
+                _mask_result_axis(power_interp, axis_idx, excluded, np.nan)
+                _mask_result_axis(phase_interp, axis_idx, excluded, np.nan)
+        samples = ({"rcs": complex_interp} if complex_storage else
+                   {"rcs_power": power_interp, "rcs_phase": phase_interp})
+        coverage_values = complex_interp if complex_storage else power_interp
+        interp_extra = self._derived_response_extra(
+            operation=f"interpolate-{key}", coherent=True
+        )
+        self._invalidate_assembly_sampling_hash(
+            interp_extra, f"interpolate-{key}"
+        )
+        interp_extra["regrid_support_json"] = json.dumps({
+            "schema": "grim.regrid-support.v1",
+            "axis": key,
+            "axis_unit": (self.units or {}).get(key, "GHz" if key == "frequency" else "deg"),
+            "support": support,
+            "maximum_gap": None if max_gap is None else float(max_gap),
+            "target_coordinate_count": int(new_arr.size),
+            "measured_coordinate_count": int(np.count_nonzero(exact)),
+            "interpolated_coordinate_count": int(np.count_nonzero(~exact & ~excluded)),
+            "excluded_coordinate_count": int(np.count_nonzero(excluded)),
+            "finite_power_sample_count": sum(
+                int(np.count_nonzero(np.isfinite(coverage_values.flat[start:start + 262_144])))
+                for start in range(0, coverage_values.size, 262_144)
+            ),
+            "total_sample_count": int(coverage_values.size),
+        }, sort_keys=True, separators=(",", ":"))
+        return self._new_grid(
+            new_axes[0],
+            new_axes[1],
+            new_axes[2],
+            self.polarizations,
+            **samples,
+            rcs_domain="power_phase",
+            extra=interp_extra,
+            _adopt_clean_arrays=True,
+        )
+
+    @staticmethod
+    def _interpolation_support(old_values, new_values, *, max_gap=None, support="interpolate"):
+        """Return exact-coordinate and policy-excluded masks without sample data."""
+        if support not in {"interpolate", "measured-only"}:
+            raise ValueError("support must be 'interpolate' or 'measured-only'")
+        if max_gap is not None and (not math.isfinite(float(max_gap)) or float(max_gap) <= 0.0):
+            raise ValueError("max_gap must be positive and finite, or None")
+        old = np.asarray(old_values, dtype=float)
+        from GRIM_Backend.datasets.grid import RcsGrid
+        new, exact = RcsGrid._snap_interpolation_coordinates(old, new_values)
+        right = np.clip(np.searchsorted(old, new, side="left"), 0, len(old) - 1)
+        left = np.where(exact, right, np.maximum(right - 1, 0))
+        excluded = ~exact if support == "measured-only" else np.zeros(new.shape, dtype=bool)
+        if max_gap is not None:
+            excluded |= ~exact & ((old[right] - old[left]) > float(max_gap))
+        return exact, excluded
+
+    @staticmethod
+    def _as_list(value):
+        if value is None:
+            return None
+        if isinstance(value, (str, bytes)):
+            return [value]
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, (list, tuple, set)):
+            return list(value)
+        return [value]
+
+    @staticmethod
+    def _clean_axis(axis):
+        """Normalize an axis to float64 (numeric) or keep dtype (non-numeric).
+
+        For float32 input, round-trips each value through its shortest-decimal
+        repr so that user-intended values like 0.1 stay as 0.1 in float64
+        instead of inheriting the float32 quantization noise (0.10000000149...).
+        That way later ops like `shift_azimuth(180)` produce clean values
+        (180.1 instead of 180.10000001).
+        """
+        arr = np.asarray(axis)
+        if not np.issubdtype(arr.dtype, np.number):
+            return arr
+        if arr.dtype == np.float32:
+            return arr.astype(str).astype(np.float64)
+        return arr.astype(np.float64, copy=False)
+
+    @staticmethod
+    def _canonical_polarization_axis(polarizations):
+        """Return stripped uppercase polarization labels.
+
+        Reject blank labels and channels that share a case-insensitive identity.
+        """
+
+        values = np.asarray(polarizations)
+        if values.ndim != 1 or values.size == 0:
+            raise ValueError(
+                "polarizations must be a nonempty one-dimensional string axis"
+            )
+        labels = []
+        for raw_value in values.tolist():
+            if isinstance(raw_value, bytes):
+                try:
+                    label = raw_value.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ValueError("polarization labels must be UTF-8 strings") from exc
+            elif isinstance(raw_value, (str, np.str_)):
+                label = str(raw_value)
+            else:
+                raise ValueError(
+                    f"polarization labels must be strings; got {raw_value!r}"
+                )
+            label = label.strip().upper()
+            if not label:
+                raise ValueError("polarization labels must not be blank")
+            labels.append(label)
+        if len(set(labels)) != len(labels):
+            raise ValueError(
+                "polarization labels must be unique after case normalization"
+            )
+
+        return np.asarray(labels, dtype=str)
+
+    @staticmethod
+    def _axis_value_match(axis_arr, value, tol=1e-6):
+        axis_arr = np.asarray(axis_arr)
+        if np.issubdtype(axis_arr.dtype, np.number) and isinstance(
+            value, (int, float, np.integer, np.floating)
+        ):
+            return np.where(np.isclose(axis_arr, float(value), atol=tol, rtol=0.0))[0]
+        return np.where(axis_arr == value)[0]
+
+    @staticmethod
+    def _indices_for_axis_values(axis_arr, values, tol=1e-6):
+        axis_arr = np.asarray(axis_arr)
+        values_arr = np.asarray(values)
+        if values_arr.size == 0:
+            return []
+        if axis_arr.size == 0:
+            return None
+        if np.issubdtype(axis_arr.dtype, np.number) and np.issubdtype(
+            values_arr.dtype, np.number
+        ):
+            axis_f = axis_arr.astype(float, copy=False).ravel()
+            values_f = values_arr.astype(float, copy=False).ravel()
+            order = np.argsort(axis_f, kind="stable")
+            sorted_axis = axis_f[order]
+            pos = np.searchsorted(sorted_axis, values_f)
+            n = sorted_axis.size
+            left = np.clip(pos - 1, 0, n - 1)
+            right = np.clip(pos, 0, n - 1)
+            d_left = np.abs(sorted_axis[left] - values_f)
+            d_right = np.abs(sorted_axis[right] - values_f)
+            use_right = d_right <= d_left
+            sorted_idx = np.where(use_right, right, left)
+            dist = np.where(use_right, d_right, d_left)
+            if np.any(dist > tol):
+                return None
+            orig_idx = order[sorted_idx]
+            seen = set()
+            out = []
+            for i in orig_idx.tolist():
+                if i not in seen:
+                    seen.add(i)
+                    out.append(i)
+            return out
+        idx_map = {}
+        for i in range(axis_arr.size):
+            v = axis_arr[i]
+            key = v.item() if isinstance(v, np.generic) else v
+            if key not in idx_map:
+                idx_map[key] = i
+        seen = set()
+        out = []
+        for value in values_arr:
+            key = value.item() if isinstance(value, np.generic) else value
+            if key not in idx_map:
+                return None
+            idx = idx_map[key]
+            if idx not in seen:
+                seen.add(idx)
+                out.append(idx)
+        return out
+
+    @staticmethod
+    def _axis_union(axis_arrays, tol=1e-6):
+        if not axis_arrays:
+            return np.asarray([])
+        first_dtype = np.asarray(axis_arrays[0]).dtype
+        numeric_axis = np.issubdtype(first_dtype, np.number)
+        if not numeric_axis:
+            seen = {}
+            for axis_arr in axis_arrays:
+                for value in np.asarray(axis_arr):
+                    key = value.item() if isinstance(value, np.generic) else value
+                    if key not in seen:
+                        seen[key] = None
+            return np.asarray(list(seen))
+        parts = [np.asarray(a, dtype=float).ravel() for a in axis_arrays]
+        combined = np.concatenate(parts) if parts else np.asarray([], dtype=float)
+        if combined.size == 0:
+            return np.asarray([])
+        combined.sort(kind="mergesort")
+        keep = np.ones(combined.size, dtype=bool)
+        if tol <= 0:
+            keep[1:] = combined[1:] != combined[:-1]
+        else:
+            last_kept = combined[0]
+            for i in range(1, combined.size):
+                if combined[i] - last_kept > tol:
+                    last_kept = combined[i]
+                else:
+                    keep[i] = False
+        return combined[keep]
+
+    @staticmethod
+    def _common_axis_alignment(axis_arrays, tol=1e-6):
+        """Return a symmetric axis intersection and indices into every input.
+
+        Numeric values match only when one value from every axis fits in a
+        window no wider than ``tol``.  The lowest value in that window is the
+        canonical output coordinate.  Sorting the values before matching makes
+        both the coordinates and the chosen samples independent of which
+        dataset happened to be selected first.
+        """
+        arrays = [np.asarray(axis).ravel() for axis in axis_arrays]
+        if not arrays:
+            return np.asarray([]), []
+
+        try:
+            tol = float(tol)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("tol must be a finite nonnegative number") from exc
+        if not np.isfinite(tol) or tol < 0.0:
+            raise ValueError("tol must be a finite nonnegative number")
+
+        numeric_flags = [np.issubdtype(array.dtype, np.number) for array in arrays]
+        if any(numeric_flags) and not all(numeric_flags):
+            raise TypeError("axis inputs must all be numeric or all be nonnumeric")
+
+        if all(numeric_flags):
+            sorted_values = []
+            sorted_indices = []
+            for array in arrays:
+                values = array.astype(float, copy=False)
+                finite_indices = np.flatnonzero(np.isfinite(values))
+                order = np.argsort(values[finite_indices], kind="stable")
+                original_indices = finite_indices[order]
+                sorted_values.append(values[original_indices])
+                sorted_indices.append(original_indices)
+
+            if any(values.size == 0 for values in sorted_values):
+                return np.asarray([], dtype=float), [[] for _ in arrays]
+
+            pointers = np.zeros(len(arrays), dtype=np.int64)
+            common_values = []
+            matched_indices = [[] for _ in arrays]
+            while all(
+                pointer < values.size
+                for pointer, values in zip(pointers, sorted_values)
+            ):
+                current = np.asarray(
+                    [values[pointer] for values, pointer in zip(sorted_values, pointers)],
+                    dtype=float,
+                )
+                low = float(np.min(current))
+                high = float(np.max(current))
+                if high - low <= tol:
+                    common_values.append(low)
+                    for axis_idx in range(len(arrays)):
+                        matched_indices[axis_idx].append(
+                            int(sorted_indices[axis_idx][pointers[axis_idx]])
+                        )
+                        pointers[axis_idx] += 1
+                    continue
+
+
+                for axis_idx, value in enumerate(current):
+                    if value == low:
+                        pointers[axis_idx] += 1
+
+            return np.asarray(common_values, dtype=float), matched_indices
+
+        indices_by_value = []
+        for array in arrays:
+            mapping = {}
+            for index, raw_value in enumerate(array):
+                value = raw_value.item() if isinstance(raw_value, np.generic) else raw_value
+                mapping.setdefault(value, []).append(index)
+            indices_by_value.append(mapping)
+
+        common_values = set(indices_by_value[0])
+        for mapping in indices_by_value[1:]:
+            common_values.intersection_update(mapping)
+
+        def _canonical_key(value):
+            value_type = type(value)
+            return (value_type.__module__, value_type.__qualname__, repr(value))
+
+        output_values = []
+        matched_indices = [[] for _ in arrays]
+        for value in sorted(common_values, key=_canonical_key):
+            occurrences = min(len(mapping[value]) for mapping in indices_by_value)
+            output_values.extend([value] * occurrences)
+            for axis_idx, mapping in enumerate(indices_by_value):
+                matched_indices[axis_idx].extend(mapping[value][:occurrences])
+        return np.asarray(output_values), matched_indices
+
+    @classmethod
+    def _axis_intersection(cls, axis_arrays, tol=1e-6):
+        common, _indices = cls._common_axis_alignment(axis_arrays, tol=tol)
+        return common
+
+    @classmethod
+    def _ensure_grids(cls, grids):
+        checked = []
+        for grid in grids:
+            if not isinstance(grid, cls):
+                raise TypeError("all inputs must be RcsGrid instances")
+            checked.append(grid)
+        if not checked:
+            raise ValueError("at least one grid is required")
+        return checked
+
+    @dataset_operation('axis_crop')
+    def axis_crop(
+        self,
+        *,
+        azimuths=None,
+        elevations=None,
+        frequencies=None,
+        polarizations=None,
+        azimuth_range=None,
+        elevation_range=None,
+        frequency_range=None,
+        azimuth_min=None,
+        azimuth_max=None,
+        elevation_min=None,
+        elevation_max=None,
+        frequency_min=None,
+        frequency_max=None,
+        tol=1e-6,
+    ):
+        """Return a grid cropped by explicit axis values and/or numeric ranges."""
+
+        def _resolve_range(raw_range, vmin, vmax):
+            if raw_range is not None:
+                if not isinstance(raw_range, (list, tuple)) or len(raw_range) != 2:
+                    raise ValueError("axis range must be a 2-item [min, max] sequence")
+                return raw_range[0], raw_range[1]
+            if vmin is None and vmax is None:
+                return None
+            return vmin, vmax
+
+        azimuth_range = _resolve_range(azimuth_range, azimuth_min, azimuth_max)
+        elevation_range = _resolve_range(elevation_range, elevation_min, elevation_max)
+        frequency_range = _resolve_range(frequency_range, frequency_min, frequency_max)
+
+        def _axis_indices(axis_arr, axis_values, axis_range, axis_name, axis_tol):
+            all_indices = list(range(len(axis_arr)))
+            values = self._as_list(axis_values)
+            if values is not None:
+                if axis_name == "polarization":
+                    values = [str(value).strip().upper() for value in values]
+                selected = self._indices_for_axis_values(axis_arr, values, tol=axis_tol)
+                if selected is None:
+                    raise ValueError(f"{axis_name} contains value(s) not present in dataset")
+                indices = selected
+            else:
+                indices = all_indices
+
+            if axis_range is not None:
+                lo, hi = axis_range
+                if lo is not None:
+                    lo = float(lo)
+                if hi is not None:
+                    hi = float(hi)
+                if lo is not None and hi is not None and lo > hi:
+                    lo, hi = hi, lo
+
+                axis_num = np.asarray(axis_arr, dtype=float)
+                range_mask = np.ones(axis_num.shape[0], dtype=bool)
+                if lo is not None:
+                    range_mask &= axis_num >= (lo - axis_tol)
+                if hi is not None:
+                    range_mask &= axis_num <= (hi + axis_tol)
+                range_idx = set(np.where(range_mask)[0].tolist())
+                indices = [idx for idx in indices if idx in range_idx]
+
+            if not indices:
+                raise ValueError(f"{axis_name} crop produced no samples")
+            return indices
+
+        az_idx = _axis_indices(self.azimuths, azimuths, azimuth_range, "azimuth", tol)
+        el_idx = _axis_indices(self.elevations, elevations, elevation_range, "elevation", tol)
+        f_idx = _axis_indices(self.frequencies, frequencies, frequency_range, "frequency", tol)
+        p_idx = _axis_indices(self.polarizations, polarizations, None, "polarization", 0.0)
+        selection = np.ix_(az_idx, el_idx, f_idx, p_idx)
+
+        return self._new_grid(
+            self.azimuths[az_idx],
+            self.elevations[el_idx],
+            self.frequencies[f_idx],
+            self.polarizations[p_idx],
+            **self._sample_kwargs(selection),
+            extra=self._exact_transform_extra(
+                lambda value: select_result(value, selection)
+            ),
+            _adopt_clean_arrays=True,
+        )
+
+    @staticmethod
+    def _merge_equivalent_sample_blocks(
+        existing_power,
+        existing_phase,
+        incoming_power,
+        incoming_phase,
+        *,
+        context,
+        keep_existing_on_conflict=False,
+    ):
+        """Merge complementary/equivalent samples or reject a seam conflict.
+
+        With ``keep_existing_on_conflict`` a conflicting incoming sample is
+        discarded and the existing sample kept instead of raising.  Returns
+        the boolean mask of conflicting cells.
+        """
+
+        existing_power = np.asarray(existing_power)
+        existing_phase = np.asarray(existing_phase)
+        incoming_power = np.asarray(incoming_power)
+        incoming_phase = np.asarray(incoming_phase)
+        existing_finite = np.isfinite(existing_power)
+        incoming_finite = np.isfinite(incoming_power)
+        both = existing_finite & incoming_finite
+        power_equal = both & np.isclose(
+            existing_power, incoming_power, rtol=1.0e-6, atol=1.0e-12
+        )
+        power_conflict = both & ~power_equal
+
+        both_phase = (
+            power_equal
+            & np.isfinite(existing_phase)
+            & np.isfinite(incoming_phase)
+        )
+        both_zero = both & (existing_power == 0.0) & (incoming_power == 0.0)
+        phase_delta = np.abs(
+            np.angle(np.exp(1j * (existing_phase - incoming_phase)))
+        )
+        phase_conflict = both_phase & ~both_zero & (phase_delta > 1.0e-5)
+        conflict = power_conflict | phase_conflict
+        if np.any(conflict) and not keep_existing_on_conflict:
+            raise ValueError(
+                f"{context}: conflicting finite seam samples would overlap"
+            )
+
+        take_power = ~existing_finite & incoming_finite
+        if np.any(take_power):
+            existing_power[take_power] = incoming_power[take_power]
+            existing_phase[take_power] = np.where(
+                np.isfinite(incoming_phase[take_power]),
+                incoming_phase[take_power],
+                np.nan,
+            )
+        fill_phase = (
+            power_equal
+            & ~np.isfinite(existing_phase)
+            & np.isfinite(incoming_phase)
+        )
+        existing_phase[fill_phase] = incoming_phase[fill_phase]
+        return conflict
+
+    @staticmethod
+    def _merge_equivalent_raw_blocks(
+        existing_real,
+        existing_imag,
+        incoming_real,
+        incoming_imag,
+        *,
+        context,
+        keep_existing_on_conflict=False,
+    ):
+        """Merge authoritative float64 seam fields or reject hidden conflicts.
+
+        ``keep_existing_on_conflict`` and the returned conflict mask behave as
+        in :meth:`_merge_equivalent_sample_blocks`.
+        """
+
+        existing_real = np.asarray(existing_real)
+        existing_imag = np.asarray(existing_imag)
+        incoming_real = np.asarray(incoming_real)
+        incoming_imag = np.asarray(incoming_imag)
+        existing_finite = np.isfinite(existing_real) & np.isfinite(existing_imag)
+        incoming_finite = np.isfinite(incoming_real) & np.isfinite(incoming_imag)
+        both = existing_finite & incoming_finite
+        equivalent = (
+            np.isclose(
+                existing_real,
+                incoming_real,
+                rtol=1.0e-12,
+                atol=1.0e-15,
+            )
+            & np.isclose(
+                existing_imag,
+                incoming_imag,
+                rtol=1.0e-12,
+                atol=1.0e-15,
+            )
+        )
+        conflict = both & ~equivalent
+        if np.any(conflict) and not keep_existing_on_conflict:
+            raise ValueError(
+                f"{context}: conflicting authoritative raw seam samples would overlap"
+            )
+        take = ~existing_finite & incoming_finite
+        existing_real[take] = incoming_real[take]
+        existing_imag[take] = incoming_imag[take]
+        return conflict
+
+    @staticmethod
+    def _merge_equivalent_field_blocks(existing, incoming, *, context, raw):
+        """Merge complementary/equivalent complex samples or reject a conflict.
+
+        ``existing`` is written in place; missing samples are NaN pairs.  A
+        normalized physical field follows the former power/phase rule
+        (1e-6 relative power, 1e-5 rad phase, zero samples never disagree
+        in phase); a raw solver field (``raw=True``) follows the former
+        raw-pair rule (1e-12 relative per component).  Returns the conflict
+        mask.
+        """
+        existing = np.asarray(existing)
+        incoming = np.asarray(incoming)
+        existing_finite = np.isfinite(existing.real) & np.isfinite(existing.imag)
+        incoming_finite = np.isfinite(incoming.real) & np.isfinite(incoming.imag)
+        both = existing_finite & incoming_finite
+        if raw:
+            equivalent = (
+                np.isclose(existing.real, incoming.real, rtol=1.0e-12, atol=1.0e-15)
+                & np.isclose(existing.imag, incoming.imag, rtol=1.0e-12, atol=1.0e-15)
+            )
+            message = "conflicting authoritative raw seam samples would overlap"
+        else:
+            existing_power = existing.real * existing.real + existing.imag * existing.imag
+            incoming_power = incoming.real * incoming.real + incoming.imag * incoming.imag
+            power_equal = np.isclose(existing_power, incoming_power, rtol=1.0e-6, atol=1.0e-12)
+            both_zero = (existing_power == 0.0) & (incoming_power == 0.0)
+            phase_delta = np.abs(np.angle(existing * np.conj(incoming)))
+            equivalent = power_equal & (both_zero | (phase_delta <= 1.0e-5))
+            message = "conflicting finite seam samples would overlap"
+        conflict = both & ~equivalent
+        if np.any(conflict):
+            raise ValueError(f"{context}: {message}")
+        take = ~existing_finite & incoming_finite
+        existing[take] = incoming[take]
+        return conflict
+
+    @dataset_operation('mirror_about_azimuth')
+    def mirror_about_azimuth(self, azimuth_deg: float):
+        """Mirror azimuth axis about a reference angle and return a new grid.
+
+        The transformed axis is `az' = 2*azimuth_deg - az`. Output azimuths are
+        sorted ascending, with samples reordered to match.
+        """
+        about = self._angle_value_from_degrees(azimuth_deg, "azimuth")
+
+        az = np.asarray(self.azimuths, dtype=float)
+        mirrored_az = (2.0 * about) - az
+        order = np.argsort(mirrored_az, kind="stable")
+
+        return self._new_grid(
+            mirrored_az[order],
+            np.array(self.elevations, copy=True),
+            np.array(self.frequencies, copy=True),
+            np.array(self.polarizations, copy=True),
+            **self._sample_kwargs(transform=lambda value: take_result(value, order, axis=0)),
+            rcs_domain="power_phase",
+            extra=self._exact_transform_extra(
+                lambda value: take_result(value, order, axis=0),
+                coordinate_change="mirror-azimuth",
+                preserve_angular_contract=False,
+            ),
+            _adopt_clean_arrays=True,
+        )
+
+    @dataset_operation('swap_elevation_azimuth')
+    def swap_elevation_azimuth(self):
+        """Swap the elevation and azimuth axes and return a new grid."""
+        swapped_units = copy.deepcopy(self.units)
+        azimuth_unit = self._supported_unit("azimuth", _ANGLE_UNITS, "deg")
+        elevation_unit = self._supported_unit("elevation", _ANGLE_UNITS, "deg")
+        swapped_units["azimuth"] = elevation_unit
+        swapped_units["elevation"] = azimuth_unit
+        return self._new_grid(
+            np.array(self.elevations, copy=True),
+            np.array(self.azimuths, copy=True),
+            np.array(self.frequencies, copy=True),
+            np.array(self.polarizations, copy=True),
+            **self._sample_kwargs(transform=lambda value: np.swapaxes(value, 0, 1)),
+            rcs_domain="power_phase",
+            units=swapped_units,
+            extra=self._exact_transform_extra(
+                lambda value: np.swapaxes(value, 0, 1),
+                coordinate_change="swap-elevation-azimuth",
+                preserve_angular_contract=False,
+            ),
+            _adopt_clean_arrays=True,
+        )
+
+    @dataset_operation('convert_axis_units')
+    def convert_axis_units(
+        self,
+        *,
+        azimuth="deg",
+        elevation="deg",
+        frequency="GHz",
+    ):
+        """Convert numeric-axis storage units without changing physical samples."""
+
+        target_az = self._canonical_unit(azimuth, _ANGLE_UNITS, "deg")
+        target_el = self._canonical_unit(elevation, _ANGLE_UNITS, "deg")
+        target_frequency = self._canonical_unit(
+            frequency, _FREQUENCY_UNITS, "GHz"
+        )
+        source_az = self._supported_unit("azimuth", _ANGLE_UNITS, "deg")
+        source_el = self._supported_unit("elevation", _ANGLE_UNITS, "deg")
+        source_frequency = self._supported_unit(
+            "frequency", _FREQUENCY_UNITS, "GHz"
+        )
+
+        def convert_angle(values, source, target):
+            values = np.asarray(values, dtype=float)
+            degrees = np.rad2deg(values) if source == "rad" else values
+            return np.deg2rad(degrees) if target == "rad" else degrees.copy()
+
+        frequency_to_hz = {
+            "Hz": 1.0,
+            "kHz": 1.0e3,
+            "MHz": 1.0e6,
+            "GHz": 1.0e9,
+        }
+        frequency_hz = (
+            np.asarray(self.frequencies, dtype=float)
+            * frequency_to_hz[source_frequency]
+        )
+        converted_frequency = frequency_hz / frequency_to_hz[target_frequency]
+        converted_units = copy.deepcopy(self.units or {})
+        converted_units.update(
+            azimuth=target_az,
+            elevation=target_el,
+            frequency=target_frequency,
+        )
+        history_entry = (
+            "Convert axis storage units without interpolation: "
+            f"azimuth {source_az}->{target_az}, elevation {source_el}->{target_el}, "
+            f"frequency {source_frequency}->{target_frequency}"
+        )
+        history = (
+            f"{self.history}\n{history_entry}" if self.history else history_entry
+        )
+        return self._new_grid(
+            convert_angle(self.azimuths, source_az, target_az),
+            convert_angle(self.elevations, source_el, target_el),
+            converted_frequency,
+            np.array(self.polarizations, copy=True),
+            **self._sample_kwargs(),
+            rcs_domain="power_phase",
+            units=converted_units,
+            history=history,
+            extra=self._exact_transform_extra(
+                coordinate_change="convert-axis-storage-units"
+            ),
+            _adopt_clean_arrays=True,
+        )
+
+    @dataset_operation('shift_azimuth')
+    def shift_azimuth(self, delta_deg: float):
+        """Shift azimuth axis by a constant offset and return a new grid."""
+        delta = self._angle_value_from_degrees(delta_deg, "azimuth")
+        shifted_az = np.asarray(self.azimuths, dtype=float) + delta
+        return self._new_grid(
+            shifted_az,
+            np.array(self.elevations, copy=True),
+            np.array(self.frequencies, copy=True),
+            np.array(self.polarizations, copy=True),
+            **self._sample_kwargs(),
+            rcs_domain="power_phase",
+            extra=self._exact_transform_extra(
+                coordinate_change="shift-azimuth",
+                preserve_angular_contract=False,
+            ),
+            _adopt_clean_arrays=True,
+        )
+
+    @dataset_operation('wrap_azimuth')
+    def wrap_azimuth(
+        self, mode: str, *, seam_conflict: str = "first", return_report=False
+    ):
+        """Wrap azimuth axis into the given range and return a new grid.
+
+        ``mode`` is ``"0_360"`` for [0, 360) or ``"-180_180"`` for [-180, 180).
+        Output azimuths are sorted ascending; samples are reordered to match.
+        Degree axes use 360/180 and radian axes use 2*pi/pi.  If wrapping
+        collapses distinct inputs onto one seam coordinate (for example the 0
+        and 360 endpoints of a closed sweep), complementary or equivalent
+        samples are merged.  Where finite samples disagree, ``seam_conflict``
+        decides: ``"first"`` (default) keeps the sample that comes first on
+        the source azimuth axis, i.e. the opening sample of the sweep, and
+        discards the later repeat, recording the count in history;
+        ``"error"`` rejects the wrap instead.  ``return_report=True`` returns
+        ``(grid, report)`` with merge and conflict counts.
+        """
+        policy = str(seam_conflict).strip().lower()
+        if policy not in {"first", "error"}:
+            raise ValueError("seam_conflict must be 'first' or 'error'")
+        keep_first = policy == "first"
+        az = np.asarray(self.azimuths, dtype=float)
+        unit = self._supported_unit("azimuth", _ANGLE_UNITS, "deg")
+        period = (2.0 * np.pi) if unit == "rad" else 360.0
+        half_period = 0.5 * period
+        seam_tol = float(np.deg2rad(1.0e-9)) if unit == "rad" else 1.0e-9
+        if mode == "0_360":
+            wrapped = np.mod(az, period)
+            wrapped[np.isclose(wrapped, period, atol=seam_tol, rtol=0.0)] = 0.0
+            wrapped[np.isclose(wrapped, 0.0, atol=seam_tol, rtol=0.0)] = 0.0
+        elif mode == "-180_180":
+            wrapped = np.mod(az + half_period, period) - half_period
+            wrapped[
+                np.isclose(wrapped, half_period, atol=seam_tol, rtol=0.0)
+                | np.isclose(wrapped, -half_period, atol=seam_tol, rtol=0.0)
+            ] = -half_period
+        else:
+            raise ValueError(f"unknown wrap mode: {mode!r}")
+
+        order = np.argsort(wrapped, kind="stable")
+        groups = []
+        for source_index in order.tolist():
+            if not groups or (
+                wrapped[source_index] - wrapped[groups[-1][0]] > seam_tol
+            ):
+                groups.append([source_index])
+            else:
+                groups[-1].append(source_index)
+        unique_vals = np.asarray(
+            [wrapped[group[0]] for group in groups], dtype=float
+        )
+        output_shape = (len(groups),) + self.power.shape[1:]
+        output_power = allocate_result(output_shape, self.power.dtype, fill=np.nan)
+        output_phase = allocate_result(output_shape, self.phase.dtype, fill=np.nan)
+        raw_pair = self._complete_authoritative_raw_arrays()
+        preserve_raw = raw_pair is not None
+        # Seam equivalence still uses the established power/phase tolerances,
+        # but those derived values must not become the output authority. A
+        # coordinate-only wrap copies the selected physical I/Q unchanged,
+        # including when a client has only read the legacy polar arrays.
+        source_complex = None
+        if not preserve_raw:
+            payload = self.native_sample_payload()
+            if (payload["storage_kind"] == "complex"
+                    and payload["storage_domain"] == "physical"):
+                source_complex = payload["rcs_complex"]
+        output_complex = (
+            allocate_result(output_shape, source_complex.dtype, fill=complex(np.nan, np.nan))
+            if source_complex is not None else None
+        )
+        if preserve_raw:
+            raw_real = np.asarray(raw_pair[0], dtype=np.float64)
+            raw_imag = np.asarray(raw_pair[1], dtype=np.float64)
+            output_raw_real = allocate_result(output_shape, np.float64, fill=np.nan)
+            output_raw_imag = allocate_result(output_shape, np.float64, fill=np.nan)
+        conflicting_coordinates = 0
+        discarded_cells = 0
+        for output_index, group in enumerate(groups):
+            context = f"azimuth wrap at {unique_vals[output_index]:.12g} {unit}"
+            conflict_count = 0
+            for tile in _bounded_grid_selections(output_shape[1:], _RESULT_BLOCK_CELLS):
+                target = (output_index,) + tile
+                group_conflict = np.zeros(tuple(part.stop - part.start for part in tile), dtype=bool)
+                # Source-axis order preserves the earlier seam-alias precedence.
+                for source_index in sorted(group):
+                    source = (source_index,) + tile
+                    incoming_power = self.power[source]
+                    if output_complex is not None:
+                        take = ~np.isfinite(output_power[target]) & np.isfinite(incoming_power)
+                        output_complex[target][take] = source_complex[source][take]
+                    group_conflict |= self._merge_equivalent_sample_blocks(
+                        output_power[target], output_phase[target], incoming_power,
+                        self.phase[source], context=context,
+                        keep_existing_on_conflict=keep_first,
+                    )
+                    if preserve_raw:
+                        group_conflict |= self._merge_equivalent_raw_blocks(
+                            output_raw_real[target], output_raw_imag[target],
+                            raw_real[source], raw_imag[source], context=context,
+                            keep_existing_on_conflict=keep_first,
+                        )
+                conflict_count += int(np.count_nonzero(group_conflict))
+            if conflict_count:
+                conflicting_coordinates += 1
+                discarded_cells += conflict_count
+        if preserve_raw:
+            for selection in _bounded_grid_selections(output_shape, _RESULT_BLOCK_CELLS):
+                unmodeled = ~np.isfinite(output_power[selection])
+                output_raw_real[selection][unmodeled] = np.nan
+                output_raw_imag[selection][unmodeled] = np.nan
+        wrapped_extra = self._exact_transform_extra(
+            coordinate_change="wrap-azimuth", preserve_raw=False
+        )
+        if preserve_raw:
+            wrapped_extra["rcs_amp_real"] = output_raw_real
+            wrapped_extra["rcs_amp_imag"] = output_raw_imag
+            wrapped_extra["raw_complex_amplitude_preserved"] = True
+        history = None
+        if conflicting_coordinates:
+            range_label = "[0, 360)" if mode == "0_360" else "[-180, 180)"
+            history_entry = (
+                f"Wrap azimuth to {range_label} {unit}: kept the first sample "
+                f"on the source azimuth axis at {conflicting_coordinates} seam "
+                f"coordinate(s) where wrapped duplicates disagreed; discarded "
+                f"{discarded_cells} conflicting cell(s)"
+            )
+            prior_history = str(self.history or "").strip()
+            history = (
+                f"{prior_history}\n{history_entry}"
+                if prior_history
+                else history_entry
+            )
+        result = self._new_grid(
+            unique_vals,
+            np.array(self.elevations, copy=True),
+            np.array(self.frequencies, copy=True),
+            np.array(self.polarizations, copy=True),
+            **({"rcs": output_complex} if output_complex is not None else
+               {"rcs_power": output_power, "rcs_phase": output_phase}),
+            rcs_domain="power_phase",
+            history=history,
+            extra=wrapped_extra,
+            _adopt_clean_arrays=True,
+        )
+        if not return_report:
+            return result
+        report = {
+            "schema": "grim.azimuth-wrap-report.v1",
+            "mode": mode,
+            "seam_conflict": policy,
+            "merged_coordinate_count": int(az.size - len(groups)),
+            "conflicting_coordinate_count": int(conflicting_coordinates),
+            "discarded_conflict_cell_count": int(discarded_cells),
+        }
+        return result, report
+
+    @dataset_operation('wrap_phase')
+    def wrap_phase(self, mode: str):
+        """Wrap stored phase while preserving power and the complex field.
+
+        ``mode`` is ``"0_360"`` for [0, 360) degrees or ``"-180_180"``
+        for [-180, 180) degrees.  Phase is stored in radians, so only a
+        modulo-2*pi representation change is made.  Missing phase remains
+        missing and power samples are copied without modification.
+        """
+
+        if mode not in {"0_360", "-180_180"}:
+            raise ValueError(
+                "phase wrap mode must be '0_360' or '-180_180'"
+            )
+
+        samples = self._sample_kwargs()
+        range_label = "[0, 360) deg" if mode == "0_360" else "[-180, 180) deg"
+        if "rcs_phase" in samples:
+            # Only power/phase storage holds a phase array to rewrap. Complex
+            # storage derives phase on read, so it just records the interval
+            # instead of materialising and discarding a grid-sized phase array.
+            wrapped_phase = samples["rcs_phase"]
+            period = 2.0 * np.pi
+            with np.errstate(invalid="ignore"):
+                if mode == "0_360":
+                    np.remainder(wrapped_phase, period, out=wrapped_phase)
+                else:
+                    np.add(wrapped_phase, np.pi, out=wrapped_phase)
+                    np.remainder(wrapped_phase, period, out=wrapped_phase)
+                    np.subtract(wrapped_phase, np.pi, out=wrapped_phase)
+
+        history_entry = f"Wrap phase to {range_label}; complex field unchanged"
+        prior_history = str(self.history or "").strip()
+        history = (
+            f"{prior_history}\n{history_entry}" if prior_history else history_entry
+        )
+        wrapped_units = dict(self.units)
+        wrapped_units["phase_wrap"] = mode
+        return self._new_grid(
+            np.array(self.azimuths, copy=True),
+            np.array(self.elevations, copy=True),
+            np.array(self.frequencies, copy=True),
+            np.array(self.polarizations, copy=True),
+            **samples,
+            history=history,
+            units=wrapped_units,
+            extra=self._exact_transform_extra(preserve_all=True),
+            _adopt_clean_arrays=True,
+        )
+
+    @dataset_operation('round_axes')
+    def round_axes(
+        self, decimals: int, *, azimuths=True, elevations=True, frequencies=True
+    ):
+        """Round selected coordinates without resampling, copying samples once.
+
+        All axes are validated before constructing a result. Rounding may not
+        collapse distinct coordinates into duplicate values.
+        """
+        decimals = int(decimals)
+        axes = []
+        changed = []
+        for name, enabled in (
+            ("azimuths", azimuths), ("elevations", elevations),
+            ("frequencies", frequencies),
+        ):
+            values = np.array(getattr(self, name), dtype=float, copy=True)
+            if enabled:
+                values = np.round(values, decimals)
+                if not np.all(np.isfinite(values)):
+                    raise ValueError(f"Rounding {name} would create non-finite values.")
+                if values.size != np.unique(values).size:
+                    raise ValueError(
+                        f"Rounding {name} to {decimals} decimal(s) would create duplicate "
+                        "values. Use a higher decimal count."
+                    )
+                changed.append({"azimuths": "azimuth", "elevations": "elevation",
+                                "frequencies": "frequency"}[name])
+            axes.append(values)
+        if not changed:
+            return self
+        extra = self._exact_transform_extra(
+            coordinate_change="round-" + "-".join(changed)
+        )
+        extra, samples = self._frequency_relabel(
+            extra, self._sample_kwargs(), self.frequencies, axes[2]
+        )
+        return self._new_grid(
+            *axes,
+            np.array(self.polarizations, copy=True),
+            **samples,
+            rcs_domain="power_phase",
+            extra=extra,
+            _adopt_clean_arrays=True,
+        )
+
+    def round_azimuths(self, decimals: int):
+        """Round azimuth coordinates without resampling or creating duplicates."""
+        return self.round_axes(decimals, elevations=False, frequencies=False)
+
+    def round_elevations(self, decimals: int):
+        """Round elevation coordinates without resampling or creating duplicates."""
+        return self.round_axes(decimals, azimuths=False, frequencies=False)
+
+    def round_frequencies(self, decimals: int):
+        """Round frequency coordinates without resampling or creating duplicates."""
+        return self.round_axes(decimals, azimuths=False, elevations=False)
+
+    @dataset_operation('shift_elevation')
+    def shift_elevation(self, delta_deg: float):
+        """Shift elevation axis by a constant offset and return a new grid."""
+        delta = self._angle_value_from_degrees(delta_deg, "elevation")
+        shifted_el = np.asarray(self.elevations, dtype=float) + delta
+        return self._new_grid(
+            np.array(self.azimuths, copy=True),
+            shifted_el,
+            np.array(self.frequencies, copy=True),
+            np.array(self.polarizations, copy=True),
+            **self._sample_kwargs(),
+            rcs_domain="power_phase",
+            extra=self._exact_transform_extra(
+                coordinate_change="shift-elevation",
+                preserve_angular_contract=False,
+            ),
+            _adopt_clean_arrays=True,
+        )

@@ -1,0 +1,41 @@
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Embedded runtime and downloaded wheels are supplied per release computer
+GRIM_Backend/python_env/*
+!GRIM_Backend/python_env/README.txt
+GRIM_Backend/offline packages/*
+!GRIM_Backend/offline packages/README.txt
+!GRIM_Backend/offline packages/requirements.txt
+
+# Local virtual environments
+.venv/
+venv/
+
+# Test suites (not needed to run or set up GRIM)
+tests/
+
+# Developer audit folders and reports (mirrors release_validation exclusions)
+*_Audit/
+audit_*/
+AUDIT_FIXES_*.md
+*_AUDIT_*.md
+GRIM_Backend/docs/PROJECT_AUDIT.md
+
+# Generated solver results, assembly locks, and scratch inputs
+*.grim
+*.assembly.lock
+tools/GHOST/ghost_backend/validation/pec_backed_ibc/example/planar_assessment.json
+/airfoil.geo
+GRIM_Backend/Drawing 2.csv
+GRIM_Backend/foil.csv
+
+# OS / editor noise
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,1275 @@
+import json
+import cmath
+import math
+import operator
+import os
+import tempfile
+from io import StringIO
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+from ghost_backend.data_tools.cem_tools.native_samples import (
+    SampleComponent, decode_native_samples, encode_native_samples, grid_blocks,
+    legacy_components, raw_amplitude,
+)
+
+C0 = 299_792_458.0
+EPS = 1e-12
+SOLVER_METADATA_SCHEMA = 'ghost.solver_metadata.v1'
+GRIM_FORMAT_VERSION_ENV = 'GHOST_GRIM_FORMAT_VERSION'
+GRIM_FORMAT_VERSIONS = (1, 2)
+
+
+def _resolve_grim_format_version(format_version: 'Optional[int]' = None) -> 'int':
+    """Return the archive layout to write: 1 (legacy arrays) or 2 (``rcs_complex``).
+
+    ``None`` consults ``GHOST_GRIM_FORMAT_VERSION`` and otherwise selects
+    version 2, the compact layout GRIM itself writes.
+    """
+    if format_version is None:
+        setting = os.environ.get(GRIM_FORMAT_VERSION_ENV, '').strip()
+        return int(setting) if setting in ('1', '2') else 2
+    if isinstance(format_version, bool) or format_version not in GRIM_FORMAT_VERSIONS:
+        raise ValueError(
+            f"GRIM format_version must be 1 or 2; got {format_version!r}."
+        )
+    return int(format_version)
+
+
+def _json_safe(value: 'Any') -> 'Any':
+    """Convert solver metadata to deterministic, standards-compliant JSON data."""
+
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, np.generic):
+        return _json_safe(value.item())
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return float(value)
+        return {'__nonfinite_float__': (
+            'nan' if math.isnan(value) else 'infinity' if value > 0.0
+            else '-infinity'
+        )}
+    if isinstance(value, complex):
+        return {
+            '__complex__': {
+                'real': _json_safe(float(value.real)),
+                'imag': _json_safe(float(value.imag)),
+            }
+        }
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
+    if isinstance(value, dict):
+        return {
+            str(key): _json_safe(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        converted = [_json_safe(item) for item in value]
+        return sorted(
+            converted,
+            key=lambda item: json.dumps(
+                item, sort_keys=True, separators=(',', ':'), ensure_ascii=False
+            ),
+        )
+    if isinstance(value, os.PathLike):
+        return os.fspath(value)
+    return str(value)
+
+
+def _solver_metadata_json(result: 'Dict[str, Any]') -> 'str':
+    """Build the stable audit envelope stored alongside every solver export."""
+
+    diagnostic_keys = (
+        'linear_residual',
+        'linear_backward_error',
+        'constraint_residual',
+        'constraint_residual_norm',
+        'condition_est',
+    )
+    from ghost_backend.twod.samples import sample_column, sorted_samples
+    samples = result.get('samples', []) or []
+    if sample_column(samples, 'linear_residual') is not None:
+        # Standard compact rows all contain linear_residual. Sort only indices;
+        # materialize and encode each diagnostic once, without retaining dicts.
+        diagnostic_rows = sorted_samples(samples)
+    else:
+        diagnostic_rows = sorted(
+            (row for row in samples if any(key in row for key in diagnostic_keys)),
+            key=lambda row: tuple(float(row.get(key)) for key in
+                                  ('frequency_ghz', 'theta_inc_deg', 'theta_scat_deg')),
+        )
+
+    envelope = {
+        'schema': SOLVER_METADATA_SCHEMA,
+        'solver': result.get('solver', ''),
+        'scattering_mode': result.get('scattering_mode', ''),
+        'polarization': result.get('polarization', ''),
+        'polarization_export': result.get('polarization_export', ''),
+        'polarizations': result.get('polarizations', []) or [],
+        'polarization_mapping': result.get('polarization_mapping', {}) or {},
+        'rcs_log_unit': result.get('rcs_log_unit', ''),
+        'rcs_linear_quantity': result.get('rcs_linear_quantity', ''),
+        'amplitude_convention': result.get('amplitude_convention', ''),
+        'amplitude_version': result.get('amplitude_version', 1),
+        'metadata': result.get('metadata', {}) or {},
+        'sample_diagnostics': None,
+    }
+    encoder = json.JSONEncoder(sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False)
+    def encode(value):
+        return encoder.encode(_json_safe(value))
+    # The exported schema and deterministic key/row order are unchanged. The
+    # JSON string is required by GRIM; temporary Python diagnostic objects are not.
+    stream = StringIO()
+    stream.write('{')
+    for index, key in enumerate(sorted(envelope)):
+        if index:
+            stream.write(',')
+        stream.write(encode(key) + ':')
+        if key != 'sample_diagnostics':
+            stream.write(encode(envelope[key]))
+            continue
+        stream.write('[')
+        for row_index, row in enumerate(diagnostic_rows):
+            if row_index:
+                stream.write(',')
+            stream.write(encode(dict(
+                frequency_ghz=row.get('frequency_ghz'),
+                theta_inc_deg=row.get('theta_inc_deg'),
+                theta_scat_deg=row.get('theta_scat_deg'),
+                polarization=row.get('polarization', ''),
+                **{key: row[key] for key in diagnostic_keys if key in row},
+            )))
+        stream.write(']')
+    stream.write('}')
+    return stream.getvalue()
+
+
+def _required_finite_sample_value(row: 'Dict[str, Any]', key: 'str') -> 'float':
+    if key not in row:
+        raise ValueError(f"Solver sample is missing required field '{key}'.")
+    try:
+        value = float(row[key])
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            f"Solver sample field '{key}' must be a finite numeric value; "
+            f"got {row[key]!r}."
+        ) from exc
+    if not math.isfinite(value):
+        raise ValueError(
+            f"Solver sample field '{key}' must be finite; got {row[key]!r}."
+        )
+    return value
+
+def _canonical_user_polarization_label(label: 'Optional[str]') -> 'str':
+
+    text = str(label or '').strip().upper()
+    if text in {'TM', 'HH', 'H', 'HORIZONTAL'}:
+        return 'TM'
+    if text in {'TE', 'VV', 'V', 'VERTICAL'}:
+        return 'TE'
+    if not text:
+        return 'TM'
+    raise ValueError(
+        f"Unsupported polarization '{label}'. Use TM/HH/H/HORIZONTAL or TE/VV/V/VERTICAL."
+    )
+
+def _primary_alias_for_user_polarization(label: 'str') -> 'str':
+    return 'HH' if _canonical_user_polarization_label(label) == 'TM' else 'VV'
+
+def _alias_list_for_user_polarization(label: 'str') -> 'List[str]':
+    canonical = _canonical_user_polarization_label(label)
+    return ['TM', 'HH', 'H', 'HORIZONTAL'] if canonical == 'TM' else ['TE', 'VV', 'V', 'VERTICAL']
+
+def _ensure_grim_ext(path: 'str') -> 'str':
+    return path if path.lower().endswith('.grim') else f'{path}.grim'
+
+def _suffix_for_incidence(theta_inc_deg: 'float') -> 'str':
+    value = f'{theta_inc_deg:.6f}'.rstrip('0').rstrip('.')
+    value = value.replace('-', 'm').replace('.', 'p')
+    return f'inc_{value or "0"}'
+
+def _freq_value_to_hz(freq_value: 'float', unit: 'str' = 'GHz') -> 'float':
+    unit_key = str(unit or 'GHz').strip().lower()
+    scale = {
+        'hz': 1.0,
+        'khz': 1.0e3,
+        'mhz': 1.0e6,
+        'ghz': 1.0e9,
+    }.get(unit_key, 1.0e9)
+    return float(freq_value) * scale
+
+def compute_dbke_from_linear(
+    rcs_linear: 'float',
+    frequency_value: 'float',
+    frequency_unit: 'str' = 'GHz',
+) -> 'float':
+    """
+    Convert linear 2D scattering width to absolute dBke.
+
+    Absolute dBke uses the knife-edge normalization:
+        dBke = 10*log10((2*pi/lambda) * sigma_2d)
+             = 10*log10((2*pi*f/c0) * sigma_2d)
+    """
+
+    lin = float(rcs_linear)
+    if (not math.isfinite(lin)) or lin <= 0.0:
+        lin = EPS
+    freq_hz = _freq_value_to_hz(frequency_value, unit=frequency_unit)
+    if (not math.isfinite(freq_hz)) or freq_hz <= 0.0:
+        raise ValueError('frequency_value must be a positive finite frequency.')
+    return 10.0 * math.log10(((2.0 * math.pi * freq_hz) / C0) * lin)
+
+_SAMPLE_VALUE_FIELDS = (
+    'theta_scat_deg', 'frequency_ghz', 'rcs_linear', 'rcs_amp_real', 'rcs_amp_imag',
+)
+
+
+def _validated_sample_rows(
+    samples: 'List[Dict[str, Any]]',
+    linear_quantity: 'str',
+) -> 'np.ndarray':
+    """Validate samples one row at a time; this is the reference error path.
+
+    Returns an ``(n, 5)`` float64 array of ``(theta_scat_deg, frequency_ghz,
+    rcs_linear, rcs_amp_real, rcs_amp_imag)``.  The vectorised builder calls it
+    only when a row failed its array checks, so the first invalid row is
+    reported with exactly the message this loop has always produced.
+    """
+    validated_rows = np.empty((len(samples), 5), dtype=np.float64)
+    for row_index, row in enumerate(samples):
+        try:
+            az = _required_finite_sample_value(row, 'theta_scat_deg')
+            freq = _required_finite_sample_value(row, 'frequency_ghz')
+            lin = _required_finite_sample_value(row, 'rcs_linear')
+            amp_real = _required_finite_sample_value(row, 'rcs_amp_real')
+            amp_imag = _required_finite_sample_value(row, 'rcs_amp_imag')
+        except ValueError as exc:
+            raise ValueError(f"Invalid solver sample at index {row_index}: {exc}") from exc
+        if freq <= 0.0:
+            raise ValueError(
+                f"Invalid solver sample at index {row_index}: frequency_ghz "
+                f"must be positive; got {freq!r}."
+            )
+        if lin < 0.0:
+            raise ValueError(
+                f"Invalid solver sample at index {row_index}: rcs_linear "
+                f"must be non-negative; got {lin!r}."
+            )
+        with np.errstate(over="ignore", invalid="ignore"):
+            amp_abs2 = amp_real * amp_real + amp_imag * amp_imag
+        if not math.isfinite(amp_abs2):
+            raise ValueError(
+                f"Invalid solver sample at index {row_index}: the finite "
+                "complex amplitude is too large to form finite physical power."
+            )
+        if linear_quantity == 'sigma_2d':
+            k0 = 2.0 * math.pi * freq * 1.0e9 / C0
+            expected_linear = amp_abs2 / (4.0 * k0)
+        else:
+            expected_linear = 4.0 * math.pi * amp_abs2
+        if not math.isfinite(expected_linear):
+            raise ValueError(
+                f"Invalid solver sample at index {row_index}: normalized "
+                "linear RCS is not finite."
+            )
+        consistency_tol = (
+            2.0e-8 * max(expected_linear, lin)
+            + np.finfo(float).tiny
+        )
+        if abs(lin - expected_linear) > consistency_tol:
+            raise ValueError(
+                f"Invalid solver sample at index {row_index}: rcs_linear "
+                f"{lin:.12g} is inconsistent with the complex amplitude under "
+                f"{linear_quantity} normalization (expected "
+                f"{expected_linear:.12g})."
+            )
+        validated_rows[row_index] = (az, freq, lin, amp_real, amp_imag)
+    return validated_rows
+
+
+def _sample_value_columns(
+    samples: 'List[Dict[str, Any]]',
+    linear_quantity: 'str',
+) -> 'List[np.ndarray]':
+    """Return validated float64 columns for the five exported sample values.
+
+    Compact run-owned tables hand over their columns without materialising a
+    dictionary per row; ordinary row sequences are read once per field.  The
+    validity checks of the per-row loop are evaluated as array masks, and any
+    failure defers to that loop so the reported row and message are unchanged.
+    """
+    from ghost_backend.twod.samples import sample_columns
+
+    count = len(samples)
+    columns = None
+    try:
+        native = sample_columns(samples)
+        if native is not None and all(key in native for key in _SAMPLE_VALUE_FIELDS):
+            columns = [
+                np.asarray(native[key], dtype=np.float64).reshape(-1)
+                for key in _SAMPLE_VALUE_FIELDS
+            ]
+        else:
+            columns = [
+                np.fromiter(
+                    map(operator.itemgetter(key), samples), dtype=np.float64, count=count
+                )
+                for key in _SAMPLE_VALUE_FIELDS
+            ]
+    except (KeyError, TypeError, ValueError, OverflowError, AttributeError):
+        columns = None
+    if columns is not None and all(column.shape == (count,) for column in columns):
+        theta, frequency, linear, amp_real, amp_imag = columns
+        # A nonpositive frequency or overflow only marks the row invalid here;
+        # the row loop then reports it, so the arithmetic may not warn.
+        with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+            amp_abs2 = amp_real * amp_real + amp_imag * amp_imag
+            if linear_quantity == 'sigma_2d':
+                k0 = 2.0 * math.pi * frequency * 1.0e9 / C0
+                expected_linear = amp_abs2 / (4.0 * k0)
+            else:
+                expected_linear = 4.0 * math.pi * amp_abs2
+            consistency_tol = (
+                2.0e-8 * np.maximum(expected_linear, linear)
+                + np.finfo(float).tiny
+            )
+            invalid = ~np.isfinite(theta)
+            for column in (frequency, linear, amp_real, amp_imag):
+                invalid |= ~np.isfinite(column)
+            invalid |= (frequency <= 0.0) | (linear < 0.0)
+            invalid |= ~np.isfinite(amp_abs2) | ~np.isfinite(expected_linear)
+            invalid |= np.abs(linear - expected_linear) > consistency_tol
+        if not np.any(invalid):
+            return columns
+    rows = _validated_sample_rows(samples, linear_quantity)
+    return [rows[:, index] for index in range(5)]
+
+
+def _build_grid_for_samples(
+    samples: 'List[Dict[str, Any]]',
+    polarization: 'str',
+    source_path: 'str' = '',
+    history: 'str' = '',
+    preserve_raw_complex_amplitude: 'bool' = True,
+    rcs_log_unit: 'str' = 'dBke',
+    rcs_linear_quantity: 'str' = 'sigma_2d',
+    solver_metadata_json: 'str' = '',
+) -> 'Dict[str, Any]':
+    """Assemble one rectangular (angle x frequency) GRIM payload from samples.
+
+    Axes, grid placement, duplicate detection and completeness are computed
+    with array operations; a sweep of a million samples takes tens of
+    milliseconds instead of seconds.  Duplicate coordinates keep the first
+    sample and must agree with it in power (``EPS``) and phase (1e-5 rad), as
+    before.  Stored power and phase are float32; raw amplitudes stay float64.
+    """
+    if not samples:
+        raise ValueError('No samples available to export.')
+    linear_quantity = str(rcs_linear_quantity).strip().lower()
+    if linear_quantity not in {'sigma_2d', 'sigma_3d'}:
+        raise ValueError(
+            "rcs_linear_quantity must be 'sigma_2d' or 'sigma_3d'."
+        )
+
+    theta, frequency, linear, amp_real, amp_imag = _sample_value_columns(
+        samples, linear_quantity
+    )
+
+    azimuths = np.unique(theta)
+    elevations = np.asarray([0.0], dtype=float)
+    frequencies = np.unique(frequency)
+    polarization_label = _canonical_user_polarization_label(polarization)
+    polarization_primary = _primary_alias_for_user_polarization(polarization_label)
+    polarizations = np.asarray([polarization_primary], dtype=str)
+
+    shape = (len(azimuths), len(elevations), len(frequencies), len(polarizations))
+    cells = (
+        np.searchsorted(azimuths, theta) * len(frequencies)
+        + np.searchsorted(frequencies, frequency)
+    )
+    # The first sample at a coordinate is the stored one; later repeats are
+    # only checked against it (same policy as the historical row loop).
+    unique_cells, first = np.unique(cells, return_index=True)
+    with np.errstate(invalid='ignore'):
+        phase = np.arctan2(amp_imag, amp_real)
+    phase[(amp_real == 0.0) & (amp_imag == 0.0)] = 0.0
+
+    duplicates = np.ones(cells.size, dtype=bool)
+    duplicates[first] = False
+    if np.any(duplicates):
+        repeat = np.flatnonzero(duplicates)
+        origin = first[np.searchsorted(unique_cells, cells[repeat])]
+        stored_power = linear[origin].astype(np.float32).astype(np.float64)
+        power_conflict = np.abs(stored_power - linear[repeat]) > EPS
+        stored_phase = phase[origin].astype(np.float32).astype(np.float64)
+        two_pi = 2.0 * math.pi
+        diff_angle = (
+            np.remainder(phase[repeat] - stored_phase + math.pi, two_pi) - math.pi
+        )
+        phase_conflict = np.abs(diff_angle) > 1e-5
+        conflicts = np.flatnonzero(power_conflict | phase_conflict)
+        if conflicts.size:
+            row = repeat[conflicts[0]]
+            az, freq = theta[row], frequency[row]
+            if power_conflict[conflicts[0]]:
+                raise ValueError(
+                    f'Duplicate sample conflict at az={az}, el=0, f={freq}, pol={polarization}.'
+                )
+            raise ValueError(
+                f'Duplicate amplitude conflict at az={az}, el=0, f={freq}, pol={polarization}.'
+            )
+
+    rcs_power = np.full(shape, np.nan, dtype=np.float32)
+    rcs_power.flat[unique_cells] = linear[first]
+    raw_field = None
+    if preserve_raw_complex_amplitude:
+        raw_field = np.full(shape, complex(np.nan, np.nan), dtype=np.complex128)
+        raw_field.real.flat[unique_cells] = amp_real[first]
+        raw_field.imag.flat[unique_cells] = amp_imag[first]
+        rcs_phase = SampleComponent(raw_field, "phase", dtype=np.float32)
+    else:
+        rcs_phase = np.full(shape, np.nan, dtype=np.float32)
+        rcs_phase.flat[unique_cells] = phase[first]
+
+    missing = np.argwhere(~np.isfinite(rcs_power))
+    if missing.size:
+        first_missing = tuple(int(value) for value in missing[0])
+        raise ValueError(
+            "Solver samples do not form a complete rectangular "
+            f"(angle x frequency x polarization) grid: {len(missing)} cell(s) "
+            f"are missing; first missing index is {first_missing}."
+        )
+    if not np.all(np.isfinite(phase[first])):
+        raise ValueError("Solver sample phases are not finite after grid construction.")
+    if preserve_raw_complex_amplitude and (
+        not np.all(np.isfinite(amp_real[first]))
+        or not np.all(np.isfinite(amp_imag[first]))
+    ):
+        raise ValueError(
+            "Solver complex amplitudes are not finite after grid construction."
+        )
+
+    units_payload = {
+        'azimuth': 'deg',
+        'elevation': 'deg',
+        'frequency': 'GHz',
+
+
+        'rcs_log_unit': str(rcs_log_unit),
+        'rcs_linear_quantity': str(rcs_linear_quantity),
+    }
+
+    is_2d_width = linear_quantity == 'sigma_2d'
+    if is_2d_width:
+        phase_reference = (
+            'origin=(0,0), convention=exp(+jwt); stored complex field is the '
+            '2D layer-potential bare-integral amplitude B. The coefficient '
+            'in u_s~exp(-j(kr-pi/4))/sqrt(8*pi*k*r)*A is A=j*B.'
+        )
+        complex_field_domain = '2d_layer_potential_bare_integral_amplitude_B'
+        amplitude_convention = 'A_physical_asymptotic = +j * B_stored'
+    else:
+        phase_reference = (
+            'origin=(0,0), convention=exp(+jwt), monostatic far-field amplitude'
+        )
+        complex_field_domain = 'solver_raw_far_field_amplitude'
+        amplitude_convention = 'solver physical far-field amplitude'
+
+    payload = {
+        'azimuths': azimuths,
+        'elevations': elevations,
+        'frequencies': frequencies,
+        'polarizations': polarizations,
+        'polarization_alias_primary': polarization_label,
+        'polarization_aliases_json': json.dumps(_alias_list_for_user_polarization(polarization_label)),
+        'rcs_power': rcs_power,
+        'rcs_phase': rcs_phase,
+        'rcs_domain': 'power_phase',
+        'power_domain': 'linear_rcs',
+        'source_path': source_path,
+        'history': history,
+        'units': json.dumps(units_payload),
+        'phase_reference': phase_reference,
+        'amplitude_convention': amplitude_convention,
+        'raw_complex_amplitude_preserved': bool(preserve_raw_complex_amplitude),
+    }
+    if solver_metadata_json:
+        payload['solver_metadata_json'] = str(solver_metadata_json)
+    if preserve_raw_complex_amplitude:
+        payload['complex_field_domain'] = complex_field_domain
+        compact = legacy_components(payload, raw_field, component_dtype=np.float32)
+        # Solver rows supply independent power values. Keep any discrepancy,
+        # including tiny edits, for the existing consistency validation;
+        # ordinary canonical rows retain only the complex field in memory.
+        if any(not np.array_equal(compact['rcs_power'][selection], rcs_power[selection])
+               for selection in grid_blocks(shape)):
+            compact['rcs_power'] = rcs_power
+        payload = compact
+    return payload
+
+
+def _build_grid_for_co_solved_samples(
+    co_solved_samples: 'Dict[str, List[Dict[str, Any]]]',
+    polarization_mapping: 'Dict[str, str]',
+    source_path: 'str' = '',
+    history: 'str' = '',
+    preserve_raw_complex_amplitude: 'bool' = True,
+    rcs_log_unit: 'str' = 'dBke',
+    rcs_linear_quantity: 'str' = 'sigma_2d',
+) -> 'Dict[str, Any]':
+    """Build one rectangular VV/HH GRIM payload from co-solved channels."""
+
+    required = ('VV', 'HH')
+    if set(co_solved_samples) != set(required):
+        raise ValueError(
+            "A co-polarized GRIM export requires exactly VV and HH channels."
+        )
+    channel_payloads = []
+    for polarization in required:
+        channel_payloads.append(_build_grid_for_samples(
+            co_solved_samples[polarization] or [],
+            polarization,
+            source_path=source_path,
+            history=history,
+            preserve_raw_complex_amplitude=preserve_raw_complex_amplitude,
+            rcs_log_unit=rcs_log_unit,
+            rcs_linear_quantity=rcs_linear_quantity,
+        ))
+
+    reference = channel_payloads[0]
+    for payload in channel_payloads[1:]:
+        for axis_name in ('azimuths', 'elevations', 'frequencies'):
+            if not np.array_equal(payload[axis_name], reference[axis_name]):
+                raise ValueError(
+                    f"VV and HH cannot share one GRIM file because their "
+                    f"{axis_name} axes differ."
+                )
+        for metadata_name in (
+            'rcs_domain', 'power_domain', 'units', 'phase_reference',
+            'amplitude_convention', 'complex_field_domain',
+        ):
+            if metadata_name in reference or metadata_name in payload:
+                if str(reference.get(metadata_name, '')) != str(
+                    payload.get(metadata_name, '')
+                ):
+                    raise ValueError(
+                        "VV and HH GRIM metadata disagree on "
+                        f"{metadata_name!r}."
+                    )
+
+    combined = dict(reference)
+    if set(polarization_mapping) != set(required):
+        raise ValueError(
+            "A co-polarized GRIM export requires an explicit mapping for "
+            "exactly VV and HH."
+        )
+    internal_labels = [
+        str(polarization_mapping[channel]).strip().upper()
+        for channel in required
+    ]
+    if any(not label for label in internal_labels):
+        raise ValueError("Co-polarized GRIM mapping labels cannot be empty.")
+
+    combined['polarizations'] = np.asarray(required, dtype=str)
+
+
+    combined['polarization_alias_primary'] = ','.join(internal_labels)
+    combined['polarization_aliases_json'] = json.dumps(internal_labels)
+    if preserve_raw_complex_amplitude:
+        field = np.concatenate([raw_amplitude(payload) for payload in channel_payloads], axis=-1)
+        combined = legacy_components(combined, field, component_dtype=np.float32)
+        if any(not isinstance(payload['rcs_power'], SampleComponent) for payload in channel_payloads):
+            combined['rcs_power'] = np.concatenate([payload['rcs_power'] for payload in channel_payloads], axis=-1)
+    else:
+        for grid_name in ('rcs_power', 'rcs_phase'):
+            combined[grid_name] = np.concatenate(
+                [payload[grid_name] for payload in channel_payloads], axis=-1
+            )
+    return combined
+
+def _validate_grim_payload(payload: 'Dict[str, Any]') -> 'None':
+    """Reject malformed/non-finite grids before opening the destination file."""
+    payload = decode_native_samples(payload)
+
+    axes = {}
+    for key in ('azimuths', 'elevations', 'frequencies'):
+        try:
+            axis = np.asarray(payload[key], dtype=float)
+        except KeyError as exc:
+            raise ValueError(f"GRIM payload is missing required axis '{key}'.") from exc
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"GRIM axis '{key}' must be numeric.") from exc
+        if axis.ndim != 1 or axis.size == 0:
+            raise ValueError(f"GRIM axis '{key}' must be a non-empty 1-D array.")
+        if not np.all(np.isfinite(axis)):
+            raise ValueError(f"GRIM axis '{key}' contains NaN or infinite values.")
+        if np.any(np.diff(axis) <= 0.0):
+            raise ValueError(
+                f"GRIM axis '{key}' must be strictly increasing.")
+        axes[key] = axis
+
+    if np.any(axes['frequencies'] <= 0.0):
+        raise ValueError("GRIM frequencies must be positive.")
+
+    try:
+        polarizations = np.asarray(payload['polarizations']).astype(str)
+    except KeyError as exc:
+        raise ValueError("GRIM payload is missing 'polarizations'.") from exc
+    if polarizations.ndim != 1 or polarizations.size == 0:
+        raise ValueError("GRIM polarizations must be a non-empty 1-D array.")
+    if any(not label.strip() for label in polarizations):
+        raise ValueError("GRIM polarization labels cannot be empty.")
+    if len(set(polarizations.tolist())) != polarizations.size:
+        raise ValueError("GRIM polarization labels must be unique.")
+
+    for key in ('rcs_domain', 'power_domain', 'units'):
+        if key not in payload:
+            raise ValueError(f"GRIM payload is missing metadata {key!r}.")
+        value = np.asarray(payload[key])
+        if value.size != 1:
+            raise ValueError(f"GRIM metadata {key!r} must be scalar.")
+        if key not in ('source_path', 'history') \
+                and not str(value.reshape(-1)[0]).strip():
+            raise ValueError(f"GRIM metadata {key!r} cannot be empty.")
+    try:
+        units_metadata = json.loads(str(np.asarray(
+            payload['units']).reshape(-1)[0]))
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("GRIM units metadata is not valid JSON.") from exc
+    if not isinstance(units_metadata, dict):
+        raise ValueError("GRIM units metadata must decode to an object.")
+
+    expected_shape = (
+        len(axes['azimuths']),
+        len(axes['elevations']),
+        len(axes['frequencies']),
+        len(polarizations),
+    )
+
+    def finite_grid(key: 'str', *, nonnegative: 'bool' = False) -> 'np.ndarray':
+        if key not in payload:
+            raise ValueError(f"GRIM payload is missing required grid '{key}'.")
+        try:
+            grid = np.asarray(payload[key], dtype=float)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"GRIM grid '{key}' must be numeric.") from exc
+        if grid.shape != expected_shape:
+            raise ValueError(
+                f"GRIM grid '{key}' shape {grid.shape} does not match axes "
+                f"{expected_shape}; the grid is not rectangular/complete."
+            )
+        if not np.all(np.isfinite(grid)):
+            raise ValueError(f"GRIM grid '{key}' contains NaN or infinite values.")
+        if nonnegative and np.any(grid < 0.0):
+            raise ValueError(f"GRIM grid '{key}' contains negative linear power.")
+        return grid
+
+    sample_keys = ('rcs_power', 'rcs_phase', 'rcs_amp_real', 'rcs_amp_imag', 'combination_estimate_power')
+    if (int(np.prod(expected_shape)) > 262144
+            or any(isinstance(payload.get(key), SampleComponent) for key in sample_keys)):
+        for selection in grid_blocks(expected_shape):
+            part = dict(payload)
+            for key, index in zip(('azimuths', 'elevations', 'frequencies', 'polarizations'), selection):
+                part[key] = np.asarray(payload[key])[index]
+            for key in sample_keys:
+                if key in payload:
+                    if np.shape(payload[key]) != expected_shape:
+                        raise ValueError(f"GRIM grid '{key}' shape does not match axes {expected_shape}")
+                    part[key] = np.asarray(payload[key][selection])
+            _validate_grim_payload(part)
+        return
+    stored_power = finite_grid('rcs_power', nonnegative=True)
+    stored_phase = finite_grid('rcs_phase')
+
+    has_real = 'rcs_amp_real' in payload
+    has_imag = 'rcs_amp_imag' in payload
+    if has_real != has_imag:
+        raise ValueError(
+            "GRIM complex amplitude must provide both rcs_amp_real and "
+            "rcs_amp_imag."
+        )
+    if has_real:
+        stored_real = finite_grid('rcs_amp_real')
+        stored_imag = finite_grid('rcs_amp_imag')
+        stored_amp = stored_real + 1j * stored_imag
+        live = (
+            np.abs(stored_real) > np.finfo(np.float32).tiny
+        ) | (
+            np.abs(stored_imag) > np.finfo(np.float32).tiny
+        )
+        if np.any(live):
+            phase_error = np.abs(np.angle(np.exp(
+                1j * (stored_phase[live] - np.angle(stored_amp[live]))
+            )))
+            if float(np.max(phase_error)) > 2.0e-5:
+                raise ValueError(
+                    "GRIM rcs_phase is inconsistent with its stored complex "
+                    "amplitude."
+                )
+
+        quantity = str(
+            units_metadata.get('rcs_linear_quantity', '')).strip().lower()
+        with np.errstate(over='ignore', invalid='ignore'):
+            amp_abs2 = stored_real * stored_real + stored_imag * stored_imag
+            if quantity == 'sigma_3d':
+                expected_power = 4.0 * math.pi * amp_abs2
+            elif quantity == 'sigma_2d':
+                k0 = 2.0 * math.pi * axes['frequencies'] * 1.0e9 / C0
+                expected_power = amp_abs2 / (
+                    4.0 * k0[None, None, :, None]
+                )
+            else:
+                expected_power = None
+        if expected_power is None:
+            raise ValueError(
+                "GRIM units.rcs_linear_quantity must be 'sigma_2d' or "
+                "'sigma_3d' when complex amplitudes are stored."
+            )
+        if not np.all(np.isfinite(amp_abs2)) or not np.all(
+            np.isfinite(expected_power)
+        ):
+            raise ValueError(
+                "GRIM complex amplitude is too large to form finite physical "
+                f"power under {quantity} normalization."
+            )
+        power_tolerance = (
+            16.0 * np.finfo(np.float32).eps
+            * np.maximum(expected_power, stored_power)
+            + np.finfo(np.float32).tiny
+        )
+        if np.any(np.abs(stored_power - expected_power) > power_tolerance):
+            raise ValueError(
+                "GRIM rcs_power is inconsistent with its stored complex "
+                f"amplitude under {quantity} normalization."
+            )
+
+    if 'combination_estimate_power' in payload:
+        finite_grid('combination_estimate_power', nonnegative=True)
+
+
+def _save_grim_npz(
+    payload: 'Dict[str, Any]',
+    path: 'str',
+    *,
+    format_version: 'Optional[int]' = None,
+) -> 'str':
+    """Validate ``payload`` and write it atomically as a ``.grim`` archive.
+
+    Version 2, the default, stores a consistent payload's raw complex amplitude once as
+    ``rcs_complex`` (complex128) with GRIM's ``grim_format_version``,
+    ``storage_kind`` and ``storage_domain`` framing; ``rcs_power``,
+    ``rcs_phase``, ``rcs_amp_real`` and ``rcs_amp_imag`` are omitted and every
+    reader derives power and phase from the field under
+    ``units.rcs_linear_quantity``.  Version 1 keeps those four arrays.  A
+    Explicitly edited compatibility components are retained as power/phase
+    storage when the field cannot reproduce them. A payload without a raw pair is written in the version-1 layout whichever
+    version is requested; every other metadata key is identical in both.
+    ``format_version=None`` consults ``GHOST_GRIM_FORMAT_VERSION``.
+    """
+    version = _resolve_grim_format_version(format_version)
+    preserve_components = str(payload.get('storage_kind', '')) == 'power_phase'
+    payload = decode_native_samples(payload)
+    preserve_components |= any(isinstance(payload.get(key), SampleComponent)
+                               and payload[key]._detached is not None
+                               for key in ('rcs_power', 'rcs_phase'))
+    _validate_grim_payload(payload)
+    out = _ensure_grim_ext(path)
+    destination_dir = os.path.dirname(os.path.abspath(out))
+
+
+    os.makedirs(destination_dir, exist_ok=True)
+    temporary_fd, temporary_path = tempfile.mkstemp(
+        prefix=f'.{os.path.basename(out)}.',
+        suffix='.tmp',
+        dir=destination_dir,
+    )
+    os.close(temporary_fd)
+    try:
+        with open(temporary_path, 'wb') as f:
+            has_raw_pair = 'rcs_amp_real' in payload and 'rcs_amp_imag' in payload
+            compact = version == 2 and has_raw_pair
+            save_payload = dict(
+                azimuths=payload['azimuths'],
+                elevations=payload['elevations'],
+                frequencies=payload['frequencies'],
+                polarizations=payload['polarizations'],
+                polarization_alias_primary=payload.get('polarization_alias_primary', ''),
+                polarization_aliases_json=payload.get('polarization_aliases_json', ''),
+            )
+            if not compact:
+                save_payload['rcs_power'] = payload['rcs_power']
+                save_payload['rcs_phase'] = payload['rcs_phase']
+            save_payload.update(
+                rcs_domain=payload['rcs_domain'],
+                power_domain=payload['power_domain'],
+                source_path=payload.get('source_path', ''),
+                history=payload.get('history', ''),
+                units=payload['units'],
+                phase_reference=payload.get('phase_reference', ''),
+                amplitude_convention=payload.get('amplitude_convention', ''),
+                raw_complex_amplitude_preserved=('rcs_amp_real' in payload),
+            )
+            if has_raw_pair:
+
+
+                if compact:
+                    # Ordinary solver payloads retain the established raw
+                    # authority (including arbitrary phase at exact zero).
+                    # Only explicit compatibility edits need the lossless
+                    # component-preservation decision.
+                    encoded = encode_native_samples(payload) if preserve_components else dict(
+                        grim_format_version=np.int16(2), storage_kind='complex',
+                        storage_domain='raw_field', rcs_complex=raw_amplitude(payload))
+                    for key in ('grim_format_version', 'storage_kind', 'storage_domain',
+                                'rcs_complex', 'rcs_power', 'rcs_phase', 'rcs_amp_real', 'rcs_amp_imag',
+                                'raw_complex_amplitude_preserved'):
+                        if key in encoded:
+                            save_payload[key] = encoded[key]
+                else:
+                    save_payload['rcs_amp_real'] = payload['rcs_amp_real']
+                    save_payload['rcs_amp_imag'] = payload['rcs_amp_imag']
+                save_payload['complex_field_domain'] = payload.get(
+                    'complex_field_domain',
+                    'solver_raw_far_field_amplitude',
+                )
+
+
+            for key in ('combination_estimate_power',
+                        'combination_estimate_mode',
+                        'combination_estimate_semantics',
+                        'solver_metadata_json',
+                        'amplitude_version',
+                        'metadata_advisories_json',
+                        'solver_metadata_advisory',
+                        'time_convention',
+                        'polarization_basis',
+                        'combine_role',
+                        'combine_role_note',
+                        'component_provenance_json',
+                        'production_mesh_certification_json',
+                        'source_body_mesh_certification_json',
+                        'source_body_sha256',
+                        'pattern_frame_convention',
+                        'geometry_input_sha256',
+                        'solver_source_sha256',
+                        'runtime_environment_sha256',
+                        'run_solve_spec_sha256',
+                        'collection_source_sha256',
+                        'assembly_angular_coordinate_contract',
+                        'assembly_response_role',
+                        'assembly_base_sha256',
+                        'assembly_base_response_sha256',
+                        'feature_library_manifest_json',
+                        'requested_radar_grid_json',
+                        'body_profile_kind',
+                        'body_profile_rho_m',
+                        'body_profile_z_m',
+                        'body_model_metadata_json',
+                        'body_model_aspects_deg',
+                        'body_model_amp_vv_real',
+                        'body_model_amp_vv_imag',
+                        'body_model_amp_hh_real',
+                        'body_model_amp_hh_imag',
+                        'feature_provenance_json'):
+                if key in payload:
+                    save_payload[key] = payload[key]
+            np.savez_compressed(f, **save_payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temporary_path, out)
+    except BaseException:
+        try:
+            os.unlink(temporary_path)
+        except FileNotFoundError:
+            pass
+        raise
+    return out
+
+
+def _save_grim_npz_batch(
+    entries: 'List[tuple[Dict[str, Any], str]]',
+    *,
+    format_version: 'Optional[int]' = None,
+) -> 'List[str]':
+    """Publish a related GRIM collection as one rollback-safe batch.
+
+    Bistatic incidence files are one logical solver result.  Every payload is
+    validated and staged beside its destination before any existing output is
+    touched.  Publication then uses same-directory backups so a later failure
+    restores the complete previous collection instead of leaving a mixture of
+    old and new incidences.  ``format_version`` is passed to every file.
+    """
+
+    if not entries:
+        return []
+    normalized: 'set[str]' = set()
+    planned: 'List[tuple[Dict[str, Any], str]]' = []
+    for payload, path in entries:
+        target = os.path.abspath(_ensure_grim_ext(path))
+        identity = os.path.normcase(target)
+        if identity in normalized:
+            raise ValueError(
+                f"A GRIM output batch contains the duplicate target {target!r}."
+            )
+        if os.path.exists(target) and not os.path.isfile(target):
+            raise ValueError(
+                f"GRIM output target {target!r} exists but is not a regular file."
+            )
+        normalized.add(identity)
+        planned.append((payload, target))
+
+    staged: 'List[tuple[str, str]]' = []
+    backups: 'Dict[str, Optional[str]]' = {}
+    publication_complete = False
+    try:
+
+
+        for payload, target in planned:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            stage_fd, stage = tempfile.mkstemp(
+                prefix=f'.{os.path.basename(target)}.',
+                suffix='.stage.grim',
+                dir=os.path.dirname(target),
+            )
+            os.close(stage_fd)
+            try:
+                _save_grim_npz(payload, stage, format_version=format_version)
+            except BaseException:
+                try:
+                    os.unlink(stage)
+                except FileNotFoundError:
+                    pass
+                raise
+            staged.append((stage, target))
+
+        for stage, target in staged:
+            backup = None
+            if os.path.exists(target):
+                backup_fd, backup = tempfile.mkstemp(
+                    prefix=f'.{os.path.basename(target)}.',
+                    suffix='.backup',
+                    dir=os.path.dirname(target),
+                )
+                os.close(backup_fd)
+                try:
+                    os.replace(target, backup)
+                except BaseException:
+                    try:
+                        os.unlink(backup)
+                    except OSError:
+                        pass
+                    raise
+            backups[target] = backup
+            os.replace(stage, target)
+        publication_complete = True
+        return [target for _payload, target in planned]
+    except BaseException as original_error:
+
+
+        rollback_errors = []
+        for target, backup in reversed(list(backups.items())):
+            try:
+                if backup is None:
+                    try:
+                        os.unlink(target)
+                    except FileNotFoundError:
+                        pass
+                elif os.path.exists(backup):
+                    os.replace(backup, target)
+                    backups[target] = None
+            except OSError as exc:
+                rollback_errors.append(f"{target}: {exc}")
+        if rollback_errors:
+            raise RuntimeError(
+                "GRIM batch publication failed and rollback could not restore "
+                "every prior artifact. Retained .backup file(s): "
+                + "; ".join(rollback_errors)
+            ) from original_error
+        raise
+    finally:
+        for stage, _target in staged:
+            try:
+                os.unlink(stage)
+            except FileNotFoundError:
+                pass
+        if publication_complete:
+            for backup in backups.values():
+                if backup is not None:
+                    try:
+                        os.unlink(backup)
+                    except OSError:
+                        pass
+
+def _group_incidence_samples(samples, channel=''):
+    """Group compact rows by incidence with numeric indices, preserving order."""
+    from ghost_backend.twod.samples import sample_column, SampleSelection
+    incidence = sample_column(samples, 'theta_inc_deg')
+    if incidence is not None:
+        invalid = np.flatnonzero(~np.isfinite(incidence))
+        if not len(invalid):
+            order = np.argsort(incidence, kind='stable')
+            ordered = incidence[order]
+            boundaries = np.concatenate(([0], np.flatnonzero(ordered[1:] != ordered[:-1]) + 1, [len(order)]))
+            return {float(ordered[start]): SampleSelection(samples, order[start:end])
+                    for start, end in zip(boundaries[:-1], boundaries[1:]) if start < end}
+        indexed_rows = ((index, samples[index]) for index in invalid[:1])
+    else:
+        indexed_rows = enumerate(samples)
+    grouped = {}
+    for index, row in indexed_rows:
+        try:
+            value = _required_finite_sample_value(row, 'theta_inc_deg')
+        except ValueError as exc:
+            raise ValueError('Invalid {}bistatic solver sample at index {}: {}'.format(
+                channel + ' ' if channel else '', index, exc)) from exc
+        grouped.setdefault(value, []).append(row)
+    return grouped
+
+
+def export_result_to_grim(
+    result: 'Dict[str, Any]',
+    output_path: 'str',
+    source_path: 'str' = '',
+    history: 'str' = '',
+    preserve_raw_complex_amplitude: 'bool' = True,
+    format_version: 'Optional[int]' = None,
+) -> 'List[str]':
+    """Export a solver result as one monostatic or a batch of bistatic files.
+
+    ``format_version`` selects the archive layout (see ``_save_grim_npz``);
+    ``None`` consults ``GHOST_GRIM_FORMAT_VERSION`` and defaults to 2.
+    """
+    samples = result.get('samples', []) or []
+    if not samples:
+        raise ValueError('No solver samples were returned, nothing to export.')
+
+    declared_polarizations = [
+        str(value).strip().upper()
+        for value in list(result.get('polarizations', []) or [])
+    ]
+    co_solved = result.get('co_solved_samples', {}) or {}
+    declares_co_solve = bool(declared_polarizations) or bool(co_solved)
+    dual_polarized = (
+        declared_polarizations == ['VV', 'HH']
+        and isinstance(co_solved, dict)
+        and set(co_solved) == {'VV', 'HH'}
+    )
+    polarization_mapping = result.get('polarization_mapping', {}) or {}
+    if declares_co_solve and not dual_polarized:
+        raise ValueError(
+            "A declared co-polarized result must contain ordered "
+            "polarizations [VV, HH] and exactly matching co_solved_samples; "
+            "single-channel fallback was refused."
+        )
+    if dual_polarized and set(polarization_mapping) != {'VV', 'HH'}:
+        raise ValueError(
+            "A co-polarized result must declare its VV/HH physical mapping."
+        )
+    pol = None if dual_polarized else _canonical_user_polarization_label(
+        result.get('polarization_export') or result.get('polarization') or 'TM'
+    )
+    mode = str(result.get('scattering_mode', 'monostatic')).strip().lower()
+
+
+    unit_kwargs = {
+        'rcs_log_unit': str(result.get('rcs_log_unit', 'dBke')),
+        'rcs_linear_quantity': str(result.get('rcs_linear_quantity', 'sigma_2d')),
+    }
+    if mode != 'bistatic':
+        if dual_polarized:
+            payload = _build_grid_for_co_solved_samples(
+                co_solved,
+                polarization_mapping,
+                source_path=source_path,
+                history=history,
+                preserve_raw_complex_amplitude=preserve_raw_complex_amplitude,
+                **unit_kwargs,
+            )
+        else:
+            payload = _build_grid_for_samples(
+                samples,
+                pol,
+                source_path=source_path,
+                history=history,
+                preserve_raw_complex_amplitude=preserve_raw_complex_amplitude,
+                **unit_kwargs,
+            )
+        payload['solver_metadata_json'] = _solver_metadata_json(result)
+        return [os.path.abspath(_save_grim_npz(
+            payload, output_path, format_version=format_version
+        ))]
+
+    if dual_polarized:
+        by_channel_inc: 'Dict[str, Dict[float, List[Dict[str, Any]]]]' = {}
+        for channel in ('VV', 'HH'):
+            by_channel_inc[channel] = _group_incidence_samples(co_solved[channel] or [], channel)
+        incidence_sets = [set(by_channel_inc[channel]) for channel in ('VV', 'HH')]
+        if incidence_sets[0] != incidence_sets[1]:
+            raise ValueError(
+                "VV and HH bistatic incidence axes differ and cannot share "
+                "one GRIM collection."
+            )
+
+        rootspec = _ensure_grim_ext(output_path)
+        root_no_ext = rootspec[:-5]
+        batch = []
+        metadata_json = None
+        for inc in sorted(incidence_sets[0]):
+            payload = _build_grid_for_co_solved_samples(
+                {
+                    channel: by_channel_inc[channel][inc]
+                    for channel in ('VV', 'HH')
+                },
+                polarization_mapping,
+                source_path=source_path,
+                history=(history + f' | theta_inc_deg={inc:g}').strip(' |'),
+                preserve_raw_complex_amplitude=preserve_raw_complex_amplitude,
+                **unit_kwargs,
+            )
+            if metadata_json is None:
+                metadata_json = _solver_metadata_json(result)
+            payload['solver_metadata_json'] = metadata_json
+            out = f'{root_no_ext}_{_suffix_for_incidence(inc)}.grim'
+            batch.append((payload, out))
+        return _save_grim_npz_batch(batch, format_version=format_version)
+
+    by_inc = _group_incidence_samples(samples)
+
+    rootspec = _ensure_grim_ext(output_path)
+    root_no_ext = rootspec[:-5]
+    batch = []
+    metadata_json = None
+    for inc in sorted(by_inc.keys()):
+        payload = _build_grid_for_samples(
+            by_inc[inc],
+            pol,
+            source_path=source_path,
+            history=(history + f' | theta_inc_deg={inc:g}').strip(' |'),
+            preserve_raw_complex_amplitude=preserve_raw_complex_amplitude,
+            **unit_kwargs,
+        )
+        if metadata_json is None:
+            metadata_json = _solver_metadata_json(result)
+        payload['solver_metadata_json'] = metadata_json
+        out = f'{root_no_ext}_{_suffix_for_incidence(inc)}.grim'
+        batch.append((payload, out))
+    return _save_grim_npz_batch(batch, format_version=format_version)
+
+
+class DecodedGrimArrays(dict):
+    """Archive components exposed through the version-1 keys.
+
+    ``files`` and the context-manager protocol mirror ``np.load`` so code that
+    reopened GHOST output with ``np.load`` can call :func:`load_grim_npz` in
+    its place.
+    """
+
+    @property
+    def files(self) -> 'List[str]':
+        return list(self)
+
+    def __enter__(self) -> 'DecodedGrimArrays':
+        return self
+
+    def __exit__(self, *exc_info: 'Any') -> 'bool':
+        return False
+
+
+def load_grim_npz(path: 'str') -> 'DecodedGrimArrays':
+    """Read a ``.grim`` archive as the version-1 key set GHOST consumers expect.
+
+    A version-2 archive (``rcs_complex``) exposes lazy ``rcs_power``,
+    ``rcs_phase``, ``rcs_amp_real`` and ``rcs_amp_imag`` components. Indexing
+    derives only the selected cells; explicit NumPy conversion provides a
+    writable legacy array. A version-1 archive is returned unchanged.
+    """
+    from ghost_backend.data_tools.cem_tools.native_samples import decode_native_samples
+    with np.load(path, allow_pickle=False) as data:
+        arrays = {key: data[key] for key in data.files}
+    return DecodedGrimArrays(decode_native_samples(arrays, label=str(path)))
+
+
+def _ensure_csv_ext(path: 'str') -> 'str':
+    return path if path.lower().endswith('.csv') else f'{path}.csv'
+
+def export_result_to_dbke_csv(
+    result: 'Dict[str, Any]',
+    output_path: 'str',
+    source_path: 'str' = '',
+    history: 'str' = '',
+) -> 'str':
+    """
+    Export comma-separated 2-D scattering-width samples in Hz, with a header and absolute dBke column.
+
+    This format is intentionally limited to ``sigma_2d``.  A BoR result stores
+    three-dimensional RCS (``sigma_3d``), whose logarithmic unit is dBsm; writing
+    it through a function and column named dBke would be physically misleading.
+    """
+
+    linear_quantity = str(
+        result.get('rcs_linear_quantity', 'sigma_2d')
+    ).strip().lower()
+    log_unit = str(result.get('rcs_log_unit', 'dBke')).strip().lower()
+    solver_name = str(result.get('solver', '')).strip().lower()
+    if (
+        linear_quantity != 'sigma_2d'
+        or log_unit != 'dbke'
+        or solver_name.startswith('bor')
+    ):
+        raise ValueError(
+            "export_result_to_dbke_csv only accepts 2-D sigma_2d/dBke "
+            "results; BoR sigma_3d results must be exported as dBsm."
+        )
+
+    samples = result.get('samples', []) or []
+    if not samples:
+        raise ValueError('No solver samples were returned, nothing to export.')
+
+    out = _ensure_csv_ext(output_path)
+    from ghost_backend.twod.samples import sorted_samples
+    rows = sorted_samples(samples)
+    header = [
+        'frequency_hz',
+        'theta_inc_deg',
+        'theta_scat_deg',
+        'rcs_linear',
+        'rcs_db',
+        'dbke',
+        'rcs_amp_real',
+        'rcs_amp_imag',
+        'rcs_amp_phase_deg',
+        'source_path',
+        'history',
+    ]
+    with open(out, 'w', encoding='utf-8', newline='') as f:
+        f.write(','.join(header) + '\n')
+        for row in rows:
+            lin = float(row.get('rcs_linear', 0.0))
+            if not math.isfinite(lin) or lin < 0.0:
+                raise ValueError('rcs_linear must be finite and non-negative.')
+            freq_ghz = float(row.get('frequency_ghz', 0.0))
+            if 'rcs_db' in row:
+                rcs_db = float(row['rcs_db'])
+            else:
+                rcs_db = 10.0 * math.log10(max(lin, EPS))
+            dbke = compute_dbke_from_linear(lin, freq_ghz, frequency_unit='GHz')
+            vals = [
+                f"{freq_ghz * 1e9:.17g}",
+                f"{float(row.get('theta_inc_deg', 0.0)):.12g}",
+                f"{float(row.get('theta_scat_deg', 0.0)):.12g}",
+                f"{lin:.12g}",
+                f"{rcs_db:.12g}",
+                f"{dbke:.12g}",
+                f"{float(row.get('rcs_amp_real', 0.0)):.12g}",
+                f"{float(row.get('rcs_amp_imag', 0.0)):.12g}",
+                f"{float(row.get('rcs_amp_phase_deg', 0.0)):.12g}",
+                source_path.replace(',', ';'),
+                history.replace(',', ';'),
+            ]
+            f.write(','.join(vals) + '\n')
+    return os.path.abspath(out)

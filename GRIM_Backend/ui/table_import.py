@@ -1,0 +1,169 @@
+"""Adapt FREDDY's shared column editor to a GRIM RCS import."""
+from __future__ import annotations
+
+from dataclasses import asdict
+import importlib
+import sys
+import threading
+
+from PySide6.QtWidgets import QComboBox, QDialog, QLabel
+
+from GRIM_Backend.datasets.load_policy import checked_import_budget, import_memory_budget
+from GRIM_Backend.datasets.work_control import WorkCancelled, work_control
+from GRIM_Backend.integrations.freddy import FREDDY_PACKAGE_NAMESPACE, load_freddy_package
+from GRIM_Backend.io.mapped_table import MAGNITUDE_FORMATS, grid_from_mapped_rows
+
+
+def create_table_import_dialog(parent, path):
+    # Reuse the authoritative standalone tool through GRIM's private package.
+    load_freddy_package()
+    ui = importlib.import_module(FREDDY_PACKAGE_NAMESPACE + ".converter_dialog")
+    core = importlib.import_module(FREDDY_PACKAGE_NAMESPACE + ".table_conversion")
+
+    class TableImportDialog(ui.FileConverterDialog):
+        def __init__(self):
+            super().__init__(parent, importing=True)
+            self.dataset = None
+            self._load_options = {}
+            self._load_budget = None
+            self._cancel_requested = threading.Event()
+            self.intro.setText(
+                "GRIM could not recognize this table. Label its columns below. "
+                "Angles are azimuth/elevation in GRIM's conic convention. "
+                "Use constants for missing columns (for example elevation = 0). "
+                "Leave Phase unchecked when no phase was measured."
+            )
+            self.magnitude_format = QComboBox()
+            self.magnitude_format.addItems(("Choose magnitude representation…", *MAGNITUDE_FORMATS))
+            self.extra_layout.addWidget(QLabel("Magnitude represents"))
+            self.extra_layout.addWidget(self.magnitude_format)
+            self.path_edit.setText(str(path))
+            self.refresh_preview()
+
+        def configure_load_options(self, options=None, max_output_bytes=None):
+            self._load_options = dict(options or {})
+            self._load_budget = checked_import_budget(max_output_bytes)
+
+        def configure_mapping(self):
+            aliases = {
+                "frequency": ("frequency", "freq", "f"),
+                "azimuth": ("azimuth", "az", "azi"),
+                "elevation": ("elevation", "el", "elev"),
+                "polarization": ("polarization", "polarisation", "pol"),
+                "magnitude": ("magnitude", "mag", "amplitude", "rcs", "power",
+                              "magnitude_dbsm", "magnitude_dbke", "magnitude_power_linear"),
+                "phase": ("phase", "pha"),
+            }
+            for name, keys in aliases.items():
+                candidates = []
+                for i, label in enumerate(self.names):
+                    base, unit = core.suggest_column(label)
+                    if base.lower() in keys:
+                        candidates.append((i, unit))
+                source, unit = candidates[0] if len(candidates) == 1 else (None, "As written")
+                constant = {"elevation": "0", "azimuth": "0", "polarization": "VV"}.get(name, "")
+                input_units = output_units = ("As written",)
+                output_unit = "As written"
+                if name == "frequency":
+                    input_units = ("Choose unit…", "Hz", "kHz", "MHz", "GHz", "THz")
+                    if unit not in input_units:
+                        unit = "Choose unit…"
+                    output_units, output_unit = ("GHz",), "GHz"
+                elif name in ("azimuth", "elevation", "phase"):
+                    input_units, output_units, output_unit = ("deg", "rad"), ("deg",), "deg"
+                    unit = unit if unit in input_units else "deg"
+                else:
+                    unit = "As written"
+                self.add_mapping(name, source=source, constant=constant, input_unit=unit,
+                    output_unit=output_unit, checked=name != "phase" or source is not None,
+                    locked=True, input_units=input_units, output_units=output_units)
+
+        def submit(self):
+            try:
+                source, options, columns, names = self.snapshot()
+                required = {"frequency", "azimuth", "elevation", "polarization", "magnitude"}
+                if not required.issubset(column.name for column in columns):
+                    raise ValueError("Frequency, azimuth, elevation, polarization and magnitude are required; "
+                                     "use constants for missing columns.")
+                representation = self.magnitude_format.currentText()
+                if representation not in MAGNITUDE_FORMATS:
+                    raise ValueError("Choose what the magnitude column represents.")
+                provenance = {"options": asdict(options), "columns": [asdict(c) for c in columns],
+                              "source_headers": list(names), "magnitude_format": representation}
+                from GRIM_Backend.execution.dataset_jobs import _load_memory_budget
+                budget = self._load_budget
+                if budget is None:
+                    _, budget = _load_memory_budget(self._load_options.get('max_output_bytes'))
+                if self._load_options.get('allow_exceed'):
+                    budget = sys.maxsize
+                self._load_budget = budget
+                # The same Load options every other reader honors: sample
+                # storage and the temporary working folder.
+                storage = 'disk' if self._load_options.get('storage') == 'disk' else 'memory'
+                cache_dir = self._load_options.get('cache_dir') or None
+                cancelled = self._cancel_requested = threading.Event()
+
+                def rows():
+                    # Each reader pass converts the source afresh; nothing is buffered.
+                    return core.converted_rows(source, options, columns, names)
+
+                def convert():
+                    try:
+                        # Context variables do not propagate into a new Qt thread.
+                        with import_memory_budget(budget), work_control(cancelled=cancelled.is_set):
+                            return grid_from_mapped_rows(
+                                rows, source, representation, mapping=provenance,
+                                storage=storage, cache_dir=cache_dir)
+                    except MemoryError as exc:
+                        return {'memory_review': str(exc)}
+                    except WorkCancelled:
+                        return {'cancelled': True}
+
+                self.start_job(convert)
+            except Exception as exc:
+                self.status.setText(str(exc))
+
+        def start_job(self, operation):
+            super().start_job(operation)
+            if self.job is not None:
+                # The shared converter disables Cancel while it runs; an
+                # import can be long, so keep a cooperative cancel available.
+                self.cancel_button.setEnabled(True)
+                self.cancel_button.setText("Cancel import")
+
+        def job_finished(self):
+            super().job_finished()
+            self.cancel_button.setText("Cancel")
+
+        def reject(self):
+            if self.job is not None:
+                self._cancel_requested.set()
+                self.cancel_button.setEnabled(False)
+                self.status.setText("Canceling the import at the next safe block…")
+                return
+            super().reject()
+
+        def conversion_finished(self, result):
+            if isinstance(result, dict) and result.get('cancelled'):
+                self.status.setText('Import canceled. Column labels are preserved; you can retry or close.')
+                QDialog.reject(self)
+                return
+            if isinstance(result, dict) and 'memory_review' in result:
+                from GRIM_Backend.execution.dataset_jobs import _available_memory_bytes
+                from GRIM_Backend.ui.load_options import LoadOptionsDialog
+                review = LoadOptionsDialog(self._load_options,
+                    review={'error': result['memory_review']},
+                    available_bytes=_available_memory_bytes(), parent=self)
+                try:
+                    if review.exec() == QDialog.Accepted:
+                        self.configure_load_options(review.options())
+                        self.submit()
+                    else:
+                        self.status.setText('Import paused. Column labels are preserved; you can retry or cancel.')
+                finally:
+                    review.deleteLater()
+                return
+            self.dataset = result
+            self.accept()
+
+    return TableImportDialog()

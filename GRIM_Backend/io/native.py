@@ -1,0 +1,911 @@
+"""Native .grim archive loading, saving, and payload validation."""
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+import warnings
+
+import numpy as np
+from GRIM_Backend.datasets.memory import _bounded_grid_selections
+from GRIM_Backend.datasets.work_control import checkpoint
+
+from GRIM_Backend.datasets.constants import (
+    C0,
+    _ADOPT_CLEAN_ARRAYS_TOKEN,
+    _ANGLE_UNITS,
+    _FREQUENCY_UNITS,
+    _RAW_COMPLEX_VALIDATION_BLOCK_CELLS,
+)
+
+
+class _CheckpointStream:
+    """Check interruption between NumPy/ZIP stream reads and writes."""
+    def __init__(self, stream):
+        self.stream = stream
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+    def read(self, size=-1):
+        checkpoint()
+        return self.stream.read(size)
+
+    def write(self, value):
+        checkpoint()
+        return self.stream.write(value)
+
+
+def _owned_decoded_member(array):
+    """Return a freshly decoded NPZ member as an array that owns its buffer.
+
+    ``numpy.load`` reads a member into a new one-dimensional buffer and hands
+    back a reshaped view of it, so the view does not own its data although
+    nothing else references the buffer.  Reshaping that buffer in place
+    yields an owned array of the member's shape.  Any other layout (for
+    example a Fortran-ordered member) is returned as is and copied later.
+    """
+    if array.flags.owndata:
+        return array
+    base = array.base
+    if (
+        isinstance(base, np.ndarray)
+        and base.flags.owndata
+        and base.ndim == 1
+        and base.dtype == array.dtype
+        and base.size == array.size
+        and base.flags.c_contiguous
+        and array.flags.c_contiguous
+        and base.ctypes.data == array.ctypes.data
+    ):
+        base.shape = array.shape
+        return base
+    return array
+
+
+class NativeFormatMixin:
+    """Native .grim archive loading, saving, and payload validation."""
+
+    _RESERVED_KEYS = ("azimuths", "elevations", "frequencies", "polarizations",
+                      "rcs_power", "rcs_phase", "rcs_complex", "source_path",
+                      "history", "units", "grim_format_version", "storage_kind",
+                      "storage_domain")
+
+    def _extra_to_write(self):
+        """Return metadata and ancillary arrays for native archive export.
+
+        Arrays with four or more dimensions must match the grid in their first four
+        dimensions. Lower-dimensional ancillary arrays are retained independently.
+        """
+        expected = (len(self.azimuths), len(self.elevations),
+                    len(self.frequencies), len(self.polarizations))
+        out = {}
+        for key, value in self.extra.items():
+            if key in self._RESERVED_KEYS:
+                continue
+            arr = np.asarray(value)
+            if arr.ndim >= 4 and arr.shape[:4] != expected:
+                continue
+            out[key] = value
+        return out
+
+    def _native_archive_payload(self, *, path="native dataset", artifact=".grim"):
+        """Build the shared, pickle-free payload for .grim and embedded grids."""
+        self._ensure_legacy_source_current()
+        extra = self._extra_to_write()
+        self._validate_native_payload(
+            path=path, azimuths=self.azimuths, elevations=self.elevations,
+            frequencies=self.frequencies, polarizations=self.polarizations,
+            rcs_power=self.power, rcs_phase=self.phase, units=self.units,
+            extra=extra,
+        )
+        samples = dict(self.native_sample_payload())
+        if samples.get("storage_domain") == "raw_field":
+            extra.pop("rcs_amp_real", None)
+            extra.pop("rcs_amp_imag", None)
+        payload = dict(extra)
+        payload.update(
+            azimuths=self.azimuths, elevations=self.elevations,
+            frequencies=self.frequencies, polarizations=self.polarizations,
+            grim_format_version=np.asarray(2, dtype=np.int16),
+            rcs_domain=("complex_amplitude" if samples["storage_kind"] == "complex"
+                        else "linear_rcs" if samples["storage_kind"] == "power"
+                        else "power_phase"),
+            power_domain=self.power_domain,
+            source_path=self.source_path if self.source_path is not None else "",
+            history=self.history if self.history is not None else "",
+            units=json.dumps(self.units) if self.units else "",
+        )
+        payload.update(samples)
+        # Producer response semantics (for example a feature delta) are
+        # independent of the array representation described by storage_kind.
+        for tag in ("rcs_domain", "power_domain"):
+            if tag in self.extra:
+                payload[tag] = self.extra[tag]
+        object_keys = [str(key) for key, value in payload.items()
+                       if np.asarray(value).dtype.hasobject]
+        if object_keys:
+            raise ValueError(
+                f"cannot save a pickle-free {artifact} archive because metadata "
+                "contains object-typed value(s): " + ", ".join(sorted(object_keys))
+                + ". Convert those values to numeric/string arrays or JSON text."
+            )
+        return payload
+
+    def save(self, path, *, compressed=True):
+        """Save the grid to a .grim (npz) file.
+
+        Version 2 stores one authoritative sample representation: a complex
+        field, power alone, or power/phase for samples whose phase is only
+        partly known. Raw solver fields retain their normalization metadata.
+        Existing version 1 archives remain readable.
+        The archive is fully written and flushed to a same-directory staging
+        file before ``os.replace`` publishes it, so a failed save leaves an
+        existing artifact intact.
+
+        Args:
+            path: Output path, with or without .grim.
+            compressed: ``True`` (default) writes a compact ZIP-compressed
+                archive for distribution/storage. ``False`` uses the faster
+                uncompressed NPZ path for temporary high-throughput work.
+
+        Returns:
+            The actual path written (always ends with .grim).
+        """
+        if not isinstance(compressed, (bool, np.bool_)):
+            raise TypeError("compressed must be True or False")
+        path = os.fspath(path)
+        if not path.casefold().endswith(".grim"):
+            path = f"{path}.grim"
+        payload = self._native_archive_payload(path=path)
+        directory = os.path.dirname(os.path.abspath(path)) or os.curdir
+        fd, stage_path = tempfile.mkstemp(
+            prefix=".grim-write-",
+            suffix=".staging",
+            dir=directory,
+        )
+        try:
+            with os.fdopen(fd, "wb") as f:
+                fd = -1
+                writer = np.savez_compressed if bool(compressed) else np.savez
+                writer(_CheckpointStream(f), **payload)
+                f.flush()
+                os.fsync(f.fileno())
+            checkpoint()
+            os.replace(stage_path, path)
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            if os.path.exists(stage_path):
+                try:
+                    os.unlink(stage_path)
+                except OSError:
+                    pass
+        return path
+
+    @classmethod
+    def _raw_complex_consistency_report(
+        cls,
+        *,
+        expected_shape,
+        frequencies,
+        rcs_power,
+        rcs_phase,
+        units,
+        extra,
+    ):
+        """Check a solver raw-field pair against displayed power and phase.
+
+        GHOST stores its unnormalized far-field amplitude alongside physical
+        ``rcs_power``.  The relationship is quantity dependent: sigma3D is
+        ``4*pi*|A|^2`` and sigma2D is ``|A|^2/(4*k0)``.  This routine mirrors
+        the producer-side tolerances while scanning bounded blocks, so loading
+        or auditing a large archive never constructs another grid-sized
+        complex or expected-power array.
+        """
+
+        metadata = dict(extra or {})
+        has_real = "rcs_amp_real" in metadata
+        has_imag = "rcs_amp_imag" in metadata
+        report = {
+            "present": bool(has_real or has_imag),
+            "complete_pair": bool(has_real and has_imag),
+            "finite_pair_count": 0,
+            "missing_pair_count": 0,
+            "invalid_pair_count": 0,
+            "coverage_mismatch_count": 0,
+            "live_phase_missing_count": 0,
+            "phase_mismatch_count": 0,
+            "power_mismatch_count": 0,
+            "normalization_overflow_count": 0,
+            "maximum_phase_error_rad": None,
+            "maximum_power_absolute_error": None,
+            "normalization": None,
+            "issues": [],
+        }
+
+        def issue(code, message, **details):
+            item = {"code": str(code), "message": str(message)}
+            item.update(details)
+            report["issues"].append(item)
+
+        raw_flag = metadata.get("raw_complex_amplitude_preserved")
+        flag_true = False
+        if raw_flag is not None:
+            raw_flag_array = np.asarray(raw_flag)
+            if raw_flag_array.size != 1:
+                issue(
+                    "invalid_raw_complex_preserved_flag",
+                    "raw_complex_amplitude_preserved must be scalar",
+                )
+            else:
+                flag_value = raw_flag_array.reshape(-1)[0]
+                if isinstance(flag_value, (str, np.str_, bytes, np.bytes_)):
+                    if isinstance(flag_value, (bytes, np.bytes_)):
+                        try:
+                            flag_value = bytes(flag_value).decode("ascii")
+                        except UnicodeDecodeError:
+                            flag_value = ""
+                    flag_true = str(flag_value).strip().casefold() in {
+                        "1", "true", "yes", "on"
+                    }
+                else:
+                    try:
+                        flag_true = bool(flag_value)
+                    except (TypeError, ValueError):
+                        flag_true = False
+
+        if has_real != has_imag:
+            issue(
+                "partial_raw_complex_pair",
+                "raw complex amplitude must provide both rcs_amp_real and rcs_amp_imag",
+            )
+            return report
+        if not has_real:
+            if flag_true:
+                issue(
+                    "missing_raw_complex_pair",
+                    "raw_complex_amplitude_preserved is true but the raw amplitude grids are absent",
+                )
+            return report
+
+        raw_real = np.asarray(metadata["rcs_amp_real"])
+        raw_imag = np.asarray(metadata["rcs_amp_imag"])
+        for name, values in (
+            ("rcs_amp_real", raw_real),
+            ("rcs_amp_imag", raw_imag),
+        ):
+            if values.shape != tuple(expected_shape):
+                issue(
+                    "raw_complex_shape_mismatch",
+                    f"{name} shape {values.shape} does not match axes {tuple(expected_shape)}",
+                    field=name,
+                )
+            if values.dtype.kind not in "iuf":
+                issue(
+                    "non_numeric_raw_complex",
+                    f"{name} must be real numeric",
+                    field=name,
+                )
+        if any(item["code"] != "invalid_raw_complex_preserved_flag" for item in report["issues"]):
+            return report
+
+        power = rcs_power if hasattr(rcs_power, "dtype") else np.asarray(rcs_power)
+        phase = rcs_phase if hasattr(rcs_phase, "dtype") else np.asarray(rcs_phase)
+        if power.shape != tuple(expected_shape) or phase.shape != tuple(expected_shape):
+            return report
+        if power.dtype.kind not in "iuf" or phase.dtype.kind not in "iuf":
+            return report
+
+        normalized_units = dict(units or {})
+        quantity = str(
+            normalized_units.get("rcs_linear_quantity", "")
+        ).strip().casefold()
+        if not quantity:
+            log_unit = str(
+                normalized_units.get("rcs_log_unit", "dBsm")
+            ).strip().casefold()
+            quantity = "sigma_2d" if log_unit == "dbke" else "sigma_3d"
+        if quantity not in {"sigma_2d", "sigma_3d"}:
+            issue(
+                "unsupported_raw_complex_normalization",
+                "raw complex amplitude requires rcs_linear_quantity sigma_2d or sigma_3d",
+                linear_quantity=quantity,
+            )
+            return report
+        report["normalization"] = quantity
+
+        frequency_values = np.asarray(frequencies, dtype=np.float64)
+        frequency_unit = cls._canonical_unit(
+            normalized_units.get("frequency"), _FREQUENCY_UNITS, "GHz"
+        )
+        frequency_scale = {
+            "Hz": 1.0,
+            "kHz": 1.0e3,
+            "MHz": 1.0e6,
+            "GHz": 1.0e9,
+        }.get(frequency_unit)
+        if frequency_scale is None:
+            issue(
+                "unsupported_raw_complex_frequency_unit",
+                "raw complex amplitude normalization requires a supported frequency unit",
+                frequency_unit=str(normalized_units.get("frequency")),
+            )
+            return report
+
+        max_phase_error = 0.0
+        max_power_error = 0.0
+        float32_epsilon = np.finfo(np.float32).eps
+        float32_tiny = np.finfo(np.float32).tiny
+
+        for frequency_index, frequency_value in enumerate(frequency_values):
+            if not np.isfinite(frequency_value) or frequency_value <= 0.0:
+                issue(
+                    "invalid_raw_complex_frequency",
+                    "raw complex amplitude normalization requires positive finite frequencies",
+                )
+                return report
+            if quantity == "sigma_2d":
+                k0 = (
+                    2.0
+                    * np.pi
+                    * float(frequency_value)
+                    * float(frequency_scale)
+                    / C0
+                )
+                power_scale = 1.0 / (4.0 * k0)
+            else:
+                power_scale = 4.0 * np.pi
+
+            plane_shape = (expected_shape[0], expected_shape[1], 1, expected_shape[3])
+            for selection in _bounded_grid_selections(plane_shape, _RAW_COMPLEX_VALIDATION_BLOCK_CELLS):
+                selection = tuple(selection[:2]) + (slice(frequency_index, frequency_index + 1),) + tuple(selection[3:])
+                power_block, phase_block, real_block, imag_block = (
+                    values[selection] for values in (power, phase, raw_real, raw_imag)
+                )
+                power_block = np.asarray(power_block, dtype=np.float64)
+                phase_block = np.asarray(phase_block, dtype=np.float64)
+                real_block = np.asarray(real_block, dtype=np.float64)
+                imag_block = np.asarray(imag_block, dtype=np.float64)
+
+                real_finite = np.isfinite(real_block)
+                imag_finite = np.isfinite(imag_block)
+                raw_finite = real_finite & imag_finite
+                raw_missing = np.isnan(real_block) & np.isnan(imag_block)
+                invalid_pair = ~(raw_finite | raw_missing)
+                power_finite = np.isfinite(power_block)
+
+                report["finite_pair_count"] += int(np.count_nonzero(raw_finite))
+                report["missing_pair_count"] += int(np.count_nonzero(raw_missing))
+                report["invalid_pair_count"] += int(np.count_nonzero(invalid_pair))
+                report["coverage_mismatch_count"] += int(
+                    np.count_nonzero(raw_finite != power_finite)
+                )
+
+                comparable = raw_finite & power_finite
+                if not np.any(comparable):
+                    continue
+
+                comparable_real = real_block[comparable]
+                comparable_imag = imag_block[comparable]
+                comparable_power = power_block[comparable]
+                with np.errstate(over="ignore", invalid="ignore"):
+                    amp_abs2 = (
+                        comparable_real * comparable_real
+                        + comparable_imag * comparable_imag
+                    )
+                    expected_power = amp_abs2 * power_scale
+                expected_finite = np.isfinite(expected_power)
+                overflow_count = int(np.count_nonzero(~expected_finite))
+                report["normalization_overflow_count"] += overflow_count
+                if np.any(expected_finite):
+                    expected_values = expected_power[expected_finite]
+                    stored_values = comparable_power[expected_finite]
+                    absolute_error = np.abs(stored_values - expected_values)
+                    tolerance = (
+                        16.0
+                        * float32_epsilon
+                        * np.maximum(expected_values, stored_values)
+                        + float32_tiny
+                    )
+                    report["power_mismatch_count"] += int(
+                        np.count_nonzero(absolute_error > tolerance)
+                    )
+                    if absolute_error.size:
+                        max_power_error = max(
+                            max_power_error, float(np.max(absolute_error))
+                        )
+
+                live = comparable & (
+                    (np.abs(real_block) > float32_tiny)
+                    | (np.abs(imag_block) > float32_tiny)
+                )
+                live_phase_missing = live & ~np.isfinite(phase_block)
+                report["live_phase_missing_count"] += int(
+                    np.count_nonzero(live_phase_missing)
+                )
+                phase_comparable = live & np.isfinite(phase_block)
+                if np.any(phase_comparable):
+                    raw_angle = np.arctan2(
+                        imag_block[phase_comparable], real_block[phase_comparable]
+                    )
+                    phase_difference = phase_block[phase_comparable] - raw_angle
+                    phase_error = np.abs(
+                        np.arctan2(np.sin(phase_difference), np.cos(phase_difference))
+                    )
+                    report["phase_mismatch_count"] += int(
+                        np.count_nonzero(phase_error > 2.0e-5)
+                    )
+                    if phase_error.size:
+                        max_phase_error = max(
+                            max_phase_error, float(np.max(phase_error))
+                        )
+
+        report["maximum_phase_error_rad"] = float(max_phase_error)
+        report["maximum_power_absolute_error"] = float(max_power_error)
+        if report["invalid_pair_count"]:
+            issue(
+                "invalid_raw_complex_pair",
+                "raw complex amplitude contains one-sided NaN or infinite component samples",
+                count=report["invalid_pair_count"],
+            )
+        if report["coverage_mismatch_count"]:
+            issue(
+                "raw_complex_coverage_mismatch",
+                "raw complex amplitude finite coverage does not match rcs_power",
+                count=report["coverage_mismatch_count"],
+            )
+        if report["normalization_overflow_count"]:
+            issue(
+                "raw_complex_normalization_overflow",
+                f"raw complex amplitude is too large to form finite {quantity} power",
+                count=report["normalization_overflow_count"],
+            )
+        if report["power_mismatch_count"]:
+            issue(
+                "raw_complex_power_mismatch",
+                "rcs_power is inconsistent with the stored raw complex amplitude "
+                f"under {quantity} normalization",
+                count=report["power_mismatch_count"],
+                maximum_absolute_error=report["maximum_power_absolute_error"],
+            )
+        if report["live_phase_missing_count"]:
+            issue(
+                "raw_complex_phase_missing",
+                "nonzero raw complex amplitude has no finite stored rcs_phase",
+                count=report["live_phase_missing_count"],
+            )
+        if report["phase_mismatch_count"]:
+            issue(
+                "raw_complex_phase_mismatch",
+                "rcs_phase is inconsistent with the stored raw complex amplitude",
+                count=report["phase_mismatch_count"],
+                maximum_phase_error_rad=report["maximum_phase_error_rad"],
+            )
+        return report
+
+    @classmethod
+    def _validate_native_payload(
+        cls,
+        *,
+        path,
+        azimuths,
+        elevations,
+        frequencies,
+        polarizations,
+        rcs_power,
+        rcs_phase,
+        units,
+        extra=None,
+        _validated_complex=False,
+    ):
+        """Validate the native archive before constructor sanitation.
+
+        NaN RCS cells are intentional sparse-grid markers and are retained.
+        Infinities, negative finite power, malformed axes, and ambiguous unit
+        declarations are rejected rather than silently repaired.
+        """
+
+        numeric_axes = {}
+        for name, raw_values in (
+            ("azimuth", azimuths),
+            ("elevation", elevations),
+            ("frequency", frequencies),
+        ):
+            values = np.asarray(raw_values)
+            if (
+                values.ndim != 1
+                or values.size == 0
+                or values.dtype.kind not in "iuf"
+            ):
+                raise ValueError(
+                    f"{path} contains an invalid {name} axis; expected a "
+                    "nonempty one-dimensional real numeric array"
+                )
+            checked_values = values.astype(np.float64, copy=False)
+            if np.any(~np.isfinite(checked_values)):
+                raise ValueError(f"{path} contains a nonfinite {name} coordinate")
+            if np.unique(checked_values).size != checked_values.size:
+                raise ValueError(f"{path} contains duplicate {name} coordinates")
+            if name == "frequency" and np.any(checked_values <= 0.0):
+                raise ValueError(
+                    f"{path} contains a nonpositive frequency coordinate"
+                )
+
+
+            numeric_axes[name] = cls._clean_axis(values)
+
+        raw_polarizations = np.asarray(polarizations)
+        if raw_polarizations.ndim != 1 or raw_polarizations.size == 0:
+            raise ValueError(
+                f"{path} contains an invalid polarization axis; expected a "
+                "nonempty one-dimensional string array"
+            )
+        labels = []
+        for raw_label in raw_polarizations.tolist():
+            if isinstance(raw_label, bytes):
+                try:
+                    label = raw_label.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ValueError(
+                        f"{path} contains a non-UTF-8 polarization label"
+                    ) from exc
+            elif isinstance(raw_label, (str, np.str_)):
+                label = str(raw_label)
+            else:
+                raise ValueError(
+                    f"{path} contains a non-string polarization label "
+                    f"{raw_label!r}"
+                )
+            label = label.strip()
+            if not label:
+                raise ValueError(f"{path} contains a blank polarization label")
+            labels.append(label)
+        normalized_labels = [label.casefold() for label in labels]
+        if len(set(normalized_labels)) != len(normalized_labels):
+            raise ValueError(
+                f"{path} contains duplicate polarization labels after normalization"
+            )
+
+        expected = (
+            len(numeric_axes["azimuth"]),
+            len(numeric_axes["elevation"]),
+            len(numeric_axes["frequency"]),
+            len(labels),
+        )
+        power = rcs_power if hasattr(rcs_power, "dtype") else np.asarray(rcs_power)
+        phase = rcs_phase if hasattr(rcs_phase, "dtype") else np.asarray(rcs_phase)
+        for name, values in (("rcs_power", power), ("rcs_phase", phase)):
+            if values.shape != expected:
+                raise ValueError(
+                    f"{path} contains {name} shape {values.shape}; expected {expected}"
+                )
+            if values.dtype.kind not in "iuf":
+                raise ValueError(f"{path} contains non-real-numeric {name}")
+            if name == "rcs_phase" and _validated_complex:
+                # A finite complex field (or paired NaNs) has already been
+                # checked. Its derived phase cannot add infinities. Power is
+                # still scanned because normalization/squaring can overflow.
+                continue
+            for selection in _bounded_grid_selections(expected, _RAW_COMPLEX_VALIDATION_BLOCK_CELLS):
+                block = values[selection]
+                if np.any(np.isinf(block)):
+                    raise ValueError(f"{path} contains infinite {name} samples")
+                if name == "rcs_power" and np.any(block < 0.0):
+                    raise ValueError(f"{path} contains negative finite rcs_power samples")
+
+        normalized_units = dict(units or {})
+        for key, aliases, default in (
+            ("azimuth", _ANGLE_UNITS, "deg"),
+            ("elevation", _ANGLE_UNITS, "deg"),
+            ("frequency", _FREQUENCY_UNITS, "GHz"),
+        ):
+            raw_unit = normalized_units.get(key)
+            canonical = cls._canonical_unit(raw_unit, aliases, default)
+            if canonical not in set(aliases.values()):
+                raise ValueError(
+                    f"{path} contains unsupported {key} unit {raw_unit!r}"
+                )
+            if raw_unit is not None and str(raw_unit).strip():
+                normalized_units[key] = canonical
+
+        raw_report = {"issues": []} if _validated_complex else cls._raw_complex_consistency_report(
+            expected_shape=expected,
+            frequencies=numeric_axes["frequency"],
+            rcs_power=power,
+            rcs_phase=phase,
+            units=normalized_units,
+            extra=extra,
+        )
+        numerical_issues = [issue for issue in raw_report["issues"] if issue["code"] not in {
+            "invalid_raw_complex_preserved_flag", "missing_raw_complex_pair",
+        }]
+        if numerical_issues:
+            first_issue = numerical_issues[0]
+            raise ValueError(f"{path} contains {first_issue['message']}")
+
+        return (
+            numeric_axes["azimuth"],
+            numeric_axes["elevation"],
+            numeric_axes["frequency"],
+            np.asarray(labels, dtype=str),
+            power,
+            phase,
+            normalized_units,
+        )
+
+    @classmethod
+    def _native_grid_instance(cls, axes, *, units, extra, power=None, phase=None,
+                              field=None, domain="physical"):
+        """Install private validated storage without full-grid sanitation copies.
+
+        Power/phase archives keep that exact representation in the bounded
+        loader. Their usual eager canonicalization is optional compression,
+        not a prerequisite for any dataset operation.
+        """
+        from GRIM_Backend.datasets.coordinates import strip_angular_coordinate_declarations
+        grid = cls.__new__(cls)
+        grid.azimuths, grid.elevations, grid.frequencies = (cls._clean_axis(axis) for axis in axes[:3])
+        grid.polarizations = cls._canonical_polarization_axis(axes[3])
+        grid.units, grid.extra = dict(units or {}), dict(extra or {})
+        grid._complex = None
+        grid._power, grid._phase = power, phase
+        grid._legacy_samples = False
+        grid._legacy_fingerprint = None
+        grid._raw_coverage_cache = None
+        grid._storage_domain = "physical"
+        grid._storage_kind = "power_phase" if phase is not None else "power"
+        grid.rcs_domain = "complex_amplitude" if field is not None else "power_phase"
+        grid.power_domain = "linear_rcs"
+        grid.source_path = grid.history = None
+        wrap = str(grid.units.get("phase_wrap", "")).strip()
+        if wrap and wrap not in {"0_360", "-180_180"}:
+            raise ValueError("phase_wrap must be '0_360' or '-180_180' when declared")
+        if field is not None:
+            grid._install_complex(field, domain=domain, copy=False)
+            if domain == "raw_field" and grid._authoritative_raw_amplitude_from_pair(
+                    (grid._complex.real, grid._complex.imag), (0, 0, 0, 0)) is None:
+                raise ValueError("raw complex normalization is not defined for this dataset")
+        else:
+            if phase is not None:
+                for tile in _bounded_grid_selections(power.shape, _RAW_COMPLEX_VALIDATION_BLOCK_CELLS):
+                    block = phase[tile]
+                    if wrap:
+                        block[...] = grid._wrapped_phase_values(block)
+                    block[~np.isfinite(power[tile])] = np.nan
+                phase.flags.writeable = False
+            power.flags.writeable = False
+        grid._apply_solver_amplitude_annotation()
+        strip_angular_coordinate_declarations(grid.units, grid.extra)
+        return grid
+
+    @classmethod
+    def _from_native_arrays(cls, data, *, path="native dataset", source_path_override=None):
+        """Decode old or current native samples, also used by embedded assemblies."""
+        keys = set(getattr(data, "files", data.keys() if hasattr(data, "keys") else ()))
+        from GRIM_Backend.io.native_cache import NativeArrays
+        private_arrays = isinstance(data, NativeArrays)
+
+        def scalar(name, default=None):
+            if name not in keys:
+                return default
+            value = np.asarray(data[name])
+            if value.size != 1:
+                raise ValueError(f"{path} contains nonscalar {name} metadata")
+            value = value.reshape(-1)[0]
+            if isinstance(value, np.generic):
+                value = value.item()
+            if isinstance(value, bytes):
+                value = value.decode("utf-8")
+            return value
+
+        raw_units = scalar("units", "")
+        if isinstance(raw_units, str):
+            try:
+                units = json.loads(raw_units) if raw_units else {}
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"{path} contains corrupt units metadata; refusing to "
+                    "guess frequency, RCS, or angular conventions"
+                ) from exc
+        else:
+            units = raw_units
+        if not isinstance(units, dict):
+            raise ValueError(f"{path} contains invalid units metadata (expected a JSON object)")
+
+        version = scalar("grim_format_version", 1)
+        if isinstance(version, bool) or not isinstance(version, (int, np.integer)) or version not in (1, 2):
+            raise ValueError(f"{path} contains unsupported grim_format_version {version!r}")
+        required = {"azimuths", "elevations", "frequencies", "polarizations"}
+        if version == 1:
+            required.update(("rcs_power", "rcs_phase"))
+        missing = sorted(required - keys)
+        if missing:
+            raise ValueError(f"{path} is not a supported .grim file (missing keys: {', '.join(missing)})")
+        extra = {key: data[key] for key in keys if key not in cls._RESERVED_KEYS}
+        constructor_samples = {}
+        candidate = None
+        deferred_raw_pair = {}
+        if version == 1:
+            power, phase = data["rcs_power"], data["rcs_phase"]
+        else:
+            kind = scalar("storage_kind")
+            domain = scalar("storage_domain")
+            if kind not in {"complex", "power", "power_phase"}:
+                raise ValueError(f"{path} contains unsupported storage_kind {kind!r}")
+            if domain not in {"physical", "raw_field"} or (domain == "raw_field" and kind != "complex"):
+                raise ValueError(f"{path} contains unsupported storage_domain {domain!r}")
+            expected_samples = ({"rcs_complex"} if kind == "complex" else
+                                {"rcs_power"} if kind == "power" else {"rcs_power", "rcs_phase"})
+            actual_samples = keys & {"rcs_complex", "rcs_power", "rcs_phase"}
+            if actual_samples != expected_samples:
+                raise ValueError(f"{path} contains inconsistent samples for {kind} storage")
+            if kind == "complex":
+                field = np.asarray(data["rcs_complex"])
+                expected_shape = tuple(np.asarray(data[name]).size for name in
+                                       ("azimuths", "elevations", "frequencies", "polarizations"))
+                if field.dtype.kind != "c" or field.shape != expected_shape:
+                    raise ValueError(f"{path} contains invalid rcs_complex dtype or shape; expected {expected_shape}")
+                for selection in _bounded_grid_selections(expected_shape, _RAW_COMPLEX_VALIDATION_BLOCK_CELLS):
+                    block = field[selection]
+                    finite = np.isfinite(block.real) & np.isfinite(block.imag)
+                    missing_field = np.isnan(block.real) & np.isnan(block.imag)
+                    if np.any(~(finite | missing_field)):
+                        raise ValueError(f"{path} contains one-sided NaN or infinite rcs_complex samples")
+                if domain == "raw_field":
+                    if "rcs_amp_real" in extra or "rcs_amp_imag" in extra:
+                        raise ValueError(f"{path} redundantly declares raw complex samples")
+                # The block scan above proves every sample is finite or a NaN
+                # pair, so a member NumPy decoded into its own buffer becomes
+                # the stored field without the constructor's copy and masks.
+                # Arrays supplied through a mapping may still be referenced by
+                # the caller and are copied as before, as is a physical field
+                # that the constructor must check against a retained raw pair.
+                adopt = False
+                if (
+                    isinstance(data, np.lib.npyio.NpzFile)
+                    and field.dtype in (np.complex64, np.complex128)
+                    and not any(key in extra for key in ("rcs_amp_real", "rcs_amp_imag"))
+                ):
+                    field = _owned_decoded_member(field)
+                    adopt = bool(field.flags.owndata)
+                # Validate through bounded derived views rather than allocating
+                # complete normalized-field, power, and phase copies on load.
+                if private_arrays:
+                    if domain == "physical":
+                        # Validate a declared physical field against a retained
+                        # solver pair before enabling that pair as authority.
+                        # Otherwise the component views would normalize the
+                        # pair and compare it against itself, hiding a conflict.
+                        deferred_raw_pair = {key: value for key, value in extra.items()
+                                             if key in {"rcs_amp_real", "rcs_amp_imag"}}
+                    candidate = cls._native_grid_instance(
+                        [data[name] for name in ("azimuths", "elevations", "frequencies", "polarizations")],
+                        units=units, extra={key: value for key, value in extra.items()
+                                            if key not in deferred_raw_pair}, field=field, domain=domain)
+                else:
+                    candidate = cls(data["azimuths"], data["elevations"], data["frequencies"],
+                                    data["polarizations"], rcs=field, rcs_storage_domain=domain,
+                                    units=units, extra=extra,
+                                    _adopt_clean_arrays=_ADOPT_CLEAN_ARRAYS_TOKEN if adopt else None)
+                power, phase, extra = candidate.power, candidate.phase, candidate.extra
+                if deferred_raw_pair:
+                    extra = dict(extra, **deferred_raw_pair)
+            else:
+                power = np.asarray(data["rcs_power"])
+                phase = (np.asarray(data["rcs_phase"]) if kind == "power_phase" else
+                         np.broadcast_to(np.asarray(np.nan, dtype=power.dtype if power.dtype.kind == "f" else np.float64), power.shape))
+
+        (azimuths, elevations, frequencies, polarizations, power, phase, units) = cls._validate_native_payload(
+            path=path, azimuths=data["azimuths"], elevations=data["elevations"],
+            frequencies=data["frequencies"], polarizations=data["polarizations"],
+            rcs_power=power, rcs_phase=phase, units=units, extra=extra,
+            _validated_complex=(candidate is not None and
+                                (domain == "raw_field" or not any(key in extra for key in ("rcs_amp_real", "rcs_amp_imag")))),
+        )
+        source_path = scalar("source_path") or None
+        if source_path_override is not None:
+            source_path = source_path_override
+        if candidate is not None:
+            candidate.extra.update(deferred_raw_pair)
+            candidate.units = units
+            candidate.source_path = source_path
+            candidate.history = scalar("history") or None
+            return candidate
+        if private_arrays:
+            candidate = cls._native_grid_instance(
+                [azimuths, elevations, frequencies, polarizations], units=units, extra=extra,
+                power=power, phase=None if version == 2 and kind == "power" else phase)
+            if candidate._storage_kind == "power_phase" and not getattr(data, "selected", False):
+                # A full Disk-mode load chooses the representation a RAM load
+                # chooses (the constructor's rule), so one file takes one
+                # numerical path whatever the storage mode. A region load keeps
+                # the stored samples bit for bit: a region can be convertible
+                # when the whole file is not, and converting it would make it
+                # differ from the same cells of a full load.
+                from GRIM_Backend.datasets.result_storage import operation_result_storage
+                with operation_result_storage(getattr(data, "storage", None) or "memory",
+                                              cache_dir=getattr(data, "cache_dir", None)):
+                    candidate._canonicalize_samples()
+            candidate.source_path = source_path
+            candidate.history = scalar("history") or None
+            return candidate
+        if version == 2 and kind == "power":
+            constructor_samples = {"rcs_power": power}
+        else:
+            constructor_samples = {"rcs_power": power, "rcs_phase": phase}
+        return cls(azimuths, elevations, frequencies, polarizations,
+                   **constructor_samples, source_path=source_path,
+                   history=scalar("history") or None, units=units, extra=extra)
+
+    @classmethod
+    def load(
+        cls,
+        path,
+        mmap_mode: str | None = None,
+        *,
+        allow_legacy_pickle: bool = False,
+        max_output_bytes=None,
+        storage="memory",
+        selection=None,
+        cache_dir=None,
+    ):
+        """Load a grid from a .grim (npz) file.
+
+        Args:
+            path: Input path, with or without .grim.
+            mmap_mode: Retained for API compatibility. ``.npz`` members cannot
+                be memory-mapped; a warning is emitted when this is supplied.
+            allow_legacy_pickle: Explicitly opt in to legacy object-array files.
+                Never enable this for an untrusted file.
+            max_output_bytes: Optional reviewed cap for the native NPZ payload
+                plus temporary sample validation and constructor arrays. By default one
+                load may use at most half of currently available memory (or
+                the conservative 2 GiB fallback when memory is unknown).
+            storage: ``memory`` (default) or ``disk`` to retain numeric arrays
+                in a private, memory-mapped cache. The source is never changed.
+            selection: Optional inclusive ranges in the file's declared units,
+                e.g. ``{'frequency': (8, 12), 'polarization': ['HH', 'VV']}``.
+                Numeric keys are azimuth, elevation, and frequency. A selection
+                is copied in blocks, without decoding the entire grid in RAM.
+            cache_dir: Optional parent directory for temporary mapped files.
+                Surviving sample views retain their cache after the grid closes.
+
+        Returns:
+            RcsGrid instance loaded from disk.
+        """
+        from GRIM_Backend.datasets.memory import _preflight_native_archive_allocation
+        path = os.fspath(path)
+        if not path.casefold().endswith(".grim"):
+            path = f"{path}.grim"
+        report = _preflight_native_archive_allocation(
+            path,
+            allow_legacy_pickle=bool(allow_legacy_pickle),
+            max_output_bytes=max_output_bytes,
+            storage=storage,
+            selection=selection,
+        )
+        if mmap_mode is not None:
+            warnings.warn(
+                "mmap_mode has no effect for .grim/.npz archives; use storage='disk' for a private mapped cache",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+
+        if storage == "disk" or selection is not None:
+            from GRIM_Backend.io.native_cache import load_native_arrays
+            arrays = load_native_arrays(path, report, storage=storage, selection=selection, cache_dir=cache_dir)
+            grid = cls._from_native_arrays(arrays, path=path)
+            grid.load_storage = storage
+            if selection is not None:
+                grid.history = (str(grid.history or "") + "\nNative load selection: " +
+                                json.dumps(selection, default=lambda value: np.asarray(value).tolist())).strip()
+                grid._invalidate_assembly_sampling_hash(grid.extra, "native load selection")
+            return grid
+        with open(path, "rb") as f, np.load(
+            _CheckpointStream(f), allow_pickle=bool(allow_legacy_pickle)
+        ) as data:
+            grid = cls._from_native_arrays(data, path=path)
+            grid.load_storage = "memory"
+            return grid
