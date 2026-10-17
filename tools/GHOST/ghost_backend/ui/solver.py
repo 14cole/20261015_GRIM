@@ -1933,7 +1933,10 @@ class SolverTab(RunSetupMixin, QWidget):
     @Slot(str)
     def _on_solver_error(self, message: 'str'):
         if self._abort_event is not None and self._abort_event.is_set():
-            self._on_solver_canceled(message)
+            # An error queued after the operator canceled is the cancellation's
+            # outcome; report it as such and keep the worker's text as detail.
+            detail = f" ({message})" if message else ""
+            self._on_solver_canceled(f"Solve canceled; no result was published.{detail}")
             return
         self._pending_solve_context = None
         self.progress.setValue(0)
