@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import ctypes
+import io
 import math
 import os
 import tempfile
@@ -333,6 +334,91 @@ def _finite_csv_number(value):
     return format(number, ".17g")
 
 
+def _csv_numbers(values):
+    """``_finite_csv_number`` for a float64 array, returned as a list of text."""
+    text = []
+    for value in values.tolist():
+        if value != value:
+            text.append("")
+        elif value == -math.inf:
+            text.append("-inf")
+        elif value == math.inf:
+            raise ValueError("flat CSV cannot represent positive infinity")
+        else:
+            text.append(format(value, ".17g"))
+    return text
+
+
+def _csv_fields(fields, delimiter):
+    """Render fields exactly as ``csv.writer`` does, without a line ending."""
+    buffer = io.StringIO()
+    csv.writer(buffer, delimiter=delimiter, lineterminator="").writerow(fields)
+    return buffer.getvalue()
+
+
+def _write_flat_csv_block(stream, delimiter, grid, selection, power_block, phase_block, *,
+                          magnitude_columns, phase_wrap, frequency_unit, leading, labels):
+    """Write one sample block of the v1 schema, one numpy pass per column.
+
+    Equivalent to formatting row by row: every value is computed with the same
+    float64 expressions, formatted with ``.17g`` and joined in the row-major
+    (azimuth, elevation, frequency, polarization) order; text fields go
+    through ``csv.writer`` once per distinct value so quoting is unchanged.
+    """
+    azimuth_unit, elevation_unit = leading
+    frequencies = grid.frequencies[selection[2]]
+    frequency_hz = []
+    for frequency in frequencies:
+        value = float(frequency) * _FREQUENCY_FACTORS[frequency_unit]
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError("flat CSV frequencies must be positive and finite")
+        frequency_hz.append(value)
+    frequency_hz = np.asarray(frequency_hz, dtype=np.float64)
+    angle_heads = [
+        _csv_fields([FLAT_CSV_SCHEMA, azimuth, azimuth_unit, elevation, elevation_unit], delimiter)
+        for azimuth in (_finite_csv_number(value) for value in grid.azimuths[selection[0]])
+        for elevation in [_finite_csv_number(value) for value in grid.elevations[selection[1]]]
+    ]
+    frequency_heads = [_csv_fields([_finite_csv_number(value), frequency_unit], delimiter)
+                       for value in frequencies]
+    polarization_heads = [_csv_fields([str(value)] + labels, delimiter)
+                          for value in grid.polarizations[selection[3]]]
+    power = np.asarray(power_block, dtype=np.float64)
+    finite = np.isfinite(power)
+    columns = []
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        for column in magnitude_columns:
+            if column == "magnitude_power_linear":
+                values = np.where(finite, power, np.nan)
+            else:
+                if column == "magnitude_dbke":
+                    wavelength = (299792458.0 / frequency_hz).reshape(1, 1, -1, 1)
+                    values = 10.0 * np.log10(power * 2.0 * math.pi / wavelength)
+                else:
+                    values = 10.0 * np.log10(power)
+                values = np.where(power == 0.0, -np.inf, values)
+                values = np.where(finite, values, np.nan)
+            columns.append(_csv_numbers(values.reshape(-1)))
+        if phase_block is not None:
+            phase_rad = np.asarray(phase_block, dtype=np.float64)
+            degrees = np.degrees(phase_rad)
+            if phase_wrap == "0_360":
+                phase_deg = np.mod(degrees, 360.0)
+            else:
+                phase_deg = np.mod(degrees + 180.0, 360.0) - 180.0
+            columns.append(_csv_numbers(np.where(np.isfinite(phase_rad), phase_deg, np.nan).reshape(-1)))
+    tails = [delimiter + delimiter.join(cells) for cells in zip(*columns)] if columns else None
+    lines = []
+    index = 0
+    for angle in angle_heads:
+        for frequency in frequency_heads:
+            head = angle + delimiter + frequency + delimiter
+            for polarization in polarization_heads:
+                lines.append(head + polarization + (tails[index] if tails else "") + "\r\n")
+                index += 1
+    stream.write("".join(lines))
+
+
 def _write_flat_csv_direct(
     grid, path, scale="linear", delimiter=",", include_phase=False
 ):
@@ -451,55 +537,16 @@ def _write_flat_csv_direct(
             else:
                 power_block = np.asarray(power_array[selection])
                 phase_block = np.asarray(phase_array[selection]) if include_phase else None
-            for ai, azimuth in enumerate(grid.azimuths[selection[0]]):
-                for ei, elevation in enumerate(grid.elevations[selection[1]]):
-                    for fi, frequency in enumerate(grid.frequencies[selection[2]]):
-                        frequency_hz = float(frequency) * _FREQUENCY_FACTORS[frequency_unit]
-                        if not np.isfinite(frequency_hz) or frequency_hz <= 0.0:
-                            raise ValueError("flat CSV frequencies must be positive and finite")
-                        for pi, polarization in enumerate(grid.polarizations[selection[3]]):
-                            local_index = (ai, ei, fi, pi)
-                            power = float(power_block[local_index])
-                            row = [
-                                FLAT_CSV_SCHEMA,
-                                _finite_csv_number(azimuth), azimuth_unit,
-                                _finite_csv_number(elevation), elevation_unit,
-                                _finite_csv_number(frequency), frequency_unit,
-                                str(polarization), quantity, log_unit,
-                                angular_coordinate_system, gc_convention,
-                                _finite_csv_number(angular_roll_deg),
-                                _finite_csv_number(angular_tilt_deg),
-                                polarization_basis, time_convention, phase_reference,
-                                phase_wrap,
-                            ]
-                            for column in magnitude_columns:
-                                if not np.isfinite(power):
-                                    row.append("")
-                                elif column == "magnitude_power_linear":
-                                    row.append(_finite_csv_number(power))
-                                elif power == 0.0:
-                                    row.append("-inf")
-                                elif column == "magnitude_dbke":
-                                    wavelength = 299792458.0 / frequency_hz
-                                    row.append(_finite_csv_number(
-                                        10.0 * np.log10(power * 2.0 * math.pi / wavelength)
-                                    ))
-                                else:
-                                    row.append(_finite_csv_number(10.0 * np.log10(power)))
-                            if include_phase:
-                                phase_rad = float(phase_block[local_index])
-                                if phase_wrap == "0_360":
-                                    phase_deg = np.mod(np.degrees(phase_rad), 360.0)
-                                else:
-                                    phase_deg = (
-                                        np.mod(np.degrees(phase_rad) + 180.0, 360.0)
-                                        - 180.0
-                                    )
-                                row.append(
-                                    _finite_csv_number(phase_deg)
-                                    if np.isfinite(phase_rad) else ""
-                                )
-                            writer.writerow(row)
+            _write_flat_csv_block(
+                stream, delimiter, grid, selection, power_block, phase_block,
+                magnitude_columns=magnitude_columns, phase_wrap=phase_wrap,
+                frequency_unit=frequency_unit,
+                leading=(azimuth_unit, elevation_unit),
+                labels=[quantity, log_unit, angular_coordinate_system,
+                        gc_convention, _finite_csv_number(angular_roll_deg),
+                        _finite_csv_number(angular_tilt_deg), polarization_basis,
+                        time_convention, phase_reference, phase_wrap],
+            )
     return path
 
 
@@ -554,11 +601,13 @@ def _parse_number(text, label, line_no, strict):
         value = float(text)
     except ValueError as exc:
         raise ValueError("line {}: invalid {} ({})".format(line_no, label, exc)) from exc
-    if np.isnan(value):
+    # Python-float predicates: the same tests as np.isnan/np.isposinf without
+    # a NumPy scalar round trip per cell.
+    if value != value:
         if strict:
             raise ValueError("line {}: {} cannot be NaN; leave the cell blank".format(line_no, label))
         return None
-    if np.isposinf(value):
+    if value == math.inf:
         raise ValueError("line {}: {} cannot be +infinity".format(line_no, label))
     return value
 
@@ -573,7 +622,7 @@ def _power_candidates(record, mode, quantity, frequency_unit, c0):
         if value is None:
             continue
         if column in ("magnitude_power_linear", "magnitude_linear"):
-            if not np.isfinite(value) or value < 0.0:
+            if not math.isfinite(value) or value < 0.0:
                 raise ValueError(
                     "line {}: {} must be finite and >= 0".format(line_no, column)
                 )
@@ -584,9 +633,9 @@ def _power_candidates(record, mode, quantity, frequency_unit, c0):
                 power = value
                 semantic = "linear power"
         else:
-            if np.isneginf(value):
+            if value == -math.inf:
                 power = 0.0
-            elif not np.isfinite(value):
+            elif not math.isfinite(value):
                 raise ValueError(
                     "line {}: {} must be finite or -inf".format(line_no, column)
                 )
@@ -599,7 +648,7 @@ def _power_candidates(record, mode, quantity, frequency_unit, c0):
                     ) from None
                 if column == "magnitude_dbke":
                     frequency_hz = record["frequency"] * _FREQUENCY_FACTORS[frequency_unit]
-                    if not np.isfinite(frequency_hz) or frequency_hz <= 0.0:
+                    if not math.isfinite(frequency_hz) or frequency_hz <= 0.0:
                         raise ValueError(
                             "line {}: positive frequency is required to convert dBke"
                             .format(line_no)
@@ -608,7 +657,7 @@ def _power_candidates(record, mode, quantity, frequency_unit, c0):
                 else:
                     power = ratio
             semantic = column
-        if not np.isfinite(power) or power < 0.0:
+        if not math.isfinite(power) or power < 0.0:
             raise ValueError(
                 "line {}: {} converts to an invalid linear power".format(line_no, column)
             )
@@ -618,7 +667,9 @@ def _power_candidates(record, mode, quantity, frequency_unit, c0):
         return float("nan")
     reference_column, reference, _semantic = candidates[0]
     for column, candidate, _semantic in candidates[1:]:
-        if not np.isclose(reference, candidate, rtol=5.0e-6, atol=0.0):
+        # np.isclose(reference, candidate, rtol=5e-6, atol=0) for the finite
+        # values validated above, evaluated in Python floats.
+        if not abs(reference - candidate) <= 0.0 + 5.0e-6 * abs(candidate):
             raise ValueError(
                 "line {}: redundant magnitude columns conflict: {}={} W-like "
                 "power but {}={} W-like power".format(
@@ -765,6 +816,9 @@ def _load_flat_table(source, grid_class, c0, *, _estimate_only=False, declared_u
         elevation_values = set()
         frequency_values = set()
         polarization_order = []
+        # Column names resolved once; each cell reads exactly as cell() does.
+        metadata_columns = [(metadata_sets[name], fields[name])
+                            for name in metadata_sets if name in fields]
 
         for line_no, row in source.rows("discover"):
             try:
@@ -773,15 +827,16 @@ def _load_flat_table(source, grid_class, c0, *, _estimate_only=False, declared_u
                 frequency = float(cell(row, axis_fields["frequency"]))
             except ValueError as exc:
                 raise ValueError("line {}: invalid axis value ({})".format(line_no, exc)) from exc
-            if not np.all(np.isfinite([azimuth, elevation, frequency])):
+            if not (math.isfinite(azimuth) and math.isfinite(elevation)
+                    and math.isfinite(frequency)):
                 raise ValueError("line {}: axis values must be finite".format(line_no))
             polarization = cell(row, "polarization")
             if not polarization:
                 raise ValueError("line {}: polarization is blank".format(line_no))
 
-            for name in metadata_sets:
-                if name in fields:
-                    metadata_sets[name].add(cell(row, name))
+            for values, column in metadata_columns:
+                raw = row.get(column, "")
+                values.add(str(raw).strip() if raw is not None else "")
             if mode == "v1":
                 schema_value = cell(row, "grim_csv_schema")
                 metadata_sets["schema"].add(schema_value)
@@ -968,9 +1023,8 @@ def _load_flat_table(source, grid_class, c0, *, _estimate_only=False, declared_u
             raise ValueError(
                 "line {}: invalid axis value ({})".format(line_no, exc)
             ) from exc
-        if not np.all(np.isfinite([
-            record["azimuth"], record["elevation"], record["frequency"]
-        ])):
+        if not (math.isfinite(record["azimuth"]) and math.isfinite(record["elevation"])
+                and math.isfinite(record["frequency"])):
             raise ValueError("line {}: axis values must be finite".format(line_no))
         if not record["polarization"]:
             raise ValueError("line {}: polarization is blank".format(line_no))
@@ -984,13 +1038,14 @@ def _load_flat_table(source, grid_class, c0, *, _estimate_only=False, declared_u
                 record["phase_deg"], "phase_deg", record["line_no"], mode == "v1"
             )
             if parsed_phase is not None:
-                if not np.isfinite(parsed_phase):
+                if not math.isfinite(parsed_phase):
                     raise ValueError(
                         "line {}: phase_deg must be finite".format(
                             record["line_no"]
                         )
                     )
-                phase_value = float(np.deg2rad(parsed_phase))
+                # x * (pi / 180), the same product np.deg2rad evaluates.
+                phase_value = parsed_phase * (math.pi / 180.0)
         try:
             index = (
                 axis_maps[0][record["azimuth"]],

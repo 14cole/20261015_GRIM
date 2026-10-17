@@ -291,9 +291,13 @@ comparison. Newly selected BoR bodies can generate their own bounded-error
 shadow mesh. See the [Assembly workflow guide](ghost_backend/validation/non_bor_feature_validation/README.md).
 The 2-D `amplitude_version` is advisory during subtraction and line loading.
 Operations record convention assumptions without inferring a field conversion.
-An explicitly declared coherent line subtraction may retain the physical 2D
-input convention; the loader validates it before assigning the delta role.
-That declaration does not permit a different phase origin or normalization.
+Feature responses need no "delta" tag or declaration: any response with the
+physical 2-D (line) or cavity-frame 3-D (point) convention, compatible units,
+and grids is accepted. A different phase origin or normalization is still
+rejected. Older files tagged `power_domain="delta_amp_sq"` /
+`rcs_domain="delta"` are converted to standard samples when they are read;
+`declared_coherent_delta` arguments are deprecated and ignored, and
+`tag_as_delta` is a deprecated no-op.
 
 FREDDY nominal IBC and dielectric CSVs store frequencies in Hz and are readable
 with or without headers. GHOST converts Hz to its internal GHz scale and
@@ -319,7 +323,7 @@ manifest fields, headless settings, reduced-order limitations, and required
 independent full-wave evidence.
 
 Use `python ghost_backend/data_tools/run_cli.py subtract OPN FRD Deltas` for
-canonical OPN-FRD 2-D deltas. General joins and dataset conversion use the same
+OPN-FRD 2-D feature responses (written with standard tags). General joins and dataset conversion use the same
 CLI. See [the CLI command definitions](ghost_backend/data_tools/run_cli.py).
 
 ## Tests

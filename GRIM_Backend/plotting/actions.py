@@ -2977,6 +2977,10 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         ):
             self._reset_hover_readout(label)
             return
+        if getattr(ax, "name", "") == "polar":
+            # Matplotlib reports polar theta in radians; show the azimuth in
+            # the plotted unit and the same signed convention as the ticks.
+            x_val = self._marker_display_x(ax, float(x_val))
 
         z_val = self._hover_z_from_axes(ax, event)
         peak_location = getattr(self, "_hover_native_location", None)

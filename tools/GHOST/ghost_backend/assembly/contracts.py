@@ -185,7 +185,6 @@ def _apply_feature_library_contracts(
                         prepared_coefficients.append(load_seam_from_grim(
                             dataset,
                             float(requested_frequency),
-                            declared_coherent_delta=True,
                             delta_sign=1.0,
                             _grim_payload=response_payload,
                         ))

@@ -1,6 +1,8 @@
 """Grid joins, stitching, overlap, and multi-dataset dispatch."""
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 
 import numpy as np
@@ -13,6 +15,44 @@ from GRIM_Backend.datasets.operations import dataset_operation
 
 from GRIM_Backend.datasets.constants import _ADOPT_CLEAN_ARRAYS_TOKEN, _JOIN_MERGE_BLOCK_CELLS
 from GRIM_Backend.datasets.memory import _bounded_grid_selections
+
+
+_JOIN_POLICY_LIMIT = ContextVar("grim_join_policy_limit", default=None)
+
+
+@contextmanager
+def join_output_limit(nbytes):
+    """Scope a machine-dependent output cap to ``join_many`` calls without
+    recording it (unlike an explicit ``max_output_bytes`` argument)."""
+    token = _JOIN_POLICY_LIMIT.set(None if nbytes is None else int(nbytes))
+    try:
+        yield
+    finally:
+        _JOIN_POLICY_LIMIT.reset(token)
+
+
+def _tile_target(*indices):
+    """Address one merge tile of the union grid.
+
+    Union indices are unique, so when each tile's index vector is an evenly
+    spaced increasing run (always, for inputs that are contiguous or strided
+    runs of the union axes) basic slices select the same cells as ``np.ix_``.
+    The tile is then a view: reads and in-place updates skip the fancy
+    gather/scatter, and the loops' final write-back is a self-assignment.
+    """
+    slices = []
+    for vector in indices:
+        vector = np.asarray(vector, dtype=np.intp).reshape(-1)
+        if vector.size == 0 or vector[0] < 0:
+            return np.ix_(*indices)
+        if vector.size == 1:
+            slices.append(slice(int(vector[0]), int(vector[0]) + 1))
+            continue
+        step = int(vector[1] - vector[0])
+        if step <= 0 or not np.all(np.diff(vector) == step):
+            return np.ix_(*indices)
+        slices.append(slice(int(vector[0]), int(vector[-1]) + 1, step))
+    return tuple(slices)
 
 
 def combine_datasets(
@@ -254,10 +294,17 @@ class GridCombineMixin:
             negative_power_count = 0
             minimum_negative = None
             infinite_phase_count = 0
+            # Phase derived from a complex field is finite or NaN by
+            # construction; only stored phase needs the infinity scan.
+            phase_from_field = (grid._complex is not None and not grid._legacy_samples
+                                and grid._phase is None)
             for selection in _bounded_grid_selections(expected, _JOIN_MERGE_BLOCK_CELLS):
-                power_block, phase_block = grid.power_phase_slice(selection)
-                power_block = np.asarray(power_block)
-                phase_block = np.asarray(phase_block)
+                if phase_from_field:
+                    power_block, phase_block = np.asarray(grid.power_slice(selection)), None
+                else:
+                    power_block, phase_block = grid.power_phase_slice(selection)
+                    power_block = np.asarray(power_block)
+                    phase_block = np.asarray(phase_block)
                 infinite_power_count += int(np.count_nonzero(np.isinf(power_block)))
                 finite_negative = np.isfinite(power_block) & (power_block < 0.0)
                 negative_power_count += int(np.count_nonzero(finite_negative))
@@ -268,7 +315,8 @@ class GridCombineMixin:
                         if minimum_negative is None
                         else min(minimum_negative, block_minimum)
                     )
-                infinite_phase_count += int(np.count_nonzero(np.isinf(phase_block)))
+                if phase_block is not None:
+                    infinite_phase_count += int(np.count_nonzero(np.isinf(phase_block)))
             if infinite_power_count or infinite_phase_count:
                 raise ValueError(
                     f"stitch input {input_index} contains infinite samples "
@@ -411,15 +459,15 @@ class GridCombineMixin:
                         for p_start in range(0, len(p_idx), pol_block):
                             p_stop = min(p_start + pol_block, len(p_idx))
                             union_p = p_idx[p_start:p_stop]
-                            target = np.ix_(union_a, union_e, union_f, union_p)
+                            target = _tile_target(union_a, union_e, union_f, union_p)
                             source = (
                                 slice(a_start, a_stop),
                                 slice(e_start, e_stop),
                                 slice(f_start, f_stop),
                                 slice(p_start, p_stop),
                             )
-                            block_power = incoming_power[source]
-                            block_phase = incoming_phase[source]
+                            # One sample read for both components.
+                            block_power, block_phase = grid.power_phase_slice(source)
                             valid = np.isfinite(block_power)
                             incoming_field = None
                             if policy == "coherent-mean" or authoritative:
@@ -448,10 +496,15 @@ class GridCombineMixin:
                                 block_power[usable_field] = (
                                     np.abs(incoming_field[usable_field]) ** 2
                                 )
-                                block_phase[usable_field] = np.angle(
-                                    incoming_field[usable_field]
+                                # A zero field is known. Keep the input's own
+                                # phase there (0 for complex storage, or an
+                                # exceptional stored value) instead of marking
+                                # it unknown, which turned complete raw-field
+                                # inputs into partial-phase power_phase output.
+                                live_field = usable_field & (block_power != 0.0)
+                                block_phase[live_field] = np.angle(
+                                    incoming_field[live_field]
                                 )
-                                block_phase[usable_field & (block_power == 0.0)] = np.nan
                             if not np.any(valid):
                                 continue
 
@@ -773,6 +826,11 @@ class GridCombineMixin:
         Equal finite samples are accepted in all modes. ``max_output_bytes`` can
         cap the estimated peak allocation for memory-aware folder workflows.
         """
+        if max_output_bytes is None:
+            # A caller-scoped policy limit (join_datasets: half of the RAM
+            # available now). It bounds this join without entering the
+            # recorded parameters, so the history stays reproducible.
+            max_output_bytes = _JOIN_POLICY_LIMIT.get()
         grids = cls._ensure_grids(grids)
         if overlap not in {"error", "first", "last"}:
             raise ValueError("overlap must be 'error', 'first', or 'last'")
@@ -879,7 +937,7 @@ class GridCombineMixin:
                     f"input {index}={value or '<unspecified>'!r}"
                     for index, value in enumerate(declared, start=1)
                 )
-                if key in {"phase_reference", "time_convention", "polarization_basis", "amplitude_convention", "complex_field_domain", "feature_provenance_json", "amplitude_version"}:
+                if key in {"phase_reference", "time_convention", "polarization_basis", "amplitude_convention", "complex_field_domain", "feature_provenance_json", "amplitude_version", "assembly_response_role"}:
                     metadata_assumptions[f"{key} (conflicting annotations; samples unchanged)"] = rendered
                 else:
                     raise ValueError(
@@ -994,7 +1052,8 @@ class GridCombineMixin:
                 grids, shape, complex_domain, aligned_indices,
                 overlap=overlap, max_output_bytes=max_output_bytes,
             )
-            return finish({}, {"rcs": joined, "rcs_storage_domain": complex_domain})
+            return finish({},
+                          {"rcs": joined, "rcs_storage_domain": complex_domain})
 
         raw_inputs = []
         preserve_raw_amplitude = True
@@ -1100,7 +1159,7 @@ class GridCombineMixin:
                         for p_start in range(0, len(p_idx), pol_block):
                             p_stop = min(p_start + pol_block, len(p_idx))
                             union_p = p_idx[p_start:p_stop]
-                            target = np.ix_(union_a, union_e, union_f, union_p)
+                            target = _tile_target(union_a, union_e, union_f, union_p)
                             existing_power = joined_power[target]
                             existing_phase = joined_phase[target]
                             block_selection = (
@@ -1261,9 +1320,9 @@ class GridCombineMixin:
         instead of power, phase and raw arrays plus a constructor
         conversion, and each input is read one block at a time.
         """
+        # Raw solver fields keep their stored precision: crop, flip and the
+        # other exact rearrangements do, so a crop-then-join must as well.
         out_dtype = np.result_type(*[grid._complex.dtype for grid in grids])
-        if domain == "raw_field":
-            out_dtype = np.complex128
         itemsize = np.dtype(out_dtype).itemsize
         cell_count = 1
         for dimension in shape:
@@ -1286,7 +1345,8 @@ class GridCombineMixin:
                 def read_block(selection, field=grid._complex):
                     return field[selection]
             else:
-                read_block = grid.rcs_slice
+                # The rcs_slice samples, legacy arrays validated once per input.
+                read_block = grid._bounded_complex_slice_reader()[0]
             pol_block = max(1, min(len(p_idx), _JOIN_MERGE_BLOCK_CELLS))
             freq_block = max(1, min(len(f_idx), _JOIN_MERGE_BLOCK_CELLS // pol_block))
             remaining = max(1, _JOIN_MERGE_BLOCK_CELLS // (pol_block * freq_block))
@@ -1301,7 +1361,7 @@ class GridCombineMixin:
                         f_stop = min(f_start + freq_block, len(f_idx))
                         for p_start in range(0, len(p_idx), pol_block):
                             p_stop = min(p_start + pol_block, len(p_idx))
-                            target = np.ix_(
+                            target = _tile_target(
                                 az_idx[a_start:a_stop], el_idx[e_start:e_stop],
                                 f_idx[f_start:f_stop], p_idx[p_start:p_stop],
                             )

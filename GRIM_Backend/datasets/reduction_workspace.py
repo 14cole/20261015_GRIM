@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import math
+import warnings
+
 import numpy as np
 
 from .memory import _bounded_grid_selections
@@ -125,6 +127,48 @@ def _stream_scalar(blocks, statistic, dtype):
     return np.sqrt(m2 / count) if statistic == "std" else mean
 
 
+_VECTORIZED_RANK = {"median": np.median, "percentile": np.percentile}
+
+
+def _vectorized_nan_rank(values, axes, rank, args):
+    """``np.nanmedian``/``np.nanpercentile`` over ``axes`` without a lane loop.
+
+    Without NaN the nan-function equals the plain function. Otherwise lanes
+    are grouped by their non-NaN count n and each group is reduced at once
+    after the exact compaction numpy's ``_remove_nan_1d`` applies per lane
+    (NaN holes among the first n samples are filled, in order, by the
+    trailing non-NaN samples), so ties such as -0.0/+0.0 select identically.
+    """
+    nan = np.isnan(values)
+    if not nan.any():
+        return rank(values, *args, axis=axes, keepdims=True)
+    keep = [axis for axis in range(values.ndim) if axis not in axes]
+    order = keep + list(axes)
+    lanes = np.transpose(values, order).reshape(
+        math.prod(values.shape[axis] for axis in keep), -1)
+    lane_nan = np.transpose(nan, order).reshape(lanes.shape)
+    population = lanes.shape[1]
+    counts = population - np.count_nonzero(lane_nan, axis=1)
+    reduced = np.empty(lanes.shape[0], dtype=np.float64)
+    for count in np.unique(counts):
+        rows = np.flatnonzero(counts == count)
+        if count == 0:
+            reduced[rows] = np.nan
+            warnings.warn("All-NaN slice encountered", RuntimeWarning, stacklevel=3)
+            continue
+        group = lanes[rows]
+        if count < population:
+            head = np.array(group[:, :count], copy=True)
+            tail = group[:, count:]
+            head[lane_nan[rows, :count]] = tail[~lane_nan[rows, count:]]
+            group = head
+        reduced[rows] = rank(group, *args, axis=1)
+    shape = [1] * values.ndim
+    for position, axis in enumerate(keep):
+        shape[axis] = values.shape[axis]
+    return reduced.reshape(shape)
+
+
 def reduce_dataset(dataset, domain, axes, statistic, percentile=50.):
     """Exact ranks or stable streaming reductions over each complete population."""
     reduced_shape = tuple(1 if axis in axes else count for axis, count in enumerate(dataset.shape))
@@ -147,7 +191,14 @@ def reduce_dataset(dataset, domain, axes, statistic, percentile=50.):
             # Reduce in float64/complex128 like the streamed path; float32
             # cancellation otherwise costs precision in mean and variance.
             values = values.astype(np.complex128 if values.dtype.kind == "c" else np.float64, copy=False)
-            result[selection] = reducer(values, *args, axis=axes, keepdims=True)
+            vectorized = _VECTORIZED_RANK.get(statistic)
+            if vectorized is not None and values.dtype.kind == "f":
+                # nanmedian/nanpercentile with an axis fall back to a Python
+                # loop over every output lane (apply_along_axis); the
+                # vectorized form below returns the same bits.
+                result[selection] = _vectorized_nan_rank(values, axes, vectorized, args)
+            else:
+                result[selection] = reducer(values, *args, axis=axes, keepdims=True)
         return result
     for index in np.ndindex(reduced_shape):
         blocks = _population_blocks(dataset, axes, index, domain, field_reader)

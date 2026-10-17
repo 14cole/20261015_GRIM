@@ -341,12 +341,13 @@ class GridCoordinatesMixin:
             (len(phi_interp), len(tau_sorted), len(self.frequencies), 2, 2), np.complex128
         )
         labels, cross_note = None, None
+        read_field = self._bounded_complex_slice_reader()[0]   # legacy check once
         for tile in _bounded_grid_selections(source_shape, 8_192):
             selection = np.ix_(phi_order[tile[0]], tau_order[tile[1]],
                                np.arange(tile[2].start, tile[2].stop),
                                np.arange(len(self.polarizations)))
             source_jones, labels, cross_note = _jones_from_polarization_channels(
-                self.rcs_slice(selection), self.polarizations,
+                read_field(selection), self.polarizations,
                 assume_missing_cross_pol_zero=assume_missing_cross_pol_zero,
             )
             jones_interp[tile] = source_jones

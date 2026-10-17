@@ -77,13 +77,44 @@ def _prepare_uniform_frequency_history(
     )
 
 
-def _form_range_image(history, sample_weights, window):
-    """Single-precision FFT with double-precision coherent-gain accumulation."""
+# Zero-pad each range profile to this many times the sweep length while the
+# padded display stays within the cell budget. Without padding an off-bin
+# point reads up to 3.9 dB (rectangular) / 1.4 dB (Hann) low; 4x padding
+# bounds that scalloping to about 0.22 dB / 0.09 dB, matching Range-Frequency.
+_RANGE_PAD_FACTOR = 4
+_RANGE_PAD_MAX_CELLS = 32 * 1024**2
+
+
+def _range_fft_size(n_frequency: int, n_azimuth: int) -> int:
+    """Padded range FFT length: 4x, else 2x, else 1x within the cell budget."""
+    n_frequency, n_azimuth = max(int(n_frequency), 1), max(int(n_azimuth), 1)
+    for factor in (_RANGE_PAD_FACTOR, 2):
+        if n_azimuth * n_frequency * factor <= _RANGE_PAD_MAX_CELLS:
+            return n_frequency * factor
+    return n_frequency
+
+
+def _range_scalloping_loss_db(window, n_fft: int) -> float:
+    """Worst off-bin peak loss of the windowed profile on an n_fft grid."""
+    taper = np.asarray(window, dtype=float)
+    offset = 0.5 * taper.size / max(int(n_fft), 1)  # half a display bin, in native bins
+    phase = np.exp(2j * np.pi * offset * np.arange(taper.size) / taper.size)
+    gain = abs(np.sum(taper * phase)) / max(float(np.sum(taper)), np.finfo(float).tiny)
+    return float(-20.0 * np.log10(max(gain, 1.0e-12)))
+
+
+def _form_range_image(history, sample_weights, window, n_fft=None):
+    """Single-precision FFT with double-precision coherent-gain accumulation.
+
+    ``n_fft`` zero-pads each profile (default: the sweep length). The coherent
+    gain uses the padded length, so an on-bin unit point reads 1 at any size.
+    """
     taper = np.asarray(window, dtype=np.float32)
     weighted = np.asarray(history, dtype=np.complex64) * taper[None, :]
     weighted *= sample_weights
-    image = np.fft.fftshift(_ifft(weighted, n=weighted.shape[1], axis=1), axes=1)
-    gain = np.sum(sample_weights * taper[None, :], axis=1, dtype=np.float64) / weighted.shape[1]
+    size = weighted.shape[1] if n_fft is None else max(int(n_fft), weighted.shape[1])
+    image = np.fft.fftshift(_ifft(weighted, n=size, axis=1), axes=1)
+    gain = np.sum(sample_weights * taper[None, :], axis=1, dtype=np.float64) / size
     usable = gain > 0
     np.divide(image, gain[:, None], out=image, where=usable[:, None])
     image[~usable] = np.nan + 1j * np.nan
@@ -297,13 +328,14 @@ def prepare_azimuth_range(request, cancel=None, *, batch_bytes=8 * 1024**2):
     window = request.options.get("window_array")
     if window is None:
         window = _window_array(request.options["window"], len(target))
+    n_fft = _range_fft_size(len(target), len(azimuth))
     # One full frequency vector is unavoidable; all additional azimuth rows
     # stay within this scratch target regardless of the total image size.
-    rows = max(1, int(batch_bytes) // max(1, 64 * (len(frequency) + len(target))))
+    rows = max(1, int(batch_bytes) // max(1, 64 * (len(frequency) + len(target)) + 24 * n_fft))
     any_usable, peak = False, 0.
     check_cancel(cancel)
     with operation_result_storage("auto", ram_budget_bytes=16 * 1024**2):
-        display = allocate_result((len(azimuth), len(target)), np.float64)
+        display = allocate_result((len(azimuth), n_fft), np.float64)
         for first in range(0, len(azimuth), rows):
             check_cancel(cancel)
             history = dataset.rcs_slice(np.ix_(azimuth[first:first + rows], elevation,
@@ -311,7 +343,7 @@ def prepare_azimuth_range(request, cancel=None, *, batch_bytes=8 * 1024**2):
             if request.options["time_sign"] == "-jwt":
                 np.conjugate(history, out=history)
             _, uniform, weights, _ = _prepare_uniform_frequency_history(freq_hz, history, plan=frequency_plan)
-            image, usable = _form_range_image(uniform, weights, window)
+            image, usable = _form_range_image(uniform, weights, window, n_fft=n_fft)
             any_usable = any_usable or bool(np.any(usable))
             magnitude = np.abs(image)
             display[first:first + rows] = magnitude
@@ -329,7 +361,7 @@ def prepare_azimuth_range(request, cancel=None, *, batch_bytes=8 * 1024**2):
                 magnitude = magnitude / peak
             display[first:first + rows] = _range_display_values(dataset, magnitude,
                 linear=request.scale == "linear")
-        ranges = np.fft.fftshift(np.fft.fftfreq(len(target), d=float(np.mean(np.diff(target)))))
+        ranges = np.fft.fftshift(np.fft.fftfreq(n_fft, d=float(np.mean(np.diff(target)))))
         ranges *= 299_792_458.0 / 2.0 * request.options["unit_scale"]
         maximum = min(common.MAX_IMAGE_SIDE, int(np.sqrt(common.MAX_IMAGE_CELLS)))
         xe, ye, drawn, reduced, peaks = _range_display_grid(az_values, ranges, display.T,
@@ -339,7 +371,9 @@ def prepare_azimuth_range(request, cancel=None, *, batch_bytes=8 * 1024**2):
         return PlotResult(request, [dict(x_edges=xe, y_edges=ye, display_for_plot=drawn,
             display=None if reduced else display, decimated=reduced, peak_indices=peaks,
             range_axis=ranges, az_values=az_values, freq_hz=freq_hz,
-            frequency_sampling=dict(frequency_plan["info"]))])
+            frequency_sampling=dict(frequency_plan["info"]), range_fft_size=n_fft,
+            range_padding_factor=n_fft / len(target),
+            range_scalloping_loss_db=_range_scalloping_loss_db(window, n_fft))])
 
 
 def _display(self, result):

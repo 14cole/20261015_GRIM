@@ -15,7 +15,6 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tu
 import numpy as np
 
 from ghost_backend.geometry.io import material_sidecar_paths
-from ghost_backend.io.naming import require_role_free_declared_delta
 from ghost_backend.assembly.line_expansion import (
     C0,
     GRAZING_TAPER_DEG,
@@ -106,10 +105,11 @@ RADAR_COMPONENT_PHASE_REFERENCE = (
 RADAR_COMPONENT_FIELD_DOMAIN = (
     "coherent_radar_frame_far_field_amplitude"
 )
-DELTA_FIELD_DOMAIN = "featured_minus_clean_far_field_amplitude_delta"
-DELTA_PHASE_SUFFIX = (
-    "; coherent subtraction=featured-clean; placement phase center is the "
-    "seam line on the coupon outer face y=0"
+# Retired GHOST delta convention markers. Nothing writes them; the native
+# decoder reads files that still carry them as the physical 2-D convention.
+from ghost_backend.data_tools.cem_tools.native_samples import (  # noqa: E402
+    LEGACY_DELTA_FIELD_DOMAIN as DELTA_FIELD_DOMAIN,
+    LEGACY_DELTA_PHASE_SUFFIX as DELTA_PHASE_SUFFIX,
 )
 
 
@@ -141,7 +141,6 @@ _LEGACY_BASE_ASSUMPTIONS_KEY = "_ghost_legacy_base_metadata_assumptions"
 def point_pattern_convention_metadata() -> 'Dict[str, str]':
     """Exact metadata required for a compact 3-D differential pattern."""
     return {
-        "rcs_domain": "delta",
         "phase_reference": POINT_PATTERN_PHASE_REFERENCE,
         "amplitude_convention": POINT_PATTERN_AMPLITUDE_CONVENTION,
         "complex_field_domain": POINT_PATTERN_FIELD_DOMAIN,
@@ -176,15 +175,10 @@ def convention_scale(grim: 'Dict[str, Any]',
                      frequencies_ghz=None) -> 'np.ndarray':
     """Return the factor converting field magnitude to sqrt(rcs_power).
 
-    For sigma_2d the factor is 1/(2*sqrt(k)); for sigma_3d it is sqrt(4*pi). A declared
-    power_domain of delta_amp_sq uses factor 1.
+    For sigma_2d the factor is 1/(2*sqrt(k)); for sigma_3d it is sqrt(4*pi).
+    Legacy ``delta_amp_sq`` payloads are converted to this standard form when
+    they are decoded, so no other normalization exists.
     """
-    if str(grim.get("power_domain", "")) == "delta_amp_sq":
-        if str(grim.get("rcs_domain", "")) != "delta":
-            raise ValueError(
-                "power_domain='delta_amp_sq' is valid only for an explicitly "
-                "tagged legacy delta.")
-        return np.ones(1)
     try:
         units = json.loads(str(grim.get("units", "")))
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -464,28 +458,20 @@ def _assume_field_metadata(metadata, label, expected, *, strict=False):
 
 def validate_declared_coherent_delta_domain(
         metadata: 'Dict[str, Any]', label: 'str') -> 'str':
-    """Validate domain metadata for an explicitly attested delta.
+    """Deprecated: describe a response's embedded ``rcs_domain`` tag.
 
-    Missing metadata and power_phase/complex_amplitude storage tags accept an explicit
-    delta role. Contradictory explicit domains raise ValueError.
+    Feature responses no longer need a delta tag or attestation, so this
+    never raises. It returns a provenance description of the stored tag.
     """
 
-    domain = _metadata_text(
-        metadata, "rcs_domain", label, required=False
-    )
+    try:
+        domain = _metadata_text(metadata, "rcs_domain", label, required=False)
+    except ValueError:
+        domain = ""
     normalized = domain.casefold().replace("-", "_")
-    if normalized == "delta":
-        return "canonical_delta"
-    if normalized in {"power_phase", "complex_amplitude"}:
-        return "declared_gui_derived_delta"
     if not normalized:
-        return "legacy_declared_delta_missing_domain"
-    raise ValueError(
-        f"{label}: declared_coherent_delta=True contradicts the embedded "
-        f"rcs_domain={domain!r}. Accepted role-free responses are canonical "
-        "rcs_domain='delta', GUI Coherent-minus power/phase or complex-"
-        "amplitude results, and Legacy files with no domain tag."
-    )
+        return "no_domain_tag"
+    return f"rcs_domain:{normalized}"
 
 
 def _units_metadata(grim: 'Dict[str, Any]', label: 'str') -> 'Dict[str, Any]':
@@ -923,8 +909,8 @@ def make_delta_grim(clean: 'PathOrList', featured: 'PathOrList', out_path: 'str'
 
     clean and featured each accept a single path or a list of paths with
     matching polarizations, angle grids, and frequency grids. The output
-    preserves complex amplitudes and declares rcs_domain='delta'. Return
-    the output path."""
+    preserves complex amplitudes and carries the inputs' standard
+    conventions and storage tags (no delta tag). Return the output path."""
     clean_paths = [clean] if isinstance(clean, str) else list(clean)
     featured_paths = [featured] if isinstance(featured, str) else list(featured)
     if not clean_paths or not featured_paths:
@@ -982,10 +968,10 @@ def make_delta_grim(clean: 'PathOrList', featured: 'PathOrList', out_path: 'str'
         polarization_aliases_json=json.dumps(pols),
         rcs_power=sigma_2d.astype(np.float32),
         rcs_phase=np.arctan2(amp_imag, amp_real).astype(np.float32),
-        rcs_domain="delta", power_domain="linear_rcs",
+        rcs_domain="power_phase", power_domain="linear_rcs",
         source_path="", history=(history or "make_delta_grim: featured - clean"),
         units=json.dumps(units),
-        phase_reference=phase_ref + DELTA_PHASE_SUFFIX,
+        phase_reference=phase_ref,
         amplitude_convention=(
             amplitude_convention or
             f"legacy convention identified by complex_field_domain="
@@ -993,7 +979,7 @@ def make_delta_grim(clean: 'PathOrList', featured: 'PathOrList', out_path: 'str'
         raw_complex_amplitude_preserved=True,
         rcs_amp_real=amp_real,
         rcs_amp_imag=amp_imag,
-        complex_field_domain=DELTA_FIELD_DOMAIN,
+        complex_field_domain=source_field_domain,
     )
     for source in cg + fg:
         try:
@@ -1058,63 +1044,25 @@ def load_seam_from_grim(path: 'str', frequency_ghz: 'float',
                         declared_coherent_delta: 'bool' = False,
                         delta_sign: 'float' = 1.0,
                         _grim_payload=None) -> 'SeamCoefficients':
-    """Load a delta .grim at one frequency into a SeamCoefficients.
+    """Load a 2-D seam response at one frequency into a SeamCoefficients.
 
-    Both physical channels are required.  HH is the accepted alias for TM and
-    VV is the accepted alias for TE.
+    Any featured-minus-clean 2-D response in the physical 2-D convention is
+    accepted; no delta tag or attestation is needed. ``declared_coherent_delta``
+    is deprecated and ignored. Both physical channels are required.  HH is the
+    accepted alias for TM and VV is the accepted alias for TE.
     """
-    require_role_free_declared_delta(path)
+    del declared_coherent_delta  # deprecated, ignored
     g = _load_grim(path) if _grim_payload is None else _grim_payload
+    g = dict(g)
     require_current_2d_amplitude(g, path)
     _assume_field_metadata(g, path, {"time_convention": "exp(+jwt)"})
-    dom = str(g.get("rcs_domain", "")).strip()
-    normalized_domain = dom.lower().replace("-", "_")
-    if declared_coherent_delta:
-        validate_declared_coherent_delta_domain(g, path)
-
-
-    else:
-        if normalized_domain != "delta":
-            raise ValueError(
-                f"{path}: rcs_domain is {dom!r}, not 'delta'. A direct API "
-                "call must provide a canonical delta or set "
-                "declared_coherent_delta=True after verifying that the file "
-                "is featured minus clean."
-            )
-        if _metadata_text(g, "power_domain", path) != "linear_rcs":
-            raise ValueError(
-                f"{path}: a production seam delta must have "
-                "power_domain='linear_rcs'.")
-    if declared_coherent_delta:
-        _require_linear_quantity(g, path, "sigma_2d")
-    else:
-        _require_units(
-            g, path, linear_quantity="sigma_2d", log_unit="dBke")
+    _require_linear_quantity(g, path, "sigma_2d")
     _require_singleton_zero_elevation(g, path)
-    expected_phase_reference = (
-        PHYSICAL_2D_PHASE_REFERENCE + DELTA_PHASE_SUFFIX)
-    expected_metadata = {
-        "complex_field_domain": DELTA_FIELD_DOMAIN,
-        "phase_reference": expected_phase_reference,
+    _assume_field_metadata(g, path, {
+        "complex_field_domain": PHYSICAL_2D_FIELD_DOMAIN,
+        "phase_reference": PHYSICAL_2D_PHASE_REFERENCE,
         "amplitude_convention": PHYSICAL_2D_AMPLITUDE_CONVENTION,
-    }
-    if declared_coherent_delta and (
-        _metadata_text(g, 'complex_field_domain', path, required=False) == PHYSICAL_2D_FIELD_DOMAIN
-        or _metadata_text(g, 'phase_reference', path, required=False) == PHYSICAL_2D_PHASE_REFERENCE
-    ):
-        # An explicitly attested subtraction can retain its inputs' physical
-        # convention. Validate that convention before changing only the role.
-        # A wrong origin/time sign/normalization is never a role conversion.
-        g = dict(g)
-        _assume_field_metadata(g, path, {
-            'complex_field_domain': PHYSICAL_2D_FIELD_DOMAIN,
-            'phase_reference': PHYSICAL_2D_PHASE_REFERENCE,
-            'amplitude_convention': PHYSICAL_2D_AMPLITUDE_CONVENTION,
-        })
-        g['complex_field_domain'] = np.asarray(DELTA_FIELD_DOMAIN)
-        g['phase_reference'] = np.asarray(expected_phase_reference)
-        _record_metadata_advisory(g, f'{path}: explicit coherent-subtraction declaration changes physical-field role to delta; samples and phase origin are unchanged.')
-    _assume_field_metadata(g, path, expected_metadata)
+    })
 
 
     scale = convention_scale(g)
@@ -1132,57 +1080,13 @@ def load_seam_from_grim(path: 'str', frequency_ghz: 'float',
 
 
 def tag_as_delta(path: 'str', *, source_2d_grim: 'Optional[str]' = None) -> 'str':
-    """Mark an existing .grim as a differential (featured - clean) delta.
+    """Deprecated no-op kept for existing scripts; returns ``path`` unchanged.
 
-    For a delta built OUTSIDE this pipeline -- typically a coherent subtract in
-    the viewer. A derived viewer grid may lose convention metadata, so
-    ``source_2d_grim`` must name one of the verified solver inputs unless the
-    target already carries the complete delta convention. No field array is
-    touched. Do NOT use this on a whole-object solve.
+    Feature placement no longer needs a delta tag: any compatible response
+    is accepted as it is.
     """
-    loaded = _load_grim(str(path))
-    d = {key: value for key, value in loaded.items()
-         if not key.startswith("_")}
-
-
-    target_amp = np.asarray(loaded["_amp"], dtype=complex)
-    d["rcs_amp_real"] = target_amp.real.astype(np.float64)
-    d["rcs_amp_imag"] = target_amp.imag.astype(np.float64)
-    d["raw_complex_amplitude_preserved"] = np.asarray(True)
-    if source_2d_grim is not None:
-        source = _load_grim(str(source_2d_grim))
-        _require_2d_source_semantics(
-            source, f"source_2d_grim {source_2d_grim}")
-        d["phase_reference"] = np.asarray(
-            _metadata_text(source, "phase_reference", str(source_2d_grim))
-            + DELTA_PHASE_SUFFIX
-        )
-        d["amplitude_convention"] = np.asarray(
-            _metadata_text(
-                source, "amplitude_convention", str(source_2d_grim))
-        )
-        d["complex_field_domain"] = np.asarray(DELTA_FIELD_DOMAIN)
-    else:
-        missing = [
-            key for key in (
-                "phase_reference", "amplitude_convention",
-                "complex_field_domain")
-            if key not in d or not str(np.asarray(d[key]).reshape(-1)[0]).strip()
-        ]
-        if missing:
-            raise ValueError(
-                "tag_as_delta cannot invent coherent-field conventions; pass "
-                "source_2d_grim=<one verified clean/featured solver GRIM>. "
-                f"Missing {missing}.")
-    was = str(d.get("rcs_domain", ""))
-    d["rcs_domain"] = np.asarray("delta")
-    d["history"] = np.asarray(f"{str(d.get('history', ''))} | tag_as_delta: "
-                              f"rcs_domain {was!r} -> 'delta'")
-    from ghost_backend.io.grim import _save_grim_npz
-    saved = _save_grim_npz(d, str(path))
-
-    load_seam_from_grim(saved, float(np.asarray(d["frequencies"], float)[0]))
-    return saved
+    del source_2d_grim
+    return str(path)
 
 
 def _stitch_chains(chains):
@@ -2463,16 +2367,10 @@ def _validate_point_pattern_metadata(metadata: 'Dict[str, Any]',
                                      label: 'str', *,
                                      declared_coherent_delta: 'bool' = False
                                      ) -> 'None':
+    """Check the compact-pattern frame conventions (``declared_coherent_delta``
+    is deprecated and ignored)."""
+    del declared_coherent_delta
     expected = point_pattern_convention_metadata()
-    if declared_coherent_delta:
-
-
-        validate_declared_coherent_delta_domain(metadata, label)
-        expected.pop("rcs_domain")
-    if "rcs_domain" in expected:
-
-        if _metadata_text(metadata, "rcs_domain", label) != expected.pop("rcs_domain"):
-            raise ValueError(f"{label}: point response requires rcs_domain='delta' or selection as a declared coherent delta.")
     expected.update(time_convention="exp(+jwt)")
     if "polarization_basis" in metadata:
         expected["polarization_basis"] = "cavity theta/phi"
@@ -2496,32 +2394,18 @@ def _load_pattern(pattern, *, declared_coherent_delta=False,
         from ghost_backend.io.viewer_bridge import load_pattern_any
         pattern = load_pattern_any(pattern)
     if isinstance(pattern, str):
-        require_role_free_declared_delta(pattern)
         g = _load_grim(pattern)
-        _validate_point_pattern_metadata(
-            g, pattern, declared_coherent_delta=declared_coherent_delta
-        )
+        _validate_point_pattern_metadata(g, pattern)
         az = np.asarray(g["azimuths"], float); el = np.asarray(g["elevations"], float)
         fr = np.asarray(g["frequencies"], float)
         pols = [str(p) for p in np.asarray(g["polarizations"]).ravel()]
         if "rcs_amp_real" in g and "rcs_amp_imag" in g:
             amp = g["_amp"]
-        elif declared_coherent_delta and g.get("_amp_from_power_phase", False):
-
-
-            amp = np.asarray(g["_amp"], dtype=np.complex128)
         else:
-            raise ValueError(
-                f"{pattern}: compact-feature patterns require preserved raw "
-                "complex amplitudes, or a declared GUI coherent subtraction "
-                "with finite power and phase.")
-        pattern_units = _require_linear_quantity(g, pattern, "sigma_3d")
-        if (not declared_coherent_delta and
-                str(pattern_units.get("rcs_log_unit", "")).strip().lower()
-                != "dbsm"):
-            raise ValueError(
-                f"{pattern}: compact-feature pattern must use dBsm display "
-                "units for sigma_3d.")
+            # Power/phase-only responses (for example a GUI coherent
+            # subtraction) define the same complex field.
+            amp = np.asarray(g["_amp"], dtype=np.complex128)
+        _require_linear_quantity(g, pattern, "sigma_3d")
         if "rcs_power" not in g:
             raise ValueError(f"{pattern}: compact-feature pattern has no rcs_power.")
         if np.shape(g["rcs_power"]) != amp.shape:
@@ -2544,9 +2428,7 @@ def _load_pattern(pattern, *, declared_coherent_delta=False,
                     "field; require rcs_power=4*pi*|F|^2.")
     else:
         pattern = dict(pattern)
-        _validate_point_pattern_metadata(
-            pattern, "point pattern", declared_coherent_delta=declared_coherent_delta
-        )
+        _validate_point_pattern_metadata(pattern, "point pattern")
         az = np.asarray(pattern["azimuths"], float); el = np.asarray(pattern["elevations"], float)
         fr = np.asarray(pattern["frequencies"], float)
         pols = [str(p) for p in np.asarray(pattern["polarizations"]).ravel()]
@@ -2666,11 +2548,10 @@ def prepare_point_pattern(pattern, *, declared_coherent_delta=False,
                           ) -> 'PreparedPointPattern':
     """Validate and load one compact pattern once for repeated placement.
 
-    ``declared_coherent_delta=True`` is for a GUI power/phase result that the
-    caller explicitly attests is installed-feature minus clean-skin in the
-    documented cavity frame and phase origin. It supplies only convention tags
-    lost or copied stale by that GUI operation; units, grid, polarization,
-    seam, and numerical normalization remain strict.
+    Any compatible compact response is accepted without a delta tag;
+    ``declared_coherent_delta`` is deprecated and ignored. Frame, phase
+    origin, units, grid, polarization, seam, and numerical normalization
+    remain strict.
     """
     sign = float(delta_sign)
     if not math.isfinite(sign) or sign not in (-1.0, 1.0):
@@ -3227,27 +3108,17 @@ def sum_features(bor_result: 'Dict[str, Any]',
 
 
             kind = str(pl.get("kind", "") or "").strip().lower()
-            dom = str(_load_grim(str(coef)).get("rcs_domain", ""))
-            if kind in ("delta", "seam"):
+            if kind in ("delta", "seam", ""):
+                # No tag is needed: an untyped response is read as a seam
+                # response (the same coefficients as an object response).
                 coef = load_seam_from_grim(
                     str(coef), frequency_ghz,
-                    declared_coherent_delta=bool(
-                        pl.get("declared_coherent_delta", False)
-                    ),
                     delta_sign=float(pl.get("delta_sign", 1.0)),
                 )
             elif kind in ("object", "full", "coefficient"):
-                if dom == "delta":
-                    raise ValueError(
-                        f"{os.path.basename(str(coef))}: declared "
-                        "kind='object' but the file is a featured-clean delta."
-                    )
                 coef = load_coefficients_from_grim(str(coef), frequency_ghz)
-            elif kind:
-                raise ValueError(f"placement kind={kind!r}; use 'delta' or 'object'.")
             else:
-                coef = (load_seam_from_grim(str(coef), frequency_ghz) if dom == "delta"
-                        else load_coefficients_from_grim(str(coef), frequency_ghz))
+                raise ValueError(f"placement kind={kind!r}; use 'delta' or 'object'.")
         per = pl["perimeter"]
         if not isinstance(per, np.ndarray):
             per = read_perimeter_txt(str(per), scale=float(pl.get("scale", perimeter_scale)))
@@ -3603,15 +3474,13 @@ def _prepared_line_placements_at_frequency(
                 payload_cache[source] = _load_grim(source)
             cache_key = (
                 source,
-                bool(placement.get("declared_coherent_delta", False)),
                 float(placement.get("delta_sign", 1.0)),
             )
             if cache_key not in coefficient_cache:
                 coefficient_cache[cache_key] = load_seam_from_grim(
                     source,
                     float(frequency_ghz),
-                    declared_coherent_delta=cache_key[1],
-                    delta_sign=cache_key[2],
+                    delta_sign=cache_key[1],
                     _grim_payload=payload_cache[source],
                 )
             resolved = dict(placement)
@@ -5507,7 +5376,6 @@ def add_features_to_monostatic_grim(
     )
     if not allow_legacy_base_metadata and (existing_provenance_records or existing_assembly_role in {
         "body_plus_features",
-        "features_only_delta",
     }):
         raise ValueError(
             f"{label}: Assembly cannot add another batch to a feature-bearing "

@@ -46,9 +46,7 @@ def units_and_scale(payload, label="GRIM dataset"):
     quantity = str(units.get("rcs_linear_quantity", "")).strip().lower()
     if not quantity:
         quantity = "sigma_2d" if str(units.get("rcs_log_unit", "dBsm")).lower() == "dbke" else "sigma_3d"
-    if str(payload.get("power_domain", "")) == "delta_amp_sq" and str(payload.get("rcs_domain", "")) == "delta":
-        scale = 1.
-    elif quantity == "sigma_3d":
+    if quantity == "sigma_3d":
         scale = np.sqrt(4. * np.pi)
     elif quantity == "sigma_2d":
         factor = FREQUENCY_HZ_FACTORS.get(str(units.get("frequency", "GHz")).strip().lower())
@@ -185,7 +183,94 @@ def raw_amplitude(payload, selection=Ellipsis):
     return result
 
 
+LEGACY_DELTA_HISTORY_NOTE = "converted legacy delta_amp_sq (physical amplitude)"
+# Convention markers older GHOST deltas carried. They name the physical 2-D
+# convention of the subtracted inputs and are read as that convention.
+LEGACY_DELTA_FIELD_DOMAIN = "featured_minus_clean_far_field_amplitude_delta"
+LEGACY_DELTA_PHASE_SUFFIX = (
+    "; coherent subtraction=featured-clean; placement phase center is the "
+    "seam line on the coupon outer face y=0"
+)
+_PHYSICAL_2D_PHASE_REFERENCE = (
+    "origin=(0,0), convention=exp(+jwt); stored complex field is the "
+    "2D layer-potential bare-integral amplitude B. The coefficient "
+    "in u_s~exp(-j(kr-pi/4))/sqrt(8*pi*k*r)*A is A=j*B."
+)
+_PHYSICAL_2D_FIELD_DOMAIN = "2d_layer_potential_bare_integral_amplitude_B"
+
+
+def _scalar_tag(payload, key):
+    if key not in payload:
+        return ""
+    value = np.asarray(payload[key])
+    if value.size != 1:
+        return ""
+    value = value.reshape(-1)[0]
+    if isinstance(value, (bytes, np.bytes_)):
+        value = bytes(value).decode("utf-8", "replace")
+    return str(value).strip()
+
+
+def convert_legacy_delta(payload):
+    """Rewrite a legacy GHOST delta payload once into standard samples.
+
+    This is GHOST's only reader of the retired delta tags. A payload tagged
+    ``power_domain='delta_amp_sq'`` with ``rcs_domain='delta'`` stores an
+    amplitude ``A`` that already is physical (physical power ``|A|**2``).
+    It becomes an ordinary physical complex dataset holding the same values
+    (raw field or raw pair -> ``rcs_complex``; power/phase-only data are
+    unchanged), so the standard normalization reproduces ``|A|**2``. A bare
+    ``rcs_domain='delta'`` tag becomes the storage-derived tag, and the old
+    2-D delta convention markers are read as the physical 2-D convention.
+    Every other payload is returned unchanged.
+    """
+    power_domain = _scalar_tag(payload, "power_domain")
+    rcs_domain = _scalar_tag(payload, "rcs_domain")
+    phase_reference = _scalar_tag(payload, "phase_reference")
+    field_domain = _scalar_tag(payload, "complex_field_domain")
+    legacy_scale = power_domain == "delta_amp_sq" and rcs_domain == "delta"
+    legacy_markers = (phase_reference.endswith(LEGACY_DELTA_PHASE_SUFFIX)
+                      or field_domain == LEGACY_DELTA_FIELD_DOMAIN)
+    if not (legacy_scale or rcs_domain == "delta" or legacy_markers):
+        return payload
+    result = dict(payload)
+    if legacy_scale:
+        raw = {"rcs_amp_real", "rcs_amp_imag", "raw_complex_amplitude_preserved"}
+        if "rcs_complex" in result:
+            field = np.asarray(result["rcs_complex"])
+        elif "rcs_amp_real" in result and "rcs_amp_imag" in result:
+            real = np.asarray(result["rcs_amp_real"])
+            imag = np.asarray(result["rcs_amp_imag"])
+            field = np.empty(np.broadcast_shapes(real.shape, imag.shape),
+                             dtype=np.result_type(real.dtype, imag.dtype, np.complex64))
+            field.real, field.imag = real, imag
+        else:
+            field = None
+        if field is not None:
+            for key in raw | {"rcs_complex", "rcs_power", "rcs_phase"}:
+                result.pop(key, None)
+            result.update(grim_format_version=np.asarray(2, dtype=np.int16),
+                          storage_kind=np.asarray("complex"),
+                          storage_domain=np.asarray("physical"), rcs_complex=field)
+        result["power_domain"] = np.asarray("linear_rcs")
+        history = _scalar_tag(result, "history")
+        result["history"] = np.asarray(
+            (history + " | " if history else "") + LEGACY_DELTA_HISTORY_NOTE)
+    if rcs_domain == "delta":
+        result["rcs_domain"] = np.asarray(
+            "complex_amplitude" if "rcs_complex" in result else "power_phase")
+    if phase_reference.endswith(LEGACY_DELTA_PHASE_SUFFIX):
+        stripped = phase_reference[:-len(LEGACY_DELTA_PHASE_SUFFIX)]
+        result["phase_reference"] = np.asarray(stripped)
+        if field_domain == LEGACY_DELTA_FIELD_DOMAIN and stripped == _PHYSICAL_2D_PHASE_REFERENCE:
+            result["complex_field_domain"] = np.asarray(_PHYSICAL_2D_FIELD_DOMAIN)
+    elif field_domain == LEGACY_DELTA_FIELD_DOMAIN and phase_reference == _PHYSICAL_2D_PHASE_REFERENCE:
+        result["complex_field_domain"] = np.asarray(_PHYSICAL_2D_FIELD_DOMAIN)
+    return result
+
+
 def decode_native_samples(payload, *, label="GRIM dataset"):
+    payload = convert_legacy_delta(payload)
     if "grim_format_version" not in payload:
         return payload
     result = dict(payload)

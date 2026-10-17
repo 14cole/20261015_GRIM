@@ -845,7 +845,6 @@ class GridMetadataMixin:
     })
 
     _RAW_AMPLITUDE_EXTRA_KEYS = ("rcs_amp_real", "rcs_amp_imag")
-
     def _response_independent_extra(self):
         """Preserve ancillary models for transforms; drop response-bound claims.
 

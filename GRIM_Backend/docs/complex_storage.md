@@ -29,9 +29,19 @@ real and imaginary metadata arrays are views of a single complex field, not
 additional sample copies. GRIM applies the existing quantity-dependent scale
 when providing physical samples. Raw solver I/Q should therefore not be
 interpreted as physical RCS I/Q without that scale. The scale is
-`sqrt(4*pi)` for sigma_3d and `1/(2*sqrt(k))` for sigma_2d, except for a
-legacy GHOST delta tagged `power_domain="delta_amp_sq"` and
-`rcs_domain="delta"`, whose raw amplitude is already physical (scale 1).
+`sqrt(4*pi)` for sigma_3d and `1/(2*sqrt(k))` for sigma_2d; no other
+normalization exists.
+
+Older GHOST feature deltas were tagged `power_domain="delta_amp_sq"` and
+`rcs_domain="delta"`; their stored amplitude `A` already was physical
+(physical power `|A|^2`). GRIM converts such a file once, when it is loaded,
+into an ordinary physical dataset with the same physical values: a raw-field
+complex store or a retained raw pair becomes physical complex samples, and
+power/phase-only files keep their samples. The two tags are dropped and the
+history records `converted legacy delta_amp_sq (physical amplitude)`. Saving
+the dataset writes standard tags. `scan_legacy_delta.py --convert OUT_DIR` at
+the repository root writes converted copies of a folder without touching the
+originals. "Delta" is not a GRIM dataset role and never blocks an operation.
 
 For GHOST 2-D (sigma_2d) data the physical I/Q is the solver's stored bare
 integral `B` times `1/(2*sqrt(k))`, so its phase is `arg(B)`, 90 degrees behind

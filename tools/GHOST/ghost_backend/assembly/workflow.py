@@ -65,7 +65,7 @@ from ghost_backend.assembly.line_expansion import (
     prepare_perimeter_frame,
     surface_of_revolution_normal,
 )
-from ghost_backend.io.naming import require_role_free_declared_delta
+from ghost_backend.io.naming import parse_variation
 from ghost_backend.geometry.occlusion import Occluder
 from ghost_backend.geometry.surface import TriangleSurface, read_surface_mesh
 from ghost_backend.execution.provenance import sha256_file
@@ -1424,7 +1424,7 @@ def validate_declared_feature_delta_response(
     """
 
     path = resolve_path(dataset)
-    variation = require_role_free_declared_delta(str(path))
+    variation, filename_role = parse_variation(str(path))
     metadata_access = "readable"
     metadata: 'dict[str, Any]' = {}
     embedded_domain: 'Optional[str]' = None
@@ -1457,11 +1457,10 @@ def validate_declared_feature_delta_response(
                 TypeError,
                 ValueError,
                 zipfile.BadZipFile,
-            ) as exc:
-                raise ValueError(
-                    f"{path}: advertised rcs_domain metadata is unreadable or "
-                    "malformed; it cannot be overridden by a declared delta role."
-                ) from exc
+            ):
+                # The tag is informative only; the response loader checks
+                # the file itself.
+                metadata_access = "deferred_to_response_loader"
     status = (
         validate_declared_coherent_delta_domain(metadata, str(path))
         if metadata_access == "readable"
@@ -1469,7 +1468,7 @@ def validate_declared_feature_delta_response(
     )
     return {
         "schema": DECLARED_FEATURE_DELTA_RESPONSE_SCHEMA,
-        "filename_role": "role_free",
+        "filename_role": (filename_role.lower() if filename_role else "role_free"),
         "filename_variation": variation,
         "embedded_rcs_domain": embedded_domain,
         "metadata_access": metadata_access,
@@ -1839,7 +1838,6 @@ def prepare_line_placements(
             "segment_normals": segment_normals,
             "line_id": line_id,
             "kind": "delta",
-            "declared_coherent_delta": True,
             "delta_sign": 1.0,
             "max_piece_length_m": float(maximum_solver_piece_m),
             **({} if shadow_points is None else {"shadow_points": shadow_points}),
@@ -1981,7 +1979,6 @@ def prepare_point_placements(
         if dataset_id not in patterns:
             patterns[dataset_id] = load_pattern(
                 str(dataset),
-                declared_coherent_delta=True,
                 delta_sign=1.0,
                 assume_missing_cross_pol_zero=False,
             )

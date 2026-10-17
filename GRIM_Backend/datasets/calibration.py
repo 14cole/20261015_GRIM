@@ -12,7 +12,11 @@ from GRIM_Backend.datasets.result_storage import allocate_result
 
 from GRIM_Backend.datasets.operations import dataset_operation
 
-from GRIM_Backend.datasets.constants import C0, _FREQUENCY_UNITS
+from GRIM_Backend.datasets.constants import (
+    C0,
+    _ACQUISITION_METADATA_FAMILIES,
+    _FREQUENCY_UNITS,
+)
 
 
 class GridCalibrationMixin:
@@ -44,6 +48,13 @@ class GridCalibrationMixin:
         and exact roles expresses the user's calibration intent; unavailable
         acquisition metadata is recorded as assumed rather than blocking the
         calculation. No frequency or angular interpolation is performed.
+
+        A declared positive two-way range-phase law (``range_phase_convention``
+        or ``phase_law`` such as ``exp(+j2kR)``) is refused, as is any input
+        whose samples carry no known complex value (magnitude-only data).
+        Bins where the exact standard is zero (for example the cross-pol
+        channel of a sphere) carry no information about the system response
+        and are masked rather than calibrated to zero.
         """
         from GRIM_Backend.datasets.grid import RcsGrid
 
@@ -176,6 +187,49 @@ class GridCalibrationMixin:
                 f"override contradictory declared metadata ({details})"
             )
 
+        # The range-offset term is hard-coded to the monostatic
+        # exp(-j*2*k*R) law. Check the same alias family (and canonical
+        # parser) that Support Ref - uses, so an explicit opposite two-way
+        # range-phase declaration fails instead of silently doubling the
+        # offset phase error.
+        range_phase_only = tuple(
+            family
+            for family, _label, _kind, _keys in _ACQUISITION_METADATA_FAMILIES
+            if family != "range_phase_law"
+        )
+        declared_range_phase_laws = {}
+        for (left_label, left_grid), (right_label, right_grid) in (
+            (grids[0], grids[1]),
+            (grids[0], grids[2]),
+            (grids[1], grids[2]),
+        ):
+            contract = left_grid._assert_acquisition_metadata_compatible(
+                right_grid,
+                operation_label="Range Cal",
+                left_role=left_label,
+                right_role=right_label,
+                schema="grim.range-calibration-range-phase.v1",
+                excluded_families=range_phase_only,
+            )
+            dimensions = contract["semantic_families"]["range_phase_law"][
+                "canonical_dimensions_by_role"
+            ]
+            for label in (left_label, right_label):
+                sign = dimensions.get(label, {}).get("two_way_sign")
+                if sign:
+                    declared_range_phase_laws[label] = sign
+        positive_range_phase = sorted(
+            label
+            for label, sign in declared_range_phase_laws.items()
+            if sign != "negative"
+        )
+        if positive_range_phase:
+            raise ValueError(
+                "Range Cal applies the monostatic exp(-j*2*k*R) range-phase law "
+                "and will not override a declared positive two-way range phase "
+                f"({', '.join(positive_range_phase)})"
+            )
+
         def _canonical_polarizations(grid, label):
             labels = [str(value).strip().upper() for value in grid.polarizations]
             if any(not value for value in labels):
@@ -263,19 +317,36 @@ class GridCalibrationMixin:
         gain_count = 0
         zero_factor_count = missing_reference_count = measured_zero_count = 0
         over_limit_count = 0
+        measured_known_count = exact_nonzero_count = 0
         range_phase = np.exp(-1j * (4.0 * np.pi * frequency_hz * offset_m / C0))
+        # Readers validate legacy arrays once instead of once per block.
+        read_measured = measured_calibration._bounded_complex_slice_reader()[0]
+        read_exact = exact_reference._bounded_complex_slice_reader()[0]
         for selection in _bounded_grid_selections(reference_shape, 262_144):
             pol_slice = selection[3]
             measured_selection = selection[:3] + (measured_pol_index[pol_slice],)
             exact_selection = selection[:3] + (exact_pol_index[pol_slice],)
-            measured_amp = np.asarray(measured_calibration.rcs_slice(measured_selection), dtype=np.complex128)
-            exact_amp = np.asarray(exact_reference.rcs_slice(exact_selection), dtype=np.complex128)
+            measured_amp = np.asarray(read_measured(measured_selection), dtype=np.complex128)
+            exact_amp = np.asarray(read_exact(exact_selection), dtype=np.complex128)
             measured_finite = np.isfinite(measured_amp)
             measured_zero = measured_finite & (np.abs(measured_amp) == 0.0)
-            valid_reference = measured_finite & np.isfinite(exact_amp) & ~measured_zero
+            exact_finite = np.isfinite(exact_amp)
+            exact_zero = exact_finite & (np.abs(exact_amp) == 0.0)
+            measured_known_count += int(
+                np.count_nonzero(measured_finite & ~measured_zero)
+            )
+            exact_nonzero_count += int(np.count_nonzero(exact_finite & ~exact_zero))
+            valid_reference = measured_finite & exact_finite & ~measured_zero
             block = np.full(measured_amp.shape, np.nan + 1j * np.nan, dtype=np.complex128)
             numerator = exact_amp * range_phase[selection[2]][None, None, :, None]
             np.divide(numerator, measured_amp, out=block, where=valid_reference)
+            # A zero exact standard (e.g. sphere cross-pol, plate null) says
+            # nothing about 1/H: the measured value there is leakage/clutter.
+            # Calibrating with a zero factor would fabricate an exact null in
+            # the DUT, so such bins are masked and counted.
+            zero_factor = valid_reference & exact_zero
+            block[zero_factor] = np.nan + 1j * np.nan
+            zero_factor_count += int(np.count_nonzero(zero_factor))
             valid_correction = np.isfinite(block)
             magnitude = np.abs(block)
             positive = valid_correction & (magnitude > 0.0)
@@ -288,16 +359,36 @@ class GridCalibrationMixin:
             block[excessive] = np.nan + 1j * np.nan
             valid_correction &= ~excessive
             correction[selection] = block
-            zero_factor_count += int(np.count_nonzero(valid_correction & (magnitude == 0.0)))
             missing_reference_count += int(np.count_nonzero(~valid_reference))
             measured_zero_count += int(np.count_nonzero(measured_zero))
             over_limit_count += int(np.count_nonzero(excessive))
 
+        # Coherent substitution needs known complex samples. Magnitude-only
+        # (unknown-phase) data would otherwise be silently masked, or worse,
+        # leave only its zero cells as "calibrated" output.
+        if measured_known_count == 0:
+            raise ValueError(
+                "range calibration has no calibratable bins: the measured "
+                "calibration has no finite nonzero complex sample (unknown "
+                "phase/magnitude-only data cannot be calibrated coherently)"
+            )
+        if exact_nonzero_count == 0:
+            raise ValueError(
+                "range calibration has no calibratable bins: the exact "
+                "reference has no finite nonzero complex sample (unknown "
+                "phase/magnitude-only or all-zero standards cannot be used)"
+            )
+
         output_amp = allocate_result(self.shape, np.complex128)
         correction_for_dut = np.broadcast_to(correction, self.shape)
         overflowed_complex_count = overflowed_power_count = usable_count = 0
+        dut_known_count = 0
+        read_dut = self._bounded_complex_slice_reader()[0]
         for selection in _bounded_grid_selections(self.shape, 262_144):
-            dut_amp = np.asarray(self.rcs_slice(selection), dtype=np.complex128)
+            dut_amp = np.asarray(read_dut(selection), dtype=np.complex128)
+            dut_known_count += int(
+                np.count_nonzero(np.isfinite(dut_amp) & (dut_amp != 0.0))
+            )
             factor = correction_for_dut[selection]
             with np.errstate(over="ignore", invalid="ignore"):
                 block = dut_amp * factor
@@ -314,6 +405,12 @@ class GridCalibrationMixin:
             block[~valid_output] = np.nan + 1j * np.nan
             output_amp[selection] = block
             usable_count += int(np.count_nonzero(valid_output))
+        if dut_known_count == 0:
+            raise ValueError(
+                "range calibration has no calibratable bins: the DUT has no "
+                "finite nonzero complex sample (unknown phase/magnitude-only "
+                "data cannot be calibrated coherently)"
+            )
         if usable_count == 0:
             raise ValueError(
                 "range calibration has no calibratable bins after masking "
@@ -450,6 +547,11 @@ class GridCalibrationMixin:
             "exact_reference": exact_name,
             "exact_reference_content_sha256": exact_sha256,
             "declared_time_conventions": declared_time_signs,
+            "declared_two_way_range_phase": declared_range_phase_laws,
+            "dut_source_path": (
+                None if self.source_path is None else str(self.source_path)
+            ),
+            "zero_exact_reference_policy": "masked",
             "maximum_correction_gain_db": gain_limit_db,
             "correction_gain_db": gain_summary,
         }

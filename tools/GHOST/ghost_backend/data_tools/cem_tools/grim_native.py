@@ -28,10 +28,10 @@ CRITICAL_METADATA = (
     "power_domain",
     "units",
 )
-DELTA_FIELD_DOMAIN = "featured_minus_clean_far_field_amplitude_delta"
-DELTA_PHASE_SUFFIX = (
-    "; coherent subtraction=featured-clean; placement phase center is the "
-    "seam line on the coupon outer face y=0"
+# Retired delta convention markers, kept importable for old callers only.
+from .native_samples import (  # noqa: E402
+    LEGACY_DELTA_FIELD_DOMAIN as DELTA_FIELD_DOMAIN,
+    LEGACY_DELTA_PHASE_SUFFIX as DELTA_PHASE_SUFFIX,
 )
 PHYSICAL_2D_PHASE_REFERENCE = (
     "origin=(0,0), convention=exp(+jwt); stored complex field is the "
@@ -1026,15 +1026,13 @@ def subtract_payloads(
         rcs_amp_real=delta.real.astype(np.float64),
         rcs_amp_imag=delta.imag.astype(np.float64),
         raw_complex_amplitude_preserved=np.asarray(True),
-        rcs_domain=np.asarray("delta"),
+        rcs_domain=np.asarray("power_phase"),
         power_domain=np.asarray("linear_rcs"),
-        complex_field_domain=np.asarray(DELTA_FIELD_DOMAIN),
         polarization_alias_primary=np.asarray("TE,TM"),
         polarization_aliases_json=np.asarray(json.dumps(["TE", "TM"])),
     )
-    phase_reference = _scalar_text(featured.get("phase_reference", ""))
-    if phase_reference:
-        result["phase_reference"] = np.asarray(
-            phase_reference + DELTA_PHASE_SUFFIX
-        )
+    for key in ("phase_reference", "complex_field_domain"):
+        value = _scalar_text(featured.get(key, ""))
+        if value:
+            result[key] = np.asarray(value)
     return result

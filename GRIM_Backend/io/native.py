@@ -63,6 +63,66 @@ def _owned_decoded_member(array):
     return array
 
 
+LEGACY_DELTA_HISTORY_NOTE = "converted legacy delta_amp_sq (physical amplitude)"
+
+
+def _native_tag(data, keys, name):
+    """Return a scalar text tag from a native mapping, or ``""``."""
+    if name not in keys:
+        return ""
+    value = np.asarray(data[name])
+    if value.size != 1:
+        return ""
+    value = value.reshape(-1)[0]
+    if isinstance(value, (bytes, np.bytes_)):
+        value = bytes(value).decode("utf-8", "replace")
+    return str(value).strip()
+
+
+def _convert_legacy_delta_arrays(data, keys):
+    """Convert a legacy GHOST ``delta_amp_sq`` archive to standard samples.
+
+    Old GHOST deltas were tagged ``power_domain='delta_amp_sq'`` and
+    ``rcs_domain='delta'``; their stored amplitude ``A`` already is the
+    physical amplitude (physical power ``|A|**2``).  This is the only place
+    GRIM recognizes those tags: the archive is rewritten, once, as an
+    ordinary physical dataset with the same physical values, and every later
+    code path sees standard data.  Returns ``None`` for any other archive.
+    """
+    if not (_native_tag(data, keys, "power_domain") == "delta_amp_sq"
+            and _native_tag(data, keys, "rcs_domain") == "delta"):
+        return None
+    raw_keys = {"rcs_amp_real", "rcs_amp_imag", "raw_complex_amplitude_preserved"}
+    sample_keys = {"rcs_complex", "rcs_power", "rcs_phase",
+                   "grim_format_version", "storage_kind", "storage_domain"}
+    converted = {key: data[key] for key in keys
+                 if key not in raw_keys | sample_keys | {"power_domain", "rcs_domain"}}
+    if "rcs_complex" in keys:
+        # (c) raw_field complex holding A: the same values are physical.
+        converted.update(grim_format_version=np.asarray(2, dtype=np.int16),
+                         storage_kind="complex", storage_domain="physical",
+                         rcs_complex=np.asarray(data["rcs_complex"]))
+    elif "rcs_amp_real" in keys and "rcs_amp_imag" in keys:
+        # (b) power/phase plus a raw pair holding A: the pair is the
+        # physical field; the redundant power/phase are dropped.
+        real = np.asarray(data["rcs_amp_real"])
+        imag = np.asarray(data["rcs_amp_imag"])
+        field = np.empty(np.broadcast_shapes(real.shape, imag.shape),
+                         dtype=np.result_type(real.dtype, imag.dtype, np.complex64))
+        field.real, field.imag = real, imag
+        converted.update(grim_format_version=np.asarray(2, dtype=np.int16),
+                         storage_kind="complex", storage_domain="physical",
+                         rcs_complex=field)
+    else:
+        # (a) power/phase only: already physical power and phase.
+        for key in sample_keys:
+            if key in keys:
+                converted[key] = data[key]
+    history = _native_tag(data, keys, "history")
+    converted["history"] = (history + "\n" if history else "") + LEGACY_DELTA_HISTORY_NOTE
+    return converted
+
+
 class NativeFormatMixin:
     """Native .grim archive loading, saving, and payload validation."""
 
@@ -70,30 +130,6 @@ class NativeFormatMixin:
                       "rcs_power", "rcs_phase", "rcs_complex", "source_path",
                       "history", "units", "grim_format_version", "storage_kind",
                       "storage_domain")
-
-    @staticmethod
-    def _legacy_delta_amplitude_squared(extra):
-        """Return whether a raw pair is a tagged legacy delta stored as ``|A|**2``.
-
-        GHOST writes such deltas with ``power_domain='delta_amp_sq'`` and
-        ``rcs_domain='delta'``; their raw amplitude already is the physical
-        amplitude, so the quantity-dependent normalization factor is 1.
-        """
-        metadata = extra or {}
-
-        def tag(name):
-            value = metadata.get(name)
-            if value is None:
-                return ""
-            value = np.asarray(value)
-            if value.size != 1:
-                return ""
-            value = value.reshape(-1)[0]
-            if isinstance(value, (bytes, np.bytes_)):
-                value = bytes(value).decode("utf-8", "replace")
-            return str(value).strip()
-
-        return tag("power_domain") == "delta_amp_sq" and tag("rcs_domain") == "delta"
 
     def _extra_to_write(self):
         """Return metadata and ancillary arrays for native archive export.
@@ -117,11 +153,20 @@ class NativeFormatMixin:
         """Build the shared, pickle-free payload for .grim and embedded grids."""
         self._ensure_legacy_source_current()
         extra = self._extra_to_write()
+        # A canonical complex store holds only finite fields or NaN pairs, so
+        # its derived phase cannot be infinite and it has no separate raw pair
+        # to reconcile: skip that grid-wide phase derivation, exactly as
+        # loading does for the same storage. Power is still scanned.
+        validated_complex = (
+            self._complex is not None and not self._legacy_samples
+            and (self._storage_domain == "raw_field"
+                 or not any(key in self.extra for key in ("rcs_amp_real", "rcs_amp_imag")))
+        )
         self._validate_native_payload(
             path=path, azimuths=self.azimuths, elevations=self.elevations,
             frequencies=self.frequencies, polarizations=self.polarizations,
             rcs_power=self.power, rcs_phase=self.phase, units=self.units,
-            extra=extra,
+            extra=extra, _validated_complex=validated_complex,
         )
         samples = dict(self.native_sample_payload())
         if samples.get("storage_domain") == "raw_field":
@@ -141,11 +186,6 @@ class NativeFormatMixin:
             units=json.dumps(self.units) if self.units else "",
         )
         payload.update(samples)
-        # Producer response semantics (for example a feature delta) are
-        # independent of the array representation described by storage_kind.
-        for tag in ("rcs_domain", "power_domain"):
-            if tag in self.extra:
-                payload[tag] = self.extra[tag]
         object_keys = [str(key) for key, value in payload.items()
                        if np.asarray(value).dtype.hasobject]
         if object_keys:
@@ -330,10 +370,7 @@ class NativeFormatMixin:
                 normalized_units.get("rcs_log_unit", "dBsm")
             ).strip().casefold()
             quantity = "sigma_2d" if log_unit == "dbke" else "sigma_3d"
-        legacy_delta = cls._legacy_delta_amplitude_squared(metadata)
-        if legacy_delta:
-            quantity = "delta_amp_sq"
-        elif quantity not in {"sigma_2d", "sigma_3d"}:
+        if quantity not in {"sigma_2d", "sigma_3d"}:
             issue(
                 "unsupported_raw_complex_normalization",
                 "raw complex amplitude requires rcs_linear_quantity sigma_2d or sigma_3d",
@@ -372,9 +409,7 @@ class NativeFormatMixin:
                     "raw complex amplitude normalization requires positive finite frequencies",
                 )
                 return report
-            if legacy_delta:
-                power_scale = 1.0
-            elif quantity == "sigma_2d":
+            if quantity == "sigma_2d":
                 k0 = (
                     2.0
                     * np.pi
@@ -712,6 +747,10 @@ class NativeFormatMixin:
     def _from_native_arrays(cls, data, *, path="native dataset", source_path_override=None):
         """Decode old or current native samples, also used by embedded assemblies."""
         keys = set(getattr(data, "files", data.keys() if hasattr(data, "keys") else ()))
+        converted = _convert_legacy_delta_arrays(data, keys)
+        if converted is not None:
+            return cls._from_native_arrays(converted, path=path,
+                                           source_path_override=source_path_override)
         from GRIM_Backend.io.native_cache import NativeArrays
         private_arrays = isinstance(data, NativeArrays)
 
@@ -752,6 +791,22 @@ class NativeFormatMixin:
         if missing:
             raise ValueError(f"{path} is not a supported .grim file (missing keys: {', '.join(missing)})")
         extra = {key: data[key] for key in keys if key not in cls._RESERVED_KEYS}
+        # Every archive records the representation tags the writer derived
+        # from its samples. They describe the file, not the dataset; keeping
+        # them in ``extra`` added two keys on each load and let a stale tag
+        # override the representation of a later save. A bare GHOST
+        # ``delta`` semantic tag is not a GRIM concept and is dropped too.
+        for tag, derived in (
+            ("rcs_domain", {"complex_amplitude", "linear_rcs", "power_phase", "delta"}),
+            ("power_domain", {"linear_rcs"}),
+        ):
+            if tag in extra:
+                try:
+                    value = scalar(tag)
+                except ValueError:
+                    continue
+                if isinstance(value, str) and value.strip() in derived:
+                    extra.pop(tag)
         constructor_samples = {}
         candidate = None
         deferred_raw_pair = {}

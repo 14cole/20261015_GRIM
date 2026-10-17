@@ -14,6 +14,7 @@ from GRIM_Backend.datasets.operations import dataset_operation, operation_effect
 from GRIM_Backend.datasets.grid import RcsGrid
 from GRIM_Backend.datasets.constants import C0, _ADOPT_CLEAN_ARRAYS_TOKEN
 from GRIM_Backend.datasets.memory import _bounded_grid_selections
+from GRIM_Backend.datasets.parallel_blocks import map_tiles, scaled_cells
 
 
 _MAX_EXPLICIT_AXIS_POINTS = 1_000_000
@@ -33,7 +34,18 @@ def _copy_grid(
     rcs_phase=None,
     rcs_domain=None,
     units=None,
+    owned=False,
 ) -> RcsGrid:
+    """Build a derived grid on the dataset's axes.
+
+    ``owned=True`` declares that the supplied sample arrays were freshly
+    allocated by the caller: they are then sanitized in place and adopted
+    instead of copied (``RcsGrid._adopt_owned_samples``).
+    """
+    phase = None if rcs is not None else dataset.phase if rcs_phase is None else rcs_phase
+    extra = _derived_response_extra(dataset)
+    adopt = (RcsGrid._adopt_owned_samples(rcs=rcs, rcs_power=rcs_power, rcs_phase=phase, extra=extra)
+             if owned else None)
     return RcsGrid(
         dataset.azimuths,
         dataset.elevations,
@@ -41,16 +53,13 @@ def _copy_grid(
         dataset.polarizations,
         rcs=rcs,
         rcs_power=rcs_power,
-        rcs_phase=(
-            None
-            if rcs is not None
-            else dataset.phase if rcs_phase is None else rcs_phase
-        ),
+        rcs_phase=phase,
         rcs_domain=rcs_domain or dataset.rcs_domain,
         source_path=dataset.source_path,
         history=dataset.history,
         units=dict(dataset.units or {}) if units is None else dict(units),
-        extra=_derived_response_extra(dataset),
+        extra=extra,
+        _adopt_clean_arrays=adopt,
     )
 
 
@@ -240,7 +249,19 @@ def crop_dataset(
         "elevation": _positive_stride(elevation_stride, "elevation_stride"),
         "frequency": _positive_stride(frequency_stride, "frequency_stride"),
     }
-    ranged = dataset.axis_crop(
+    if all(value == 1 for value in strides.values()):
+        return dataset.axis_crop(
+            azimuths=azimuths,
+            elevations=elevations,
+            frequencies=frequencies,
+            azimuth_range=azimuth_range,
+            elevation_range=elevation_range,
+            frequency_range=frequency_range,
+            polarizations=polarizations,
+        )
+    # One copy: strides apply to the selected coordinates, the same cells
+    # that re-cropping the ranged result by every Nth coordinate selected.
+    return dataset._axis_crop_selected(
         azimuths=azimuths,
         elevations=elevations,
         frequencies=frequencies,
@@ -248,14 +269,7 @@ def crop_dataset(
         elevation_range=elevation_range,
         frequency_range=frequency_range,
         polarizations=polarizations,
-    )
-    if all(value == 1 for value in strides.values()):
-        return ranged
-    return ranged.axis_crop(
-        azimuths=np.asarray(ranged.azimuths)[:: strides["azimuth"]],
-        elevations=np.asarray(ranged.elevations)[:: strides["elevation"]],
-        frequencies=np.asarray(ranged.frequencies)[:: strides["frequency"]],
-        polarizations=np.asarray(ranged.polarizations),
+        strides=(strides["azimuth"], strides["elevation"], strides["frequency"]),
     )
 
 
@@ -344,12 +358,15 @@ def join_datasets(*datasets: RcsGrid, tol: float = 1.0e-6) -> RcsGrid:
     except (ImportError, AttributeError, OSError):
         available = None
     maximum = int(available * 0.5) if available is not None else None
-    return RcsGrid.join_many(
-        *datasets,
-        tol=float(tol),
-        overlap="error",
-        max_output_bytes=maximum,
-    )
+    from GRIM_Backend.datasets.combine import join_output_limit
+    # The limit depends on this moment's free RAM; keep it out of the
+    # recorded parameters so the same join always records the same history.
+    with join_output_limit(maximum):
+        return RcsGrid.join_many(
+            *datasets,
+            tol=float(tol),
+            overlap="error",
+        )
 
 
 def stitch_datasets(
@@ -405,7 +422,7 @@ def shift_dataset(
                 field[selection] = read_field(selection) * rotation
             return _copy_grid(
                 result, rcs=field,
-                rcs_domain="complex_amplitude",
+                rcs_domain="complex_amplitude", owned=True,
             )
         raw_pair = result._complete_authoritative_raw_arrays()
         if raw_pair is not None and result.linear_quantity() in {"sigma_2d", "sigma_3d"}:
@@ -422,7 +439,7 @@ def shift_dataset(
             return _copy_grid(
                 result, rcs_power=power,
                 rcs_phase=_phase_shifted_response(result, delta),
-                rcs_domain="complex_amplitude",
+                rcs_domain="complex_amplitude", owned=True,
             )
         result = _copy_grid(
             result,
@@ -455,7 +472,7 @@ def offset_db(dataset: RcsGrid, value_db: float) -> RcsGrid:
         read_field, _dtype = dataset._bounded_complex_slice_reader()
         for selection in _bounded_grid_selections(dataset.shape, (16 * 1024**2) // 48):
             field[selection] = read_field(selection) * np.sqrt(scale)
-        return _copy_grid(dataset, rcs=field, rcs_domain=dataset.rcs_domain)
+        return _copy_grid(dataset, rcs=field, rcs_domain=dataset.rcs_domain, owned=True)
     raw_pair = dataset._complete_authoritative_raw_arrays()
     quantity = dataset.linear_quantity()
     use_raw = (
@@ -485,7 +502,7 @@ def offset_db(dataset: RcsGrid, value_db: float) -> RcsGrid:
             np.arctan2(field.imag, field.real, out=phase[selection])
         return _copy_grid(
             dataset, rcs_power=power, rcs_phase=phase,
-            rcs_domain=dataset.rcs_domain,
+            rcs_domain=dataset.rcs_domain, owned=True,
         )
     power = allocate_result(dataset.shape, np.result_type(dataset.power.dtype, scale))
     for selection in _bounded_grid_selections(dataset.shape, 262_144):
@@ -535,8 +552,11 @@ def coherent_divide(
         if real_dtype.itemsize > np.dtype(np.float32).itemsize
         else np.dtype(np.complex64)
     )
-    result_field = allocate_result(shape, complex_dtype, fill=np.nan + 1j * np.nan)
-
+    # Every tile below is written, so no NaN prefill is needed.
+    result_field = allocate_result(shape, complex_dtype)
+    # Validate legacy arrays once per input, not once per tile.
+    read_numerator, _dtype = numerator._bounded_complex_slice_reader()
+    read_denominator, _dtype = denominator._bounded_complex_slice_reader()
 
     working_bytes_per_cell = (
         3 * complex_dtype.itemsize + real_dtype.itemsize + 3
@@ -545,8 +565,8 @@ def coherent_divide(
     for selection in _bounded_grid_selections(
         shape, (16 * 1024**2) // working_bytes_per_cell
     ):
-        left = np.asarray(numerator.rcs_slice(selection), dtype=complex_dtype)
-        right = np.asarray(denominator.rcs_slice(selection), dtype=complex_dtype)
+        left = np.asarray(read_numerator(selection), dtype=complex_dtype)
+        right = np.asarray(read_denominator(selection), dtype=complex_dtype)
         quotient = np.full(left.shape, np.nan + 1j * np.nan, dtype=complex_dtype)
         valid = np.isfinite(left) & np.isfinite(right) & (right != 0)
         np.divide(left, right, out=quotient, where=valid)
@@ -608,6 +628,8 @@ def coherent_divide(
         history=history,
         units=units,
         extra=extra,
+        # Fresh, fully written, and every non-finite quotient is a NaN pair.
+        _adopt_clean_arrays=_ADOPT_CLEAN_ARRAYS_TOKEN,
     )
 
 
@@ -798,6 +820,9 @@ def decimate_axis(
         // max(1, factor * other_cell_count * transient_bytes_per_cell),
     )
 
+    # Validate legacy arrays once, not once per bin block.
+    read_field = dataset._bounded_complex_slice_reader()[0] if coherent else None
+
     def aggregate_bins(start: int, bin_count: int, samples_per_bin: int, other_selection):
         stop = start + bin_count * samples_per_bin
         source_selection = list(other_selection)
@@ -805,7 +830,7 @@ def decimate_axis(
         source_selection[axis_index] = slice(start, stop)
         source_selection = tuple(source_selection)
         if mode_key == "coherent":
-            field = np.asarray(dataset.rcs_slice(source_selection), dtype=np.complex128)
+            field = np.asarray(read_field(source_selection), dtype=np.complex128)
             field = np.moveaxis(field, axis_index, 0)
             field = field.reshape(
                 (bin_count, samples_per_bin) + field.shape[1:]
@@ -945,6 +970,8 @@ def decimate_axis(
         history=history,
         units=dict(dataset.units or {}),
         extra=extra,
+        # The decimated arrays are this operation's own: sanitize and adopt.
+        _adopt_clean_arrays=RcsGrid._adopt_owned_samples(**samples, extra=extra),
     )
 
 
@@ -1360,13 +1387,16 @@ def time_gate(
     frequencies = _uniform_frequencies_hz(dataset)
     conjugate = _declared_time_sign(dataset) == "-jwt"
     shape = tuple(int(value) for value in dataset.power.shape)
-    result_field = allocate_result(shape, np.complex128, fill=np.nan + 1j * np.nan)
+    # Every sweep tile below is written, so no NaN prefill is needed.
+    result_field = allocate_result(shape, np.complex128)
     bytes_per_sweep = _gate_fft_size(shape[2]) * 16 * 3
-    sweep_block = max(1, _GATE_WORK_BYTES // bytes_per_sweep)
-    usable = 0
-    for sweep_selection in _bounded_grid_selections((shape[0], shape[1], shape[3]), sweep_block):
+    # Tiles run concurrently; together they keep the serial work budget.
+    sweep_block = scaled_cells(max(1, _GATE_WORK_BYTES // bytes_per_sweep))
+    read_field, _dtype = dataset._bounded_complex_slice_reader()
+
+    def gate_tile(sweep_selection):
         block = sweep_selection[:2] + (slice(None), sweep_selection[2])
-        field = np.asarray(dataset.rcs_slice(block), dtype=np.complex128)
+        field = np.asarray(read_field(block), dtype=np.complex128)
         sweeps = np.moveaxis(field, 2, -1)
         if conjugate:
             sweeps = np.conj(sweeps)
@@ -1382,7 +1412,10 @@ def time_gate(
         invalid = ~np.isfinite(gated.real) | ~np.isfinite(gated.imag)
         gated[invalid] = np.nan + 1j * np.nan
         result_field[block] = gated
-        usable += int(np.count_nonzero(complete))
+        return int(np.count_nonzero(complete))
+
+    usable = sum(map_tiles(gate_tile, _bounded_grid_selections(
+        (shape[0], shape[1], shape[3]), sweep_block)))
     if usable == 0:
         raise ValueError(
             "time gating needs complex (phase) data with every frequency present "
@@ -1554,6 +1587,8 @@ def translate_phase_center(
     shifted_response = allocate_result(
         power.shape, np.complex128 if complex_storage else np.float64
     )
+    # Validate legacy arrays once, not once per tile.
+    read_field = dataset._bounded_complex_slice_reader()[0] if complex_storage else None
     for block in _bounded_grid_selections(dataset.shape, _GATE_WORK_BYTES // 64):
         azimuth_block, elevation_block = azimuth[block[0]], elevation[block[1]]
         projection = (
@@ -1563,7 +1598,7 @@ def translate_phase_center(
         )
         ramp = sign * 2.0 * projection[:, :, None] * wavenumber[block[2]][None, None, :]
         if complex_storage:
-            shifted_response[block] = dataset.rcs_slice(block) * np.exp(1j * ramp[..., None])
+            shifted_response[block] = read_field(block) * np.exp(1j * ramp[..., None])
         else:
             shifted = np.asarray(phase_in[block], dtype=np.float64) + ramp[..., None] + np.pi
             shifted_response[block] = np.remainder(shifted, 2.0 * np.pi) - np.pi
@@ -1627,4 +1662,7 @@ def translate_phase_center(
         history=dataset.history,
         units=units,
         extra=extra,
+        # A complex result is this operation's own array: sanitize and adopt.
+        _adopt_clean_arrays=(RcsGrid._adopt_owned_samples(rcs=shifted_response, extra=extra)
+                             if complex_storage else None),
     )

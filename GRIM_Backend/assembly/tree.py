@@ -747,10 +747,7 @@ def _assembly_base_reference_hashes(grid) -> set[str]:
             )
         )
     role = _declared_response_role(grid)
-    if role in {
-        _RESPONSE_ROLE_BODY_PLUS_FEATURES,
-        _RESPONSE_ROLE_FEATURES_ONLY_DELTA,
-    } and len(hashes) != 1:
+    if role == _RESPONSE_ROLE_BODY_PLUS_FEATURES and len(hashes) != 1:
         raise ValueError(
             f"{role} response must identify exactly one consistent "
             "assembly_base_sha256"
@@ -779,10 +776,7 @@ def _assembly_base_response_reference_hashes(grid) -> set[str]:
             )
         )
     role = _declared_response_role(grid)
-    if role in {
-        _RESPONSE_ROLE_BODY_PLUS_FEATURES,
-        _RESPONSE_ROLE_FEATURES_ONLY_DELTA,
-    } and len(hashes) != 1:
+    if role == _RESPONSE_ROLE_BODY_PLUS_FEATURES and len(hashes) != 1:
         raise ValueError(
             f"{role} response must identify exactly one consistent "
             "assembly_base_response_sha256"
@@ -813,12 +807,8 @@ def _feature_delta_context(grid) -> tuple[set[str], set[str], bool]:
     )
     delta_only = False
     if assembly_record is not None:
-        raw_delta_only = assembly_record.get("feature_delta_only", False)
-        if type(raw_delta_only) is not bool:
-            raise ValueError(
-                "assembly provenance feature_delta_only must be boolean"
-            )
-        delta_only = raw_delta_only
+        # Informative provenance only; a malformed flag is not a delta.
+        delta_only = assembly_record.get("feature_delta_only", False) is True
     if (
         not sources
         and not responses
@@ -845,29 +835,21 @@ def _feature_delta_context(grid) -> tuple[set[str], set[str], bool]:
             and direct_response is not None
             and feature_sources
         ):
-            if len(feature_sources) != 1:
-                raise ValueError(
-                    "legacy feature-delta provenance must identify exactly "
-                    "one base source hash"
-                )
-            if direct_source is not None:
+            consistent = len(feature_sources) == 1
+            if consistent and direct_source is not None:
                 validated_source = _validate_hash(
                     direct_source,
                     context="legacy feature-delta base source hash",
                 )
-                if feature_sources != {validated_source}:
-                    raise ValueError(
-                        "legacy feature-delta provenance has contradictory "
-                        "base source hashes"
-                    )
-            sources = set(feature_sources)
-            responses = {direct_response}
-            delta_only = True
+                consistent = feature_sources == {validated_source}
+            if consistent:
+                sources = set(feature_sources)
+                responses = {direct_response}
+                delta_only = True
     if delta_only and (len(sources) != 1 or len(responses) != 1):
-        raise ValueError(
-            "a feature-delta-only derived response must retain exactly one "
-            "source-file and one physical base-response context"
-        )
+        # Incomplete feature-delta provenance carries no usable base
+        # context; it never blocks a combination.
+        return set(), set(), False
     return sources, responses, delta_only
 
 
@@ -971,28 +953,18 @@ def _assert_no_shared_body_totals(grids) -> tuple[set[str], set[str]]:
         elif not sources and not responses:
             hashable_unoccupied.append((index, grid))
 
-    if len(delta_sources) > 1 or len(delta_responses) > 1:
-        raise ValueError(
-            "refusing to combine feature deltas from different Assembly base "
-            "source or physical-response hashes"
-        )
-    if bool(delta_sources) != bool(delta_responses):
-        raise ValueError(
-            "feature-delta provenance must retain both source-file and "
-            "physical base-response hashes"
-        )
+    # Feature-delta provenance (the clean base a delta was formed against)
+    # is informative only: it never blocks a combination.
 
     # If tagged body occupancy exists, compare every otherwise-untagged
     # authoritative 3-D response against it. This catches clean-body +
     # body-plus-features totals even after either file was repackaged/resaved.
     # The same proof supplies the body identity required by a delta-only input.
     need_physics_proof = bool(occupied_responses or delta_responses)
-    proof_errors = []
     for index, grid in hashable_unoccupied if need_physics_proof else ():
         try:
             candidate = _assembly_response_physics_sha256(grid)
-        except ValueError as exc:
-            proof_errors.append(f"input {index}: {exc}")
+        except ValueError:
             continue
         occupy(
             occupied_responses,
@@ -1001,34 +973,22 @@ def _assert_no_shared_body_totals(grids) -> tuple[set[str], set[str]]:
             identity_label="physical response SHA-256",
         )
 
-    # Delta-only responses do not contain their body. If any other input is
-    # present, prove that its exact base occurs once in the assembled response.
-    if delta_sources and len(delta_only_indices) != len(grids):
+    # Delta-only responses do not contain their body. When the matching
+    # clean body is proven present, record its source identity so the
+    # result is tagged as that body's total. A missing or different body
+    # is not an error: feature-delta provenance never blocks a combination.
+    if (
+        len(delta_sources) == 1
+        and len(delta_responses) == 1
+        and len(delta_only_indices) != len(grids)
+    ):
         expected_source = next(iter(delta_sources))
         expected_response = next(iter(delta_responses))
-        if (
-            occupied_sources
-            and expected_source not in occupied_sources
-            and expected_response not in occupied_responses
-        ):
-            raise ValueError(
-                "refusing to combine responses from different assembly base "
-                "hashes (the feature-delta source does not match the body)"
+        if expected_response in occupied_responses:
+            occupied_sources.setdefault(
+                expected_source,
+                occupied_responses[expected_response],
             )
-        if expected_response not in occupied_responses:
-            detail = (
-                "; ".join(proof_errors[:2])
-                if proof_errors
-                else "no response physics hash matched"
-            )
-            raise ValueError(
-                "features-only deltas require exactly one proven matching "
-                "clean-body response; " + detail
-            )
-        occupied_sources.setdefault(
-            expected_source,
-            occupied_responses[expected_response],
-        )
 
     return set(occupied_sources), set(occupied_responses)
 
@@ -3357,13 +3317,10 @@ def _combined_semantic_extra(
         digest = next(iter(occupied_sources))
         extra[_SOURCE_MONOSTATIC_SHA256_KEY] = digest
         extra[_ASSEMBLY_BASE_SHA256_KEY] = digest
-    elif response_role == _RESPONSE_ROLE_FEATURES_ONLY_DELTA:
-        if len(base_source_hashes) != 1:
-            raise ValueError(
-                "features_only_delta sum must retain exactly one assembly base hash"
-            )
-        extra[_ASSEMBLY_BASE_SHA256_KEY] = next(iter(base_source_hashes))
-    elif delta_source_hashes and len(base_source_hashes) == 1:
+    elif (
+        response_role == _RESPONSE_ROLE_FEATURES_ONLY_DELTA
+        or delta_source_hashes
+    ) and len(base_source_hashes) == 1:
         # Power+ or mixed transitions must not erase the base context of a
         # feature delta; otherwise a later unrelated body could accept it.
         extra[_ASSEMBLY_BASE_SHA256_KEY] = next(iter(base_source_hashes))
@@ -3629,9 +3586,7 @@ def _combine_children(
 
     if C_coh is not None and P_incoh is None:
         quantity = ref.linear_quantity()
-        if RcsGrid._legacy_delta_amplitude_squared(extra):
-            raw_scale = 1.0
-        elif quantity == "sigma_3d":
+        if quantity == "sigma_3d":
             raw_scale = 1.0 / np.sqrt(4.0 * np.pi)
         elif quantity == "sigma_2d":
             frequency_hz = ref._frequency_value_to_hz(ref.frequencies)

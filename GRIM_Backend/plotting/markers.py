@@ -124,7 +124,9 @@ class PlotMarkersMixin:
             return x
         unit = str(getattr(self, "_polar_display_unit", "deg"))
         degrees = float(np.degrees(x))
-        degrees = (degrees + 180.0) % 360.0 - 180.0
+        # (-180, 180], the convention of the polar tick labels: a sample at
+        # 180 deg reads 180, not -180.
+        degrees = 180.0 - (180.0 - degrees) % 360.0
         return float(plot_common.convert_axis_values([degrees], "azimuth", "deg", unit)[0])
 
     def _marker_text(self, marker, first) -> str:

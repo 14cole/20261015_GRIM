@@ -14,6 +14,7 @@ from GRIM_Backend.datasets.result_storage import (
 
 from GRIM_Backend.datasets.operations import dataset_operation
 from GRIM_Backend.datasets.memory import _bounded_grid_selections
+from GRIM_Backend.datasets.parallel_blocks import map_tiles, scaled_cells
 
 from GRIM_Backend.datasets.constants import (
     C0,
@@ -33,9 +34,12 @@ class _NormalizedField:
     def __init__(self, grid):
         self.grid = grid
         self.shape = grid.shape
+        # The same samples rcs_slice returns, with legacy arrays validated
+        # once here instead of re-hashed on every interpolation tile.
+        self._read = grid._bounded_complex_slice_reader()[0]
 
     def __getitem__(self, selection):
-        return np.asarray(self.grid.rcs_slice(selection), dtype=self.dtype)
+        return np.asarray(self._read(selection), dtype=self.dtype)
 
 
 # Phase change per source step above which linear I/Q interpolation loses
@@ -57,6 +61,39 @@ def _largest_phase_step(low, high, interpolated, axis):
     if not np.any(usable):
         return 0.0
     return float(np.max(np.abs(np.angle(high[usable] * np.conj(low[usable])))))
+
+
+def _phase_step_candidates(low, high, interpolated, axis):
+    """Part of one tile's ``_largest_phase_step``, combined exactly later.
+
+    The tile's floor is 1% of the peak over the whole tile, never below 1% of
+    this part's peak, so keeping this part's pairs above its own floor keeps
+    every pair the tile's floor can admit.
+    """
+    shape = [1] * low.ndim
+    shape[axis] = -1
+    mask = np.broadcast_to(np.asarray(interpolated).reshape(shape), low.shape)
+    magnitude = np.minimum(np.abs(low), np.abs(high))
+    finite = np.isfinite(magnitude)
+    any_pair = bool(np.any(finite & mask))
+    peak = float(np.max(magnitude[finite])) if np.any(finite) else -np.inf
+    if not any_pair:
+        return False, peak, np.empty(0), np.empty(0)
+    keep = mask & finite & (magnitude > 0.01 * peak)
+    steps = np.abs(np.angle(high[keep] * np.conj(low[keep])))
+    return True, peak, magnitude[keep], steps
+
+
+def _largest_phase_step_from_candidates(pieces):
+    """``_largest_phase_step`` of a whole tile from its parts' candidates."""
+    if not any(any_pair for any_pair, _peak, _magnitude, _steps in pieces):
+        return 0.0
+    floor = 0.01 * max(peak for _any, peak, _magnitude, _steps in pieces)
+    usable = [steps[magnitude > floor] for _any, _peak, magnitude, steps in pieces]
+    usable = [steps for steps in usable if steps.size]
+    if not usable:
+        return 0.0
+    return float(max(np.max(steps) for steps in usable))
 
 
 def _phase_step_summary(phase_steps):
@@ -651,19 +688,63 @@ class GridAxesMixin:
         output_shape = list(data.shape)
         output_shape[axis] = len(x_new)
         output = allocate_result(output_shape, data.dtype)
-        for selection in _bounded_grid_selections(output.shape, _RESULT_BLOCK_CELLS):
+        interpolated = left != right
+
+        quality = phase_steps is not None and np.iscomplexobj(np.empty(0, dtype=data.dtype))
+        # Sources known to accept basic slices; any other lazy array-like keeps
+        # the np.ix_ gathers it was written for.
+        from GRIM_Backend.datasets.storage import SampleComponent
+        basic_reads = isinstance(data, (np.ndarray, _NormalizedField, SampleComponent))
+
+        def interpolate_tile(work):
+            tile_index, selection = work
             targets = selection[axis]
             reshape = [1] * len(output_shape)
             reshape[axis] = targets.stop - targets.start
             w = weight[targets].reshape(reshape)
-            indices = [np.arange(part.start, part.stop) for part in selection]
-            indices[axis] = left[targets]
-            low = data[np.ix_(*indices)]
-            indices[axis] = right[targets]
-            high = data[np.ix_(*indices)]
+            low_index, high_index = left[targets], right[targets]
+            first, last = int(low_index.min()), int(high_index.max()) + 1
+            if basic_reads and last - first <= 2 * (targets.stop - targets.start) + 2:
+                # Both neighbours come from one basic read of the source span
+                # (the same samples as the np.ix_ gathers, read once).
+                span_selection = list(selection)
+                span_selection[axis] = slice(first, last)
+                span = np.asarray(data[tuple(span_selection)])
+                low = np.take(span, low_index - first, axis=axis)
+                high = np.take(span, high_index - first, axis=axis)
+            else:
+                indices = [np.arange(part.start, part.stop) for part in selection]
+                indices[axis] = low_index
+                low = data[np.ix_(*indices)]
+                indices[axis] = high_index
+                high = data[np.ix_(*indices)]
             output[selection] = low * (1.0 - w) + high * w
-            if phase_steps is not None and np.iscomplexobj(low):
-                phase_steps.append(_largest_phase_step(low, high, (left != right)[targets], axis))
+            if quality:
+                return tile_index, _phase_step_candidates(low, high, interpolated[targets], axis)
+            return tile_index, None
+
+        # The phase-step report is defined per _RESULT_BLOCK_CELLS tile (its
+        # near-null floor is relative to that tile's peak). Concurrent workers
+        # split each tile into parts that together hold one serial tile's
+        # scratch; each part returns the candidates from which the tile's
+        # exact value is recovered once all of its parts are in.
+        parts = scaled_cells(_RESULT_BLOCK_CELLS)
+        work = (
+            (tile_index, tuple(slice(outer.start + inner.start, outer.start + inner.stop)
+                               for outer, inner in zip(tile, part)))
+            for tile_index, tile in enumerate(_bounded_grid_selections(output.shape, _RESULT_BLOCK_CELLS))
+            for part in _bounded_grid_selections(tuple(s.stop - s.start for s in tile), parts)
+        )
+        current, pieces = None, []
+        for tile_index, candidates in map_tiles(interpolate_tile, work):
+            if tile_index != current and current is not None and quality:
+                phase_steps.append(_largest_phase_step_from_candidates(pieces))
+                pieces = []
+            current = tile_index
+            if candidates is not None:
+                pieces.append(candidates)
+        if current is not None and quality:
+            phase_steps.append(_largest_phase_step_from_candidates(pieces))
         return output
 
     @dataset_operation('interpolate_axis')
@@ -1066,6 +1147,41 @@ class GridAxesMixin:
     ):
         """Return a grid cropped by explicit axis values and/or numeric ranges."""
 
+        return self._axis_crop_selected(
+            azimuths=azimuths, elevations=elevations, frequencies=frequencies,
+            polarizations=polarizations, azimuth_range=azimuth_range,
+            elevation_range=elevation_range, frequency_range=frequency_range,
+            azimuth_min=azimuth_min, azimuth_max=azimuth_max,
+            elevation_min=elevation_min, elevation_max=elevation_max,
+            frequency_min=frequency_min, frequency_max=frequency_max, tol=tol,
+        )
+
+    def _axis_crop_selected(
+        self,
+        *,
+        azimuths=None,
+        elevations=None,
+        frequencies=None,
+        polarizations=None,
+        azimuth_range=None,
+        elevation_range=None,
+        frequency_range=None,
+        azimuth_min=None,
+        azimuth_max=None,
+        elevation_min=None,
+        elevation_max=None,
+        frequency_min=None,
+        frequency_max=None,
+        tol=1e-6,
+        strides=(1, 1, 1),
+    ):
+        """``axis_crop`` that also keeps every Nth selected numeric sample.
+
+        ``crop_dataset`` passes its strides here so the samples are copied
+        once instead of cropping a full copy a second time; the selected
+        cells are the same.
+        """
+
         def _resolve_range(raw_range, vmin, vmax):
             if raw_range is not None:
                 if not isinstance(raw_range, (list, tuple)) or len(raw_range) != 2:
@@ -1118,6 +1234,8 @@ class GridAxesMixin:
         el_idx = _axis_indices(self.elevations, elevations, elevation_range, "elevation", tol)
         f_idx = _axis_indices(self.frequencies, frequencies, frequency_range, "frequency", tol)
         p_idx = _axis_indices(self.polarizations, polarizations, None, "polarization", 0.0)
+        az_idx, el_idx, f_idx = (indices[::stride] for indices, stride in
+                                 zip((az_idx, el_idx, f_idx), strides))
         selection = np.ix_(az_idx, el_idx, f_idx, p_idx)
 
         return self._new_grid(

@@ -10,6 +10,7 @@ from GRIM_Backend.datasets.result_storage import (
 )
 
 from GRIM_Backend.datasets.operations import dataset_operation
+from GRIM_Backend.datasets.parallel_blocks import run_tiles, scaled_cells
 
 from GRIM_Backend.datasets.audit import _physical_grid_content_sha256, _support_reference_qa
 from GRIM_Backend.datasets.constants import _COHERENT_OPERATION_BLOCK_CELLS
@@ -35,7 +36,36 @@ def _bounded_sum(grids, *, coherent=False):
         # sequential sum, preserving historical intermediate arithmetic.
         dtype = np.dtype(np.float64 if dtype.kind == "f" and dtype.itemsize > 4 else np.float32)
     result = allocate_result(grids[0].shape, dtype)
-    for selection in _bounded_grid_selections(result.shape, _COHERENT_OPERATION_BLOCK_CELLS):
+    # Canonical complex stores of the result precision are added as read-only
+    # views straight into the destination tile, in input order: the same
+    # sequential same-dtype additions without an owned copy per input.
+    # For power sums the same stores give |field|**2 exactly as power_slice
+    # derives it (re*re + im*im in the field's real precision).
+    store_dtype = dtype if coherent else (np.complex128 if dtype == np.float64 else np.complex64)
+    stores = ([grid._complex for grid in grids]
+              if all(_plain_complex_store(grid, store_dtype) for grid in grids) else None)
+
+    def squared_magnitude(field, out=None):
+        with np.errstate(over="ignore", invalid="ignore"):
+            power = np.multiply(field.real, field.real, out=out)
+            np.add(power, np.multiply(field.imag, field.imag), out=power)
+        return power
+
+    def add_tile(selection):
+        if stores is not None and coherent:
+            block = result[selection]
+            np.add(stores[0][selection], stores[1][selection], out=block)
+            for store in stores[2:]:
+                np.add(block, store[selection], out=block)
+            block[~np.isfinite(block.real) | ~np.isfinite(block.imag)] = np.nan + 1j * np.nan
+            return
+        if stores is not None:
+            block = squared_magnitude(stores[0][selection], out=result[selection])
+            for store in stores[1:]:
+                np.add(block, squared_magnitude(store[selection]), out=block)
+            block[~np.isfinite(block)] = np.nan
+            np.maximum(block, 0.0, out=block)
+            return
         block = readers[0](selection)
         for read in readers[1:]:
             # Do not promote the first inputs to the final output precision:
@@ -50,7 +80,24 @@ def _bounded_sum(grids, *, coherent=False):
             block[~np.isfinite(block)] = np.nan
             np.maximum(block, 0.0, out=block)
         result[selection] = block
+
+    run_tiles(add_tile, _bounded_grid_selections(
+        result.shape, scaled_cells(_COHERENT_OPERATION_BLOCK_CELLS)))
     return result
+
+
+def _plain_complex_store(grid, dtype):
+    """Whether the stored field itself is the physical field in ``dtype``."""
+    return (grid._complex is not None and not grid._legacy_samples
+            and grid._storage_domain == "physical"
+            and grid._complex.dtype == dtype
+            and not any(key in grid.extra for key in ("rcs_amp_real", "rcs_amp_imag")))
+
+
+def _adopt(**samples):
+    """Sanitize an operation's own fresh result in place; True when adoptable."""
+    from GRIM_Backend.datasets.grid import RcsGrid
+    return RcsGrid._adopt_owned_samples(**samples) is not None
 
 
 def _finite_complex_count(values):
@@ -576,6 +623,9 @@ class GridArithmeticMixin:
                 f"linear power in {count} cell(s); minimum difference is "
                 f"{minimum:.17g}"
             )
+        extra = self._derived_response_extra(
+            (other,), operation="incoherent-subtract", coherent=False
+        )
         return self._new_grid(
             self.azimuths,
             self.elevations,
@@ -583,9 +633,8 @@ class GridArithmeticMixin:
             self.polarizations,
             rcs_power=power_diff,
             rcs_domain="power_phase",
-            extra=self._derived_response_extra(
-                (other,), operation="incoherent-subtract", coherent=False
-            ),
+            extra=extra,
+            _adopt_clean_arrays=_adopt(rcs_power=power_diff, extra=extra),
         )
 
     @dataset_operation("arithmetic_db_subtract")
@@ -623,6 +672,9 @@ class GridArithmeticMixin:
         ratio_units["rcs_log_unit"] = "dB"
         ratio_units["rcs_linear_quantity"] = "power_ratio"
 
+        extra = self._derived_response_extra(
+            (other,), operation="arithmetic-db-subtract", coherent=False
+        )
         return self._new_grid(
             self.azimuths,
             self.elevations,
@@ -631,9 +683,8 @@ class GridArithmeticMixin:
             rcs_power=output_power,
             rcs_domain="power_phase",
             units=ratio_units,
-            extra=self._derived_response_extra(
-                (other,), operation="arithmetic-db-subtract", coherent=False
-            ),
+            extra=extra,
+            _adopt_clean_arrays=_adopt(rcs_power=output_power, extra=extra),
         )
 
     @dataset_operation("statistics_dataset")
@@ -806,14 +857,16 @@ class GridArithmeticMixin:
             # The complex standard deviation sqrt(E|z - mean|^2) is a field
             # amplitude with no phase; its square is the power variance.
             spread = np.asarray(reduced)
+            power = copy_result(np.square(spread.real), dtype=self.power.dtype)
             return self._new_grid(
                 axis_values[0],
                 axis_values[1],
                 axis_values[2],
                 axis_values[3],
-                rcs_power=copy_result(np.square(spread.real), dtype=self.power.dtype),
+                rcs_power=power,
                 rcs_domain="power_phase",
                 extra=statistics_extra,
+                _adopt_clean_arrays=_adopt(rcs_power=power, extra=statistics_extra),
             )
         if domain == "complex":
             return self._new_grid(
@@ -824,16 +877,19 @@ class GridArithmeticMixin:
                 reduced,
                 rcs_domain="power_phase",
                 extra=statistics_extra,
+                _adopt_clean_arrays=_adopt(rcs=reduced, extra=statistics_extra),
             )
         if domain == "magnitude":
+            power = copy_result(reduced, dtype=self.power.dtype)
             return self._new_grid(
                 axis_values[0],
                 axis_values[1],
                 axis_values[2],
                 axis_values[3],
-                rcs_power=copy_result(reduced, dtype=self.power.dtype),
+                rcs_power=power,
                 rcs_domain="power_phase",
                 extra=statistics_extra,
+                _adopt_clean_arrays=_adopt(rcs_power=power, extra=statistics_extra),
             )
 
         reduced_linear = allocate_result(reduced.shape, self.power.dtype)
@@ -852,4 +908,5 @@ class GridArithmeticMixin:
             rcs_power=reduced_linear,
             rcs_domain="power_phase",
             extra=statistics_extra,
+            _adopt_clean_arrays=_adopt(rcs_power=reduced_linear, extra=statistics_extra),
         )

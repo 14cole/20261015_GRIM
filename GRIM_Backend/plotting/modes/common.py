@@ -866,6 +866,32 @@ def _preserve_decimation_breaks(selected, arrays):
     return np.unique(np.r_[selected, gaps[gaps < size]])
 
 
+def _fragmented_extrema_indices(x_values, value_arrays, max_points: int, candidates) -> np.ndarray:
+    """Min/max-preserving reduction that always fits with every break.
+
+    With ``k`` value arrays and ``B`` buckets the result holds the two
+    endpoints, at most ``2kB`` bucket extrema and one missing-sample marker
+    between each pair of consecutive retained samples: at most ``4kB + 3``
+    points. Choosing ``B = (max_points - 3) // 4k`` therefore keeps every
+    bucket's minimum and maximum (a narrow spike or null cannot vanish) and
+    never connects a line across hidden missing data. Scratch storage stays
+    bounded by ``REDUCTION_BLOCK_CELLS``. Only budgets too small for one
+    bucket fall back to uniform thinning of the candidates.
+    """
+    n = len(x_values)
+    arrays = (x_values, *value_arrays)
+    bucket_count = (int(max_points) - 3) // (4 * len(value_arrays))
+    if bucket_count < 1:
+        selected = _bounded_decimation_indices(candidates, [], n, (int(max_points) + 1) // 2)
+        return _preserve_decimation_breaks(selected, arrays)
+    edges = np.linspace(1, n - 1, bucket_count + 1, dtype=int)
+    selected = [np.asarray([0, n - 1])]
+    for values in value_arrays:
+        lo, hi, _gaps = _bucket_extrema_indices(values, edges)
+        selected.extend((lo[lo < n], hi[hi < n]))
+    return _preserve_decimation_breaks(np.unique(np.concatenate(selected)), arrays)
+
+
 def decimate_line(x_values, y_values, max_points: int | None = None):
     """Bound a display line while preserving extrema, endpoints, and breaks."""
     x_values, y_values = np.asarray(x_values), np.asarray(y_values)
@@ -886,8 +912,10 @@ def decimate_line(x_values, y_values, max_points: int | None = None):
         np.r_[0, lo[lo < n], hi[hi < n], gaps[gaps < n], n - 1], [], n, max_points)
     preserved = _preserve_decimation_breaks(selected, (x_values, y_values))
     if preserved.size > max_points:
-        selected = _bounded_decimation_indices(selected, [], n, (max_points + 1) // 2)
-        preserved = _preserve_decimation_breaks(selected, (x_values, y_values))
+        # Densely fragmented data: fewer buckets so every bucket extremum and
+        # every break between retained samples fit, instead of thinning
+        # the extrema uniformly (which could erase a narrow spike or null).
+        preserved = _fragmented_extrema_indices(x_values, (y_values,), max_points, selected)
     selected = preserved
     return x_values[selected], y_values[selected], True
 
@@ -915,8 +943,7 @@ def decimate_envelope(x_values, lower, upper, count=None, max_points: int | None
     selected = _bounded_decimation_indices(selected, [], n, max_points)
     preserved = _preserve_decimation_breaks(selected, (x_values, lower, upper))
     if preserved.size > max_points:
-        selected = _bounded_decimation_indices(selected, [], n, (max_points + 1) // 2)
-        preserved = _preserve_decimation_breaks(selected, (x_values, lower, upper))
+        preserved = _fragmented_extrema_indices(x_values, (lower, upper), max_points, selected)
     selected = preserved
     count_display = None if count_values is None else count_values[selected]
     return x_values[selected], lower[selected], upper[selected], count_display, True

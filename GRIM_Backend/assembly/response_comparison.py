@@ -49,6 +49,10 @@ def _response_sample_storage(path):
         version = scalar('grim_format_version', 1)
         if isinstance(version, bool) or not isinstance(version, int) or version not in (1, 2):
             raise ValueError(f"Unsupported response native version {version!r}.")
+        if str(scalar('power_domain', 'linear_rcs')).strip() != 'linear_rcs':
+            # Not standard native samples (for example an old archive that
+            # the native loader converts on load): read through that loader.
+            return None
         if version == 1:
             return 'rcs_power.npy', False, 1.
         kind, domain = scalar('storage_kind'), scalar('storage_domain')
@@ -62,10 +66,8 @@ def _response_sample_storage(path):
             raise ValueError('Response contains duplicate raw complex sample arrays.')
         if kind != 'complex':
             return 'rcs_power.npy', False, 1.
-        # response_axes already established sigma_3d. Preserve the explicitly
-        # tagged legacy delta normalization used by existing Assembly files.
-        legacy_delta = scalar('power_domain') == 'delta_amp_sq' and scalar('rcs_domain') == 'delta'
-        factor = 4. * np.pi if domain == 'raw_field' and not legacy_delta else 1.
+        # response_axes already established sigma_3d.
+        factor = 4. * np.pi if domain == 'raw_field' else 1.
         return 'rcs_complex.npy', True, factor
 
 
@@ -107,7 +109,20 @@ def _read_response_cut(path, *, frequency, elevation, polarization, cancel_check
             raise ValueError(f"{Path(path).name}: cut sample {value!r} is not stored exactly once.")
         return int(matches[0])
     ei, fi, pi = exact(el, elevation), exact(frequencies, frequency), exact(pol, polarization)
-    member, complex_samples, power_factor = _response_sample_storage(path)
+    storage = _response_sample_storage(path)
+    if storage is None:
+        from GRIM_Backend.datasets.grid import RcsGrid
+        grid = RcsGrid.load(path, selection={
+            'elevation': (float(el[ei]), float(el[ei])),
+            'frequency': (float(frequencies[fi]), float(frequencies[fi])),
+            'polarization': [str(pol[pi])]})
+        values = np.asarray(grid.power[:, 0, 0, 0], dtype=float)
+        if np.any(np.isinf(values)) or np.any(values < 0):
+            raise ValueError("Response cut contains infinite or negative RCS power.")
+        with np.errstate(divide="ignore", invalid="ignore"):
+            db = 10*np.log10(np.where(values >= 0, values, np.nan))
+        return az, db
+    member, complex_samples, power_factor = storage
     with zipfile.ZipFile(path) as archive, archive.open(member) as stream:
         version = np.lib.format.read_magic(stream)
         reader = np.lib.format.read_array_header_1_0 if version == (1, 0) else np.lib.format.read_array_header_2_0

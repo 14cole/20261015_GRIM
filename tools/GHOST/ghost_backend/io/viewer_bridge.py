@@ -47,9 +47,8 @@ def amp_scale(grim: 'Dict[str, Any] | str',
               frequencies_ghz: 'Optional[Sequence[float]]' = None) -> 'np.ndarray':
     """Return the frequency-broadcastable factor from field amplitude to RCS magnitude.
 
-    For sigma_2d the factor is 1/(2*sqrt(k)); for sigma_3d it is sqrt(4*pi). A declared
-    power_domain of delta_amp_sq uses factor 1. Divide the grid complex samples by this
-    factor to recover field amplitude.
+    For sigma_2d the factor is 1/(2*sqrt(k)); for sigma_3d it is sqrt(4*pi). Divide the
+    grid complex samples by this factor to recover field amplitude.
     """
     from ghost_backend.assembly.fields import _load_grim, convention_scale
     g = _load_grim(str(grim)) if isinstance(grim, str) else grim

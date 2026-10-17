@@ -481,6 +481,22 @@ def _normalize_y_limits(y_limits) -> tuple[float, float] | None:
     return low, high
 
 
+class _PhaseSource:
+    """Stored phase with the Plotting view's missing-sample rule.
+
+    A zero-power (or missing-power) sample has no defined phase on screen;
+    the report must not draw a retained or default zero-degree value there.
+    """
+
+    def __init__(self, grid: RcsGrid):
+        self._grid = grid
+
+    def __getitem__(self, key):
+        phase = np.asarray(self._grid.phase[key], dtype=float)
+        power = np.asarray(self._grid.power[key], dtype=float)
+        return np.where(np.isfinite(power) & (power > 0.0), phase, np.nan)
+
+
 def _series_y(
     dataset: NamedGrid,
     values: np.ndarray,
@@ -489,12 +505,18 @@ def _series_y(
     frequency_values,
 ) -> np.ndarray:
     if quantity == "phase":
-        # Wrap stored phase (which may carry unwrapped turns) into (-180, 180]
-        # as the plotting view shows it.
-        radians = np.asarray(values, dtype=float)
-        with np.errstate(invalid="ignore"):
-            result = np.rad2deg(np.angle(np.exp(1j * radians)))
-        result[~np.isfinite(radians)] = np.nan
+        # Wrap stored phase (which may carry unwrapped turns) into the
+        # dataset's declared phase_wrap interval, as the Plotting view does:
+        # [0, 360) for "0_360", else the report's (-180, 180] (the same angle
+        # as the view's -180 at the seam). Sources come from _PhaseSource,
+        # so zero-power samples are already missing.
+        degrees = np.rad2deg(np.asarray(values, dtype=float))
+        finite = np.isfinite(degrees)
+        result = np.full(degrees.shape, np.nan, dtype=float)
+        if str((dataset.grid.units or {}).get("phase_wrap", "-180_180")).strip() == "0_360":
+            result[finite] = np.mod(degrees[finite], 360.0)
+        else:
+            result[finite] = 180.0 - np.mod(180.0 - degrees[finite], 360.0)
     else:
         # The grid's stored power is already the physical linear RCS quantity.
         # Do not reconstruct a complex field just to display its magnitude.
@@ -625,7 +647,7 @@ def build_azimuth_specs(
             float(value)
             for value in _convert_angles(native_x, native_angle_unit, target_angle_unit)
         )
-        source = grid.phase if plot_quantity == "phase" else grid.power
+        source = _PhaseSource(grid) if plot_quantity == "phase" else grid.power
         frequency_indices = _exact_numeric_indices(
             grid.frequencies,
             requested_frequencies,
@@ -830,7 +852,7 @@ def build_elevation_specs(
                 angle_unit,
             )
         )
-        source = grid.phase if plot_quantity == "phase" else grid.power
+        source = _PhaseSource(grid) if plot_quantity == "phase" else grid.power
         frequency_indices = _exact_numeric_indices(
             grid.frequencies,
             requested_frequencies,
@@ -1150,7 +1172,7 @@ def build_frequency_spec(
         order = np.argsort(np.asarray(grid.frequencies, dtype=float), kind="stable")
         native_frequencies = np.asarray(grid.frequencies, dtype=float)[order]
         x = _convert_frequencies(native_frequencies, native_frequency_unit, frequency_unit)
-        source = grid.phase if plot_quantity == "phase" else grid.power
+        source = _PhaseSource(grid) if plot_quantity == "phase" else grid.power
         if band_request is None:
             azimuth_index = _exact_index(
                 grid.azimuths,

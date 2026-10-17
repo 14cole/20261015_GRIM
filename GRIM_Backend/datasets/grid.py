@@ -23,9 +23,10 @@ from GRIM_Backend.datasets.coordinates import (
 )
 from GRIM_Backend.datasets.memory import _bounded_grid_selections, _real_storage_dtype
 from GRIM_Backend.datasets.metadata import GridMetadataMixin
+from GRIM_Backend.datasets.parallel_blocks import run_tiles, scaled_cells
 from GRIM_Backend.datasets.storage import GridStorageMixin
 from GRIM_Backend.datasets.result_storage import (
-    allocate_result, copy_result, result_blocks, result_storage_info, typed_samples,
+    BLOCK_CELLS, allocate_result, copy_result, result_blocks, result_storage_info, typed_samples,
 )
 from GRIM_Backend.io.cst import CstFormatMixin
 from GRIM_Backend.io.native import NativeFormatMixin
@@ -347,6 +348,51 @@ class RcsGrid(
         return out
 
     @staticmethod
+    def _adopt_owned_samples(*, rcs=None, rcs_power=None, rcs_phase=None, extra=None):
+        """Clean an operation's freshly allocated result in place for adoption.
+
+        Applies exactly the constructor's sample sanitation (non-finite complex
+        samples become NaN pairs; non-finite power becomes NaN and finite power
+        is floored at zero; non-finite phase, and phase where power is not
+        finite, become NaN) and returns the adoption token, so the constructor
+        keeps the array instead of copying and rescanning it. Returns None,
+        touching nothing, when the constructor would not take that path
+        (retained raw pair, dtype conversion, read-only or non-array input).
+        Only pass arrays the caller allocated and nothing else references.
+        """
+        if any(key in (extra or {}) for key in ("rcs_amp_real", "rcs_amp_imag")):
+            return None
+        if rcs is not None:
+            if rcs_power is not None or rcs_phase is not None:
+                return None
+            if not isinstance(rcs, np.ndarray) or not np.iscomplexobj(rcs) or not rcs.flags.writeable:
+                return None
+            if rcs.dtype != (np.complex128 if _real_storage_dtype(rcs) == np.float64 else np.complex64):
+                return None
+            for block in result_blocks(rcs.shape):
+                part = rcs[block]
+                part[~np.isfinite(part.real) | ~np.isfinite(part.imag)] = np.nan + 1j * np.nan
+            return _ADOPT_CLEAN_ARRAYS_TOKEN
+        arrays = [value for value in (rcs_power, rcs_phase) if value is not None]
+        if rcs_power is None or not all(
+                isinstance(value, np.ndarray) and value.flags.writeable for value in arrays):
+            return None
+        dtype = _real_storage_dtype(*arrays)
+        if any(value.dtype != dtype for value in arrays):
+            return None
+        for block in result_blocks(rcs_power.shape):
+            power = rcs_power[block]
+            finite = np.isfinite(power)
+            floored = np.maximum(power[finite], 0.0)
+            power[~finite] = np.nan
+            power[finite] = floored
+            if rcs_phase is not None:
+                phase = rcs_phase[block]
+                phase[~np.isfinite(phase)] = np.nan
+                phase[~finite] = np.nan
+        return _ADOPT_CLEAN_ARRAYS_TOKEN
+
+    @staticmethod
     def _clean_phase(phase_value):
         dtype = _real_storage_dtype(phase_value)
         phase = copy_result(phase_value, dtype=dtype)
@@ -363,13 +409,15 @@ class RcsGrid(
         phase = np.asarray(phase_value, dtype=real_dtype)
         if power.shape != phase.shape:
             raise ValueError(f"power/phase shapes {power.shape}/{phase.shape} do not match")
-        out = (allocate_result(power.shape, complex_dtype, fill=np.nan + 1j * np.nan)
-               if _result else np.full(power.shape, np.nan + 1j * np.nan, dtype=complex_dtype))
+        out = (allocate_result(power.shape, complex_dtype)
+               if _result else np.empty(power.shape, dtype=complex_dtype))
+
         # A zero field is fully known even though its phase is undefined.
         # Keep it in coherent arithmetic and sample counts without inventing
         # a stored phase for diagnostics or treating missing power as zero.
-        for block in result_blocks(power.shape):
+        def convert_tile(block):
             p, ph, target = power[block], phase[block], out[block]
+            target[...] = np.nan + 1j * np.nan
             zero = p <= 0.0  # negative legacy power is cleaned to 0 elsewhere
             target[zero] = 0.0 + 0.0j
             valid = np.isfinite(p) & np.isfinite(ph) & ~zero
@@ -378,6 +426,10 @@ class RcsGrid(
                 # float32 sqrt/exp added error beyond complex64 storage itself.
                 target[valid] = (np.sqrt(p[valid].astype(np.float64))
                                  * np.exp(1j * ph[valid].astype(np.float64))).astype(complex_dtype)
+
+        # Independent elementwise tiles; concurrent tiles share one serial
+        # tile's scratch allowance.
+        run_tiles(convert_tile, result_blocks(power.shape, scaled_cells(BLOCK_CELLS)))
         return out
 
     def _complete_authoritative_raw_arrays(self):
@@ -457,7 +509,7 @@ class RcsGrid(
         """
 
         quantity = self.linear_quantity()
-        if quantity == "sigma_3d" or self._legacy_delta_amplitude_squared(self.extra):
+        if quantity == "sigma_3d":
             return True
         if quantity != "sigma_2d":
             return False
@@ -488,8 +540,6 @@ class RcsGrid(
             real_values, imag_values = real[selection], imag[selection]
         raw = np.empty(np.shape(real_values), dtype=np.complex128)
         raw.real, raw.imag = real_values, imag_values
-        if self._legacy_delta_amplitude_squared(self.extra):
-            return raw
         if quantity == "sigma_2d":
             freq_hz = self._frequency_value_to_hz(self.frequencies)
             k0 = (2.0 * np.pi * np.asarray(freq_hz, dtype=float)) / C0

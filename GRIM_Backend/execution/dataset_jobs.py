@@ -638,7 +638,7 @@ class _RangeCalibrationWorker(QObject):
                     ),
                     "history": (
                         f"Range Cal: {target_name}; measured={self._measured_name}; "
-                        f"exact={self._exact_name}; Î”R={offset_m:+.12g} m "
+                        f"exact={self._exact_name}; ΔR={offset_m:+.12g} m "
                         "(positive away)"
                     ),
                 }

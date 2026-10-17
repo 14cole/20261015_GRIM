@@ -364,6 +364,27 @@ def copy_result(values, *, dtype=None):
     return result
 
 
+def _progression_slice(index, extent):
+    """Return the basic index equal to *index*, or None.
+
+    *index* is a validated integer, a ``range`` or a 1-D in-bounds integer
+    array; integers stay integers so the axis is dropped like before.
+    """
+    if isinstance(index, int):
+        return index
+    if isinstance(index, range):
+        return slice(index.start, index.stop, index.step) if index.step > 0 or len(index) <= 1 else None
+    if index.size == 0 or np.any(index < 0) or np.any(index >= extent):
+        return None   # empty, negative or out of range: keep NumPy's own handling
+    first = int(index[0])
+    if index.size == 1:
+        return slice(first, first + 1)
+    step = int(index[1]) - first
+    if step <= 0 or not np.all(np.diff(index) == step):
+        return None
+    return slice(first, int(index[-1]) + 1, step)
+
+
 def select_result(values, selection=Ellipsis, *, dtype=None):
     """Copy basic or orthogonal (``np.ix_``) selections in bounded tiles."""
     shape = tuple(values.shape)
@@ -409,6 +430,14 @@ def select_result(values, selection=Ellipsis, *, dtype=None):
     advanced = [item for item in expanded if isinstance(item, np.ndarray)]
     if len(advanced) > 1 and all(item.ndim == 1 for item in advanced):
         return copy_result(values[selection], dtype=dtype)
+    if isinstance(values, np.ndarray):
+        # Index vectors that are evenly spaced runs (ranges, strides, single
+        # coordinates: every crop and most alignments) select exactly the
+        # cells of a basic view, which copies in 64k-cell tiles instead of
+        # 4,096-cell np.ix_ gathers.
+        basic = tuple(_progression_slice(item, extent) for item, extent in zip(indices, shape))
+        if all(item is not None for item in basic):
+            return copy_result(values[basic], dtype=dtype)
     result = allocate_result(output_shape, values.dtype if dtype is None else dtype)
     for block in result_blocks(output_shape, maximum_cells=4096):
         selected, output_axis = [], 0

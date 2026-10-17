@@ -108,24 +108,32 @@ def plan_isar(azimuth_degrees, frequency_hz, *, elevation_degrees=0.0,
     center = np.deg2rad(np.mean(az))
     range_half = abs(np.sin(center))*x + abs(np.cos(center))*y if composite else y
     curvature = factor * freq[-1] * range_half * (1 - np.cos(np.deg2rad(span / 2)))
-    recommended = "accurate" if curvature > np.pi / 4 or max(az_step, freq_step) > np.pi / 2 else "fft"
+    step = max(az_step, freq_step)
+    # Fast PFA always interpolates azimuth linearly (keystone), but it
+    # resamples frequency only when the acquired axis is not uniform; this
+    # mirrors the 1e-3 relative-spread rule of the formation resampler. A
+    # uniform sweep's frequency phase step is therefore not a Fast-PFA
+    # interpolation loss (only the >= pi aliasing check below applies).
+    freq_steps = np.diff(freq)
+    frequency_interpolated = bool(np.ptp(freq_steps) >= 1e-3 * float(np.median(freq_steps)))
+    fast_step = step if frequency_interpolated else az_step
+    fast_loss_db = (float(-20 * np.log10(np.cos(fast_step / 2))) if fast_step < np.pi else None)
+    recommended = "accurate" if curvature > np.pi / 4 or fast_step > np.pi / 2 else "fft"
     selected = recommended if reconstruction == "auto" else ("fft" if reconstruction == "fast" else reconstruction)
     warnings = []
     if not explicit:
         warnings.append("Scene bounds use nominal periodic limits. Enter the occupied scene extent for a useful focus estimate.")
-    step = max(az_step, freq_step)
     if explicit and step >= np.pi:
         # Nominal bounds sit at the periodic limit by construction, so this
         # would fire on every default run; it is meaningful only for a real extent.
         warnings.append("The requested scene exceeds the native per-step sampling limit. Interpolation does not recover missing information.")
-    elif explicit and step > 0.94 and selected == "fft":
+    elif explicit and selected == "fft" and fast_step > 0.94:
         # Fast PFA interpolates I/Q linearly: midpoint loss is cos(step/2).
-        loss_db = abs(20 * np.log10(np.cos(step / 2)))
         warnings.append(
-            f"Phase changes up to {np.rad2deg(step):.0f}° per sample near the scene edge; "
-            f"Fast PFA's linear interpolation can lose up to {loss_db:.1f} dB there. "
+            f"Phase changes up to {np.rad2deg(fast_step):.0f}° per sample near the scene edge; "
+            f"Fast PFA's linear interpolation can lose up to {fast_loss_db:.1f} dB there. "
             "Accurate PFA is recommended.")
-    elif explicit and step > np.pi / 2:
+    elif explicit and selected != "fft" and step > np.pi / 2:
         warnings.append("Phase changes exceed π/2 per sample near the scene edge; interpolation amplitude loss can be significant.")
     if selected == "fft" and curvature > np.pi / 4:
         warnings.append("Fast-grid range-curvature error exceeds π/4 at the scene edge. Accurate PFA is recommended for coherent imaging.")
@@ -150,6 +158,9 @@ def plan_isar(azimuth_degrees, frequency_hz, *, elevation_degrees=0.0,
         "max_native_azimuth_phase_step_rad": float(az_step),
         "max_native_frequency_phase_step_rad": float(freq_step),
         "native_step_check_passed": bool(max(az_step, freq_step) < np.pi),
+        "frequency_interpolated_by_fast_pfa": frequency_interpolated,
+        "fast_interpolation_phase_step_rad": float(fast_step),
+        "fast_linear_midpoint_loss_db": fast_loss_db,
         "recommended_reconstruction": recommended, "selected_reconstruction": selected,
         "cartesian_support_scale": support_scale,
         "aperture_mode": mode, "image_kind": "maximum_magnitude_composite" if composite else "coherent",

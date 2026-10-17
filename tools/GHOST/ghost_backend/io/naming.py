@@ -58,26 +58,14 @@ def parse_variation(name: 'str') -> 'Tuple[str, Optional[str]]':
 
 
 def require_role_free_declared_delta(path: 'str') -> 'str':
-    """Reject a canonical raw OPN/FRD source used as an asserted delta.
+    """Deprecated: return the variation/base name of ``path``; never raises.
 
-    ``declared_coherent_delta`` is an attestation for a role-free derived file;
-    it must never override the filename grammar's explicit source role.  The
-    returned value is the role-free variation/base name for provenance callers.
-    Matching is intentionally case-insensitive through :func:`parse_variation`.
+    Feature responses no longer need a delta attestation, so a filename role
+    marker does not block their use.
     """
 
-    base, role = parse_variation(path)
-    if role is None:
-        return base
-    source_kind = "featured/installed" if role == ROLE_FEATURED else "clean/faired"
-    raise ValueError(
-        f"{os.path.basename(str(path))}: canonical filename role _{role} "
-        f"declares a raw {source_kind} source response, not a coherent "
-        "featured-minus-clean delta. The declared_coherent_delta attestation "
-        "cannot override an explicit OPN/FRD role. Coherently subtract OPN - "
-        "FRD, then save the derived response under a role-free filename "
-        "without an _OPN or _FRD suffix."
-    )
+    base, _role = parse_variation(path)
+    return base
 
 
 def parse_base(name: 'str') -> 'Tuple[str, Dict[str, float], Dict[str, int]]':

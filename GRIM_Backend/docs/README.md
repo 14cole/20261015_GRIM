@@ -302,6 +302,17 @@ does not convert between 2-D width and 3-D RCS. Linear overlays, RF Compare,
 and Delta Map still require compatible physical quantities;
 logarithmic comparisons also require the same dB convention.
 
+Long curves and bands are display-reduced to a bounded number of points
+(20,000 per curve, fewer when many curves share the canvas). The reduction
+keeps the minimum and maximum of every bucket, both endpoints, and a break
+wherever samples are missing, so a single-sample spike or null always remains
+visible and no line is drawn across missing data, including on curves with
+many scattered missing samples. Markers, hover, statistics and numerical
+exports read the full-resolution samples. Large images instead show the
+maximum of each block (peaks remain visible, narrow nulls may not); hover
+reports the native cell value. On polar plots hover and marker azimuths use
+the plotted angular unit and the tick-label convention (−180, 180].
+
 RF Compare uses one explicit selected azimuth, elevation, or
 frequency sector per dataset and matches coordinates one-to-one. Its 0–100 RF
 Agreement Index replaces Pearson correlation with agreement measures for strong
@@ -790,13 +801,15 @@ physics resolution even if its display is sampled or decimated. Display units, b
 style, opacity, facet detail, and faster rotation never reinterpret an input
 CSV/STL or modify placement validation, shadowing, or the assembled RCS.
 
-Point datasets require compatible 3-D delta channels (VV, HH, and reciprocal
-cross-polarization where used). Line datasets require the TE and TM 2-D delta
-responses consumed by line expansion. New assemblies use **General body —
+Point datasets require compatible 3-D feature-minus-skin channels (VV, HH, and
+reciprocal cross-polarization where used). Line datasets require the TE and TM
+2-D feature-minus-skin responses consumed by line expansion. No "delta" tag or
+declaration is needed: any response with compatible units, conventions, and
+grids is accepted. New assemblies use **General body —
 metadata advisory (default)**. Coherent 3-D body responses can come from any
 solver. Missing, stale, or conflicting convention annotations, solver versions,
 certificates, and manifests do not block the operation. The selected body or
-delta role supplies the working frame and assumptions; the program never
+feature slot supplies the working frame and assumptions; the program never
 conjugates, rephases, or rescales a field merely because an annotation differs.
 **Strict library metadata (optional)** checks host material/stack, curvature,
 surface bindings, and response certificates. **Require certified GHOST BoR
@@ -896,7 +909,9 @@ HH plots in the same report instead of requiring a second export:
 Selected datasets are overlaid within each plot. GRIM uses exact common fixed
 axes and performs no hidden interpolation or extrapolation. Report magnitude
 is taken from stored linear power and converted with each dataset's native
-dBsm, dBke, or dB convention. Mixed report overlays label the axis **Mixed dB**
+dBsm, dBke, or dB convention. Report phase uses the dataset's declared
+phase wrap, as the Plotting view does, and leaves zero-power or missing
+samples blank rather than drawing 0°. Mixed report overlays label the axis **Mixed dB**
 and show each source's unit in both plot and slide-header legends. A report
 containing only 2-D data uses **Scattering Width (dBke)**.
 **Shared automatic** vertical scaling is the default and is
@@ -1176,10 +1191,16 @@ on the same frequency axis. Every DUT polarization must exist in both
 references; extra reference channels are ignored. Angular axes must match exactly;
 a singleton calibration look may be broadcast only when the user explicitly
 enables it. GRIM performs no interpolation, averaging, phase unwrapping, or
-automatic range estimation. Calibration nulls, missing complex samples, and
+automatic range estimation. Calibration nulls (a zero measured calibrator or a
+zero exact standard, which carries no information about the system response),
+missing complex samples, and
 corrections above the selected gain limit are masked per bin and counted; the
-operation stops only if no calibratable bins remain. Incompatible axes, units,
-quantities, or an explicit opposite phase sign still fail. The calculation runs in GRIM's dataset
+operation stops only if no calibratable bins remain. A DUT, measured
+calibration, or exact reference with no known nonzero complex sample
+(magnitude-only data) is refused. Incompatible axes, units,
+quantities, or an explicit opposite phase sign (time convention, or a positive
+two-way range phase declared through `range_phase_convention`/`phase_law`)
+still fail. The calculation runs in GRIM's dataset
 worker so large sweeps do not block the GUI, and GRIM will not close while it is
 active. Selecting the measured and exact roles expresses the calibration intent.
 Unavailable acquisition or phase-center metadata is recorded as assumed rather
@@ -1191,7 +1212,8 @@ or another appropriate standard can be used. GHOST's analytical cylinder
 reference is an infinite 2-D `sigma_2d` solution and is intentionally not used
 as a finite 3-D range-calibration standard. A symmetric cylinder's theoretical
 cross-pol response is zero, so use/slice to VV and HH unless the selected
-standard supplies a valid nonzero cross-pol reference. Range-calibrated outputs preserve
+standard supplies a valid nonzero cross-pol reference; channels whose exact
+standard is zero are returned masked, not as fabricated nulls. Range-calibrated outputs preserve
 the complex result and provenance but drop stale solver/certification metadata.
 
 ## Support-referenced complex difference
