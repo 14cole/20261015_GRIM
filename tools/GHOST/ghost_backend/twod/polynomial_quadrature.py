@@ -131,6 +131,10 @@ def near_block(obs, src, k, obs_derivative=True, depth=0, intervals=((0., 1.), (
     from ghost_backend.execution.cpu import current_state
     state = current_state()
     if state is not None: state.checkpoint()
+    if depth == 0 and intervals == ((0., 1.), (0., 1.)):
+        geometry = _PairGeometry([(obs, src)])
+        if _thin_gap_mask(geometry, [(obs, src)])[0]:
+            return _thin_gap_values(geometry, [(obs, src)], np.array([0]), k, obs_derivative)[0]
     low = block(obs, src, k, obs_derivative, 20, intervals)
     high = block(obs, src, k, obs_derivative, 36, intervals)
     scale = max(np.max(abs(high[0])), np.max(abs(high[1])), obs.length * src.length * 1e-10)
@@ -204,35 +208,41 @@ class MomentCache:
         self.hits = self.stores = self.evictions = 0
         self.tables = {}
         self.table_bytes = 0
+        # Near batches of one assembly store from worker threads; two
+        # concurrent evictions would otherwise pop the same oldest key.
+        self.lock = threading.Lock()
 
     def store_table(self, key, table):
         """Keep a near kernel table for this scope (first in, first out); return the kept one."""
-        if key in self.tables:
-            return self.tables[key]
-        size = 0 if table is None else int(table.evidence['bytes'])
-        if size > self.TABLE_BUDGET:
+        with self.lock:
+            if key in self.tables:
+                return self.tables[key]
+            size = 0 if table is None else int(table.evidence['bytes'])
+            if size > self.TABLE_BUDGET:
+                return table
+            while self.tables and self.table_bytes + size > self.TABLE_BUDGET:
+                old = self.tables.pop(next(iter(self.tables)))
+                self.table_bytes -= 0 if old is None else int(old.evidence['bytes'])
+            self.tables[key] = table
+            self.table_bytes += size
             return table
-        while self.tables and self.table_bytes + size > self.TABLE_BUDGET:
-            old = self.tables.pop(next(iter(self.tables)))
-            self.table_bytes -= 0 if old is None else int(old.evidence['bytes'])
-        self.tables[key] = table
-        self.table_bytes += size
-        return table
 
     def get(self, key):
-        value = self.values.get(key)
-        if value is not None:
-            self.hits += 1
-        return value
+        with self.lock:
+            value = self.values.get(key)
+            if value is not None:
+                self.hits += 1
+            return value
 
     def put(self, key, value):
-        if key in self.values or self.ENTRY_BYTES > self.budget:
-            return
-        while (len(self.values) + 1) * self.ENTRY_BYTES > self.budget:
-            self.values.pop(next(iter(self.values)))
-            self.evictions += 1
-        self.values[key] = value
-        self.stores += 1
+        with self.lock:
+            if key in self.values or self.ENTRY_BYTES > self.budget:
+                return
+            while (len(self.values) + 1) * self.ENTRY_BYTES > self.budget:
+                self.values.pop(next(iter(self.values)))
+                self.evictions += 1
+            self.values[key] = value
+            self.stores += 1
 
 
 @contextmanager
@@ -895,6 +905,58 @@ def _project(moment, obs, src):
     return tuple(co.T @ moment[channel, :qo, :qs] @ cs for channel in (0, 1))
 
 
+def _thin_gap_mask(geometry, pairs):
+    """Pairs whose whole-panel task is regular and qualifies for assembly.thin_gap."""
+    from ghost_backend.twod.assembly import thin_gap
+    from ghost_backend.twod.assembly.separation import segment_distance
+    g = geometry
+    count = len(pairs)
+    ids = np.arange(count)
+    regular = _classify_arrays(g, ids, np.tile([0., 1., 0., 1.], (count, 1)), pairs) == 0
+    gap = segment_distance(g.obs_p0, g.obs_p1, g.src_p0, g.src_p1)
+    return regular & thin_gap.qualifies(g.obs_p0, g.obs_p1, g.src_p0, g.src_p1, gap)
+
+
+def _thin_gap_values(geometry, pairs, selected, k, obs_derivative, cache=None, threads=1, checkpoint=None):
+    """Nodal (S, K) blocks of the selected pairs from their semi-analytic thin-gap moments.
+
+    The moments are kept like the tensor-rule moments (keyed by the pair
+    geometry, the wavenumber and order -1), so a certified request's cubic
+    candidate projects the quadratic candidate's moments."""
+    from ghost_backend.twod.assembly import thin_gap
+    from ghost_backend.twod.operators import NEAR_PAIR_QUADRATURE_RTOL, NEAR_PAIR_QUADRATURE_MAX_DEPTH
+    g = geometry
+    selected = np.asarray(selected, dtype=np.int64)
+    moments = np.empty((len(selected), 2, _MOMENT_DEGREE + 1, _MOMENT_DEGREE + 1), dtype=np.complex128)
+    todo = np.ones(len(selected), dtype=bool)
+    keys = None
+    if cache is not None:
+        rows = _key_rows(k, obs_derivative, g, selected, np.tile([0., 1., 0., 1.], (len(selected), 1)),
+                         np.zeros(len(selected), dtype=np.int64))
+        rows[:, 8] = -1.
+        keys = [row.tobytes() for row in rows]
+        for index, key in enumerate(keys):
+            cached = cache.get(key)
+            if cached is not None:
+                moments[index] = cached
+                todo[index] = False
+    pending = np.flatnonzero(todo)
+    if pending.size:
+        ids = selected[pending]
+
+        def map_jobs(function, jobs):
+            return map_checked(function, jobs, min(threads, len(jobs)), checkpoint)
+        moments[pending] = thin_gap.thin_gap_moments(
+            (g.obs_p0[ids], g.obs_p1[ids], g.obs_normal[ids]),
+            (g.src_p0[ids], g.src_p1[ids], g.src_normal[ids]), k, obs_derivative,
+            degree=_MOMENT_DEGREE, rtol=NEAR_PAIR_QUADRATURE_RTOL,
+            max_depth=2 * NEAR_PAIR_QUADRATURE_MAX_DEPTH, map_jobs=map_jobs, checkpoint=checkpoint)
+        if cache is not None:
+            for index in pending:
+                cache.put(keys[index], moments[index])
+    return [_project(moment, *pairs[int(i)]) for moment, i in zip(moments, selected)]
+
+
 def near_blocks(pairs, k, obs_derivative=True, threads=None):
     """near_block for many (obs, src) element pairs: the same rule in batched stages.
 
@@ -912,7 +974,16 @@ def near_blocks(pairs, k, obs_derivative=True, threads=None):
     geometry = _PairGeometry(pairs)
     table = _table_for_ends(k, geometry.obs_p0, geometry.obs_p1, geometry.src_p0, geometry.src_p1)
     values, parents = {}, {}
-    pending = [_Task(i, i, 0, ((0., 1.), (0., 1.))) for i in range(len(pairs))]
+    # Thin gaps: semi-analytic moments instead of O(L/d) tensor-rule tasks.
+    thin = np.flatnonzero(_thin_gap_mask(geometry, pairs)) if pairs else np.zeros(0, dtype=np.int64)
+    if thin.size:
+        from ghost_backend.twod.operators import _NEAR_BATCH_MAX_SAMPLES
+        workers = min(threads, max(1, _NEAR_BATCH_MAX_SAMPLES // _CHUNK_SAMPLES))
+        for index, value in zip(thin, _thin_gap_values(geometry, pairs, thin, k, obs_derivative,
+                                                       cache, workers, checkpoint)):
+            values[int(index)] = value
+    thin = set(int(index) for index in thin)
+    pending = [_Task(i, i, 0, ((0., 1.), (0., 1.))) for i in range(len(pairs)) if i not in thin]
     next_node = len(pairs)
 
     def accept(node, value):

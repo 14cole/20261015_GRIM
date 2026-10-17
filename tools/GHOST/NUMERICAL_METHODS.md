@@ -506,21 +506,28 @@ by reciprocity, which is exact only when both directions use the same rule;
 comparing the derived and independently integrated reverse operators is how
 the junction error was found.
 
-Included meridian corners below 15 degrees are rejected before solving; a
-corner drawn at the threshold passes (1e-6 degree rounding tolerance).
-Subdividing straight panels does not change this angle. This guard does not
-establish convergence for every corner at or above the threshold. The same
-limit applies to every stitched surface of partial, layered and banded layouts,
-including the whole PEC core of a partial coating. The included angle BETWEEN
-two surfaces at a junction (a feathered coating termination is a dielectric
-wedge) is not limited. The repository's own partial-coating fixture ends in a
-12.5 degree wedge whose regressions pass; refined junction rules now run there
-(see above), but no evidence-based wedge threshold has been established yet. On-axis tips are not
-guarded: production and refined rules differ by at most 0.012 dB down to a 10
-degree included tip angle (0.10 dB at 5 degrees), against 0.28 dB for a 10
-degree rim.
-Sphere benchmarks support its performance on those meshes, but do not replace
-an independent near-integral convergence test. That limitation remains open.
+Sharp meridian corners use a dedicated rule (`bor/sharp_pairs.py`). At a small
+included angle the kernel is nearly singular along the whole element pair, and
+on thin steep elements near the axis the modal kernel changes character within
+one cell; the fixed order-4, depth-4 cells left a mesh-independent error that
+extra depth could not remove (MFIE block error 2.5e-2 at a 15 degree rim, 0.50
+at 1 degree; needle-tip self pairs up to 1.0). Touching pairs with an included
+angle under 60 degrees, and steep elements within 30 degrees of the axis with
+2*rho_max/L < 8 (their self pair and both neighbours), are integrated with a
+polar rule graded dyadically toward the complex pole and the ring scale rho,
+with z taken relative to the touching point. Blocks agree with a deeper
+reference to 6e-8 (rims) and 7e-7 (needles) down to 0.25 degrees, and the rule
+is reciprocal to 1e-12. Other pairs keep the fixed cells, so ordinary bodies
+(spheres, cylinders, a 30 degree cone) are bit-identical.
+
+Every solve re-integrates a sample of the routed pairs (every fourth plus the
+sharpest; all junction pairs) with a finer rule and records the result in
+`near_quadrature['sharp_pairs']` (`sharp_pair_quadrature` for material
+layouts); a difference above 1e-5 raises a warning. Included meridian corners
+below 0.25 degrees, the smallest angle validated, are rejected before solving
+(1e-6 degree rounding tolerance). What remains at a thin rim is ordinary first-
+order mesh convergence (the edge current is singular), about 0.1 dB at N = 40,
+which mesh certification measures.
 
 ## BoR material interfaces: weighted region equations
 

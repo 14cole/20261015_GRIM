@@ -18,16 +18,23 @@ def _included_angles(points):
     return np.degrees(np.arccos(np.clip(cosines, -1., 1.)))
 
 
-def require_resolved_corners(points, minimum_degrees=15.):
-    """Guard acute corners outside the validated fixed adjacent-panel rule.
+# Smallest included meridian corner accepted. Touching element pairs below
+# 60 degrees use the angle-graded polar rule (bor.sharp_pairs), whose blocks
+# are within 6e-8 of refined references at every angle measured and whose
+# self-check runs on every solve; biconical rims of 15, 5, 1, 0.5 and 0.25
+# degrees change by at most 0.006 dB between near_refinement 0 and 1 (the
+# fixed cell rule: 0.15 dB at 15 degrees). Below this angle no evidence exists.
+MINIMUM_CORNER_DEGREES = 0.25
+
+
+def require_resolved_corners(points, minimum_degrees=MINIMUM_CORNER_DEGREES):
+    """Guard acute corners below the validated graded-corner rule.
 
     Angles at or above the threshold (within a rounding tolerance) pass. This
-    is a minimum input safeguard, not a claim of quadrature convergence for
-    every corner above the threshold. The two on-axis end points are not
-    corners of this kind: a sharp axial tip pairs an element with its own
-    azimuthal continuation, and production versus refined rules differ by at
-    most 0.012 dB down to a 10 degree included tip angle (0.10 dB at 5 degrees),
-    against 0.28 dB for a 10 degree rim.
+    is a minimum input safeguard, not a claim of mesh convergence: the current
+    at a thin rim is singular, so the mesh still sets the accuracy there. The
+    two on-axis end points are not corners of this kind; sharp tips use the
+    ring-graded rule of bor.sharp_pairs (needles measured to 0.25 degrees).
     """
     points = np.asarray(points, float)
     if len(points) < 3:
@@ -37,7 +44,7 @@ def require_resolved_corners(points, minimum_degrees=15.):
     if len(bad):
         index = int(bad[0])
         raise ValueError(f'BoR corner at node {index+1} has included angle {angles[index]:.6g} degrees; '
-            f'the fixed adjacent-panel quadrature is not validated below {minimum_degrees:g} degrees. '
+            f'the graded corner quadrature is not validated below {minimum_degrees:g} degrees. '
             'Use a resolved rounded geometry or a validated singular-corner formulation; '
             'splitting straight panels alone does not change this corner angle.')
 

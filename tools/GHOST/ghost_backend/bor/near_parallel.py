@@ -327,7 +327,7 @@ class NearTask:
         ``_converged_disjoint_batch``): one graded-rule call per batch instead
         of several per pair, bitwise the same blocks.
         """
-        from ghost_backend.bor.solver import (_same_surface_points, _junction_cell_points,
+        from ghost_backend.bor.solver import (_same_surface_points, _junction_points,
             _contract_near_batch, _converged_disjoint_batch)
         results = [None] * len(pairs)
         touching, disjoint = [], []
@@ -342,8 +342,9 @@ class NearTask:
                 continue
             # Cross-surface pairs (pair_kind given) touch at a junction and use
             # the refined junction rule, exactly as the in-process path does.
-            points = (_same_surface_points(self.gp, e, f, self.kinds, self.depth)
-                      if self.pair_kind is None else _junction_cell_points(cell, self.junction_refinement))
+            points = (_same_surface_points(self.gp, e, f, self.kinds, self.depth, self.m_max)
+                      if self.pair_kind is None else
+                      _junction_points(self.gp, e, self.gq, f, cell, self.junction_refinement, self.m_max))
             touching.append((index, (self.gp, e, self.gq, f, points)))
         pick = ((lambda blocks: blocks[self.kinds[0]])
                 if self.pair_kind is None and not self.return_families else (lambda blocks: blocks))

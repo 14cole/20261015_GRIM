@@ -1386,6 +1386,9 @@ def _single_layer_block_linear(
         if abs(complex(k0)) * float(obs_elem.length) > _SELF_SERIES_LIMIT:
             return _single_layer_self_block_composite(obs_elem, k0)
     elif requires_adaptive(obs_elem, src_elem):
+        if _thin_gap_mask([obs_elem], [src_elem])[0]:
+            return _thin_gap_linear_blocks([obs_elem], [src_elem], k0, False,
+                                           compute_double_layer=False)[0][0]
         return _integrate_linear_pair_adaptive_sk(
             obs_elem, src_elem, k0, False, max(16, obs_order), max(16, src_order),
             compute_single_layer=True, compute_double_layer=False)[0]
@@ -1466,6 +1469,11 @@ def _sk_blocks_near_linear(
     tensor_order = max(int(max(obs_order, src_order)), min(16, int(max(5, adapt_order))))
 
     if requires_adaptive(obs_elem, src_elem):
+        if _thin_gap_mask([obs_elem], [src_elem])[0]:
+            s_blocks, k_blocks = _thin_gap_linear_blocks(
+                [obs_elem], [src_elem], k0, obs_normal_deriv,
+                compute_single_layer, compute_double_layer)
+            return s_blocks[0], k_blocks[0]
         return _integrate_linear_pair_adaptive_sk(
             obs_elem=obs_elem,
             src_elem=src_elem,
@@ -1610,6 +1618,219 @@ def _integrate_linear_pair_adaptive_sk(
         return s_total, k_total
 
     return recurse((0.0, 1.0), (0.0, 1.0), depth=0)
+
+
+# Box samples per evaluation batch of the level-batched recursion.
+_ADAPTIVE_BOX_SAMPLES = 131_072
+
+
+def _near_map(function, jobs):
+    """Ordered results of independent near batches on the assembly threads."""
+    from ghost_backend.twod.polynomial_quadrature import map_checked, solve_checkpoint
+    workers = min(get_assembly_threads(), len(jobs),
+                  max(1, _NEAR_BATCH_MAX_SAMPLES // _NEAR_BATCH_THREAD_SAMPLES))
+    return map_checked(function, jobs, workers, solve_checkpoint())
+
+
+def _integrate_linear_boxes_sk(geometry, pair, intervals, k0, obs_normal_deriv, order,
+                               compute_single_layer, compute_double_layer):
+    """`_integrate_linear_pair_box_sk_vectorized` for many (pair, box) rows, term for term.
+
+    ``geometry`` holds the pairs' (obs p0, obs p1 - p0, obs length, src p0,
+    src p1 - p0, src length, derivative normal); ``intervals`` rows are (obs
+    start, obs end, src start, src end). The elementwise operations and the
+    contraction are the single box's, so every block is bitwise its value.
+    """
+    obs_p0, obs_seg, obs_length, src_p0, src_seg, src_length, normal = geometry
+    qt, qw = _get_quadrature(max(2, int(order)))
+    qt, qw = np.asarray(qt, dtype=float), np.asarray(qw, dtype=float)
+    oa, ob, sa, sb = intervals.T
+    obs_scale = np.maximum(ob - oa, 0.0)
+    src_scale = np.maximum(sb - sa, 0.0)
+    obs_len = obs_length[pair] * obs_scale
+    src_len = src_length[pair] * src_scale
+    xi_obs = oa[:, None] + obs_scale[:, None] * qt[None, :]
+    xi_src = sa[:, None] + src_scale[:, None] * qt[None, :]
+    phi_obs = np.stack([1.0 - xi_obs, xi_obs], axis=-1)
+    phi_src = np.stack([1.0 - xi_src, xi_src], axis=-1)
+    robs = obs_p0[pair][:, None, :] + xi_obs[:, :, None] * obs_seg[pair][:, None, :]
+    rsrc = src_p0[pair][:, None, :] + xi_src[:, :, None] * src_seg[pair][:, None, :]
+    diff = robs[:, :, None, :] - rsrc[:, None, :, :]
+    dist = np.sqrt(np.sum(diff * diff, axis=3))
+    dist_safe = np.maximum(dist, EPS)
+    kr = np.asarray(complex(k0) * dist_safe, dtype=np.complex128)
+    kr[np.abs(kr) <= 1e-12] = 1e-12 + 0.0j
+    # The single box chooses its Hankel branch over the whole box.
+    real_box = np.all((np.abs(kr.imag) <= 1e-14) & (kr.real >= 0.0), axis=(1, 2))
+    groups = [g for g in (np.flatnonzero(real_box), np.flatnonzero(~real_box)) if g.size]
+
+    def hankel(kind):
+        if len(groups) == 1:
+            return _stable_hankel2_array(kind, kr.ravel()).reshape(kr.shape)
+        values = np.empty(kr.shape, dtype=np.complex128)
+        for group in groups:
+            values[group] = _stable_hankel2_array(kind, kr[group].ravel()).reshape(kr[group].shape)
+        return values
+
+    w_outer = np.outer(qw, qw)
+    zero = np.zeros((len(pair), 2, 2), dtype=np.complex128)
+    s_blocks = k_blocks = zero
+    if compute_single_layer:
+        weighted_g = w_outer[None, :, :] * (0.25j * hankel(0))
+        s_blocks = np.einsum('nij,nia,njb->nab', weighted_g, phi_obs, phi_src)
+    if compute_double_layer:
+        h1 = hankel(1)
+        proj = np.sum(diff * normal[pair][:, None, None, :], axis=3) / dist_safe
+        if obs_normal_deriv:
+            dk_vals = (-0.25j * complex(k0)) * h1 * proj
+        else:
+            dk_vals = (0.25j * complex(k0)) * h1 * proj
+        dk_vals[dist <= EPS] = 0.0
+        k_blocks = np.einsum('nij,nia,njb->nab', w_outer[None, :, :] * dk_vals, phi_obs, phi_src)
+    scale = (obs_len * src_len)[:, None, None]
+    empty = (obs_len <= 0.0) | (src_len <= 0.0)
+    s_blocks, k_blocks = s_blocks * scale, k_blocks * scale
+    s_blocks[empty] = 0.0
+    k_blocks[empty] = 0.0
+    return s_blocks, k_blocks
+
+
+def _sum_children(children):
+    """``sum(children, zero.copy())`` over axis 1 of (n, 4, 2, 2) blocks, in order."""
+    total = np.zeros((children.shape[0], 2, 2), dtype=np.complex128)
+    for child in range(children.shape[1]):
+        total = total + children[:, child]
+    return total
+
+
+def _integrate_linear_pairs_adaptive_sk_batched(
+    obs_elems, src_elems, k0, obs_normal_deriv, order,
+    compute_single_layer=True, compute_double_layer=True,
+    rtol=NEAR_PAIR_QUADRATURE_RTOL, max_depth=NEAR_PAIR_QUADRATURE_MAX_DEPTH,
+):
+    """`_integrate_linear_pair_adaptive_sk` for many pairs, refined level by level.
+
+    Each level evaluates the four children of every unconverged box of every
+    pair in vectorized batches. The box blocks, the convergence decisions and
+    the bottom-up summation order are the recursion's, so each pair's blocks
+    are bitwise its result; error estimates within rounding of the target are
+    re-evaluated with the recursion's own arithmetic.
+    """
+    want_s, want_k = bool(compute_single_layer), bool(compute_double_layer)
+    if not want_s and not want_k:
+        raise ValueError("At least one element-pair operator must be requested.")
+    npairs = len(obs_elems)
+    zero = np.zeros((2, 2), dtype=np.complex128)
+    if npairs == 0:
+        return np.zeros((0, 2, 2), complex), np.zeros((0, 2, 2), complex)
+    geometry = (np.asarray([e.p0 for e in obs_elems], float).reshape(-1, 2),
+                np.asarray([e.p1 - e.p0 for e in obs_elems], float).reshape(-1, 2),
+                np.asarray([float(e.length) for e in obs_elems], float),
+                np.asarray([e.p0 for e in src_elems], float).reshape(-1, 2),
+                np.asarray([e.p1 - e.p0 for e in src_elems], float).reshape(-1, 2),
+                np.asarray([float(e.length) for e in src_elems], float),
+                np.asarray([(o if obs_normal_deriv else s).normal for o, s in zip(obs_elems, src_elems)],
+                           float).reshape(-1, 2))
+    floor = np.finfo(float).eps * np.maximum(1.0, geometry[2] * geometry[5])
+    per_batch = max(1, _ADAPTIVE_BOX_SAMPLES // (int(order) ** 2))
+
+    def evaluate(pair, intervals):
+        jobs = [(pair[a:a + per_batch], intervals[a:a + per_batch])
+                for a in range(0, len(pair), per_batch)]
+        results = list(_near_map(lambda job: _integrate_linear_boxes_sk(
+            geometry, job[0], job[1], k0, obs_normal_deriv, order, want_s, want_k), jobs))
+        return (np.concatenate([r[0] for r in results]), np.concatenate([r[1] for r in results]))
+
+    def norms(blocks):
+        flat = blocks.reshape(len(blocks), -1)
+        return np.sqrt(np.sum(flat.real * flat.real, axis=1) + np.sum(flat.imag * flat.imag, axis=1))
+
+    def relative_errors(coarse, children, pair):
+        scale = 0.0
+        for child in range(4):
+            scale = scale + norms(children[:, child])
+        return norms(_sum_children(children) - coarse) / np.maximum(scale, floor[pair])
+
+    def relative_error(coarse, children, pair):
+        fine = sum(list(children), zero.copy())
+        scale_norm = sum(float(np.linalg.norm(block)) for block in children)
+        return float(np.linalg.norm(fine - coarse)) / max(scale_norm, float(floor[pair]))
+
+    pair = np.arange(npairs)
+    intervals = np.tile(np.array([0.0, 1.0, 0.0, 1.0]), (npairs, 1))
+    coarse_s, coarse_k = evaluate(pair, intervals)
+    levels = []
+    depth = 0
+    while len(pair):
+        oa, ob, sa, sb = intervals.T
+        om, sm = 0.5 * (oa + ob), 0.5 * (sa + sb)
+        child_intervals = np.stack([np.column_stack(c) for c in (
+            (oa, om, sa, sm), (oa, om, sm, sb), (om, ob, sa, sm), (om, ob, sm, sb))], axis=1)
+        child_pair = np.repeat(pair, 4)
+        child_s, child_k = evaluate(child_pair, child_intervals.reshape(-1, 4))
+        child_s, child_k = child_s.reshape(-1, 4, 2, 2), child_k.reshape(-1, 4, 2, 2)
+        error = np.zeros(len(pair))
+        if want_s:
+            error = np.maximum(error, relative_errors(coarse_s, child_s, pair))
+        if want_k:
+            error = np.maximum(error, relative_errors(coarse_k, child_k, pair))
+        for i in np.flatnonzero(np.abs(error - rtol) <= 1e-8 * rtol):
+            error[i] = max(relative_error(coarse_s[i], child_s[i], pair[i]) if want_s else 0.0,
+                           relative_error(coarse_k[i], child_k[i], pair[i]) if want_k else 0.0)
+        refine = ~(error <= float(rtol))
+        if np.any(refine) and depth >= int(max_depth):
+            i = int(np.flatnonzero(refine)[0])
+            obs_elem, src_elem = obs_elems[int(pair[i])], src_elems[int(pair[i])]
+            gap_ratio = float(np.linalg.norm(obs_elem.center - src_elem.center)) / max(
+                float(obs_elem.length), float(src_elem.length), EPS)
+            raise FloatingPointError(
+                "Separated-near Galerkin quadrature did not converge: "
+                f"panel pair ({obs_elem.panel_index}, {src_elem.panel_index}), "
+                f"center-gap/length={gap_ratio:.6g}, estimated relative block "
+                f"error={error[i]:.3e} after depth {depth}. Refine the boundary "
+                "mesh or increase NEAR_PAIR_QUADRATURE_MAX_DEPTH.")
+        levels.append((child_s, child_k, refine))
+        pair = child_pair.reshape(-1, 4)[refine].ravel()
+        intervals = child_intervals[refine].reshape(-1, 4)
+        coarse_s, coarse_k = child_s[refine].reshape(-1, 2, 2), child_k[refine].reshape(-1, 2, 2)
+        depth += 1
+    # Bottom-up: a converged box sums its children's blocks, a refined one its
+    # children's totals, both in child order from zero.
+    below_s = below_k = None
+    for child_s, child_k, refine in reversed(levels):
+        if below_s is not None:
+            child_s, child_k = child_s.copy(), child_k.copy()
+            child_s[refine] = below_s.reshape(-1, 4, 2, 2)
+            child_k[refine] = below_k.reshape(-1, 4, 2, 2)
+        below_s, below_k = _sum_children(child_s), _sum_children(child_k)
+    return below_s, below_k
+
+
+def _thin_gap_mask(obs_elems, src_elems):
+    """Separated linear pairs integrated semi-analytically across their gap (assembly.thin_gap)."""
+    from ghost_backend.twod.assembly import thin_gap
+    if not len(obs_elems):
+        return np.zeros(0, dtype=bool)
+    p0 = np.asarray([e.p0 for e in obs_elems], float).reshape(-1, 2)
+    p1 = np.asarray([e.p1 for e in obs_elems], float).reshape(-1, 2)
+    q0 = np.asarray([e.p0 for e in src_elems], float).reshape(-1, 2)
+    q1 = np.asarray([e.p1 for e in src_elems], float).reshape(-1, 2)
+    return thin_gap.qualifies(p0, p1, q0, q1, segment_distance(p0, p1, q0, q1))
+
+
+def _thin_gap_linear_blocks(obs_elems, src_elems, k0, obs_normal_deriv,
+                            compute_single_layer=True, compute_double_layer=True):
+    """S and K blocks of `_thin_gap_mask` pairs (assembly.thin_gap)."""
+    from ghost_backend.twod.assembly import thin_gap
+    from ghost_backend.twod.polynomial_quadrature import solve_checkpoint
+    arrays = [tuple(np.asarray([getattr(e, name) for e in elems], float).reshape(-1, 2)
+                    for name in ('p0', 'p1', 'normal')) for elems in (obs_elems, src_elems)]
+    s_blocks, k_blocks = thin_gap.thin_gap_linear_blocks(
+        arrays[0], arrays[1], k0, obs_normal_deriv, bool(compute_single_layer),
+        bool(compute_double_layer), rtol=NEAR_PAIR_QUADRATURE_RTOL,
+        max_depth=2 * NEAR_PAIR_QUADRATURE_MAX_DEPTH, map_jobs=_near_map,
+        checkpoint=solve_checkpoint())
+    return s_blocks, k_blocks
 
 _TANGENT_OUTER = np.array([[1.0, -1.0], [-1.0, 1.0]], dtype=np.complex128)
 
@@ -2590,6 +2811,44 @@ def _near_pair_blocks(elements, obs_idx, src_idx, k0, obs_normal_deriv, obs_orde
                 if k_near is not None:
                     k_near[pos] = zero
                 done[pos] = True
+
+    # Separated close linear pairs: thin gaps semi-analytically, the others by
+    # the box recursion refined level by level over all pairs at once (both as
+    # `_sk_blocks_near_linear` integrates them one by one).
+    if width == 2:
+        candidates = np.flatnonzero(~done & (panel_index[obs_idx] != panel_index[src_idx]))
+        separated = np.asarray([pos for pos in candidates if _linear_shared_interval_endpoint_info(
+            elements[int(obs_idx[pos])], (0.0, 1.0), elements[int(src_idx[pos])], (0.0, 1.0),
+            tol=1.0e-9) is None and requires_adaptive(elements[int(obs_idx[pos])],
+                                                      elements[int(src_idx[pos])])], dtype=np.int64)
+        obs_elems = [elements[int(obs_idx[pos])] for pos in separated]
+        src_elems = [elements[int(src_idx[pos])] for pos in separated]
+        thin = _thin_gap_mask(obs_elems, src_elems)
+        selections = {None: np.flatnonzero(thin)}
+        for position in np.flatnonzero(~thin):
+            obs_elem, src_elem = obs_elems[position], src_elems[position]
+            distance = float(np.linalg.norm(obs_elem.center - src_elem.center))
+            adapt_order, _ = _near_singular_scheme(distance, max(obs_elem.length, src_elem.length, EPS))
+            tensor_order = max(int(max(obs_order, src_order)), min(16, int(max(5, adapt_order))))
+            selections.setdefault(tensor_order, []).append(position)
+        for tensor_order, selected in selections.items():
+            if not len(selected):
+                continue
+            chosen_obs = [obs_elems[i] for i in selected]
+            chosen_src = [src_elems[i] for i in selected]
+            if tensor_order is None:
+                s_blk, k_blk = _thin_gap_linear_blocks(chosen_obs, chosen_src, k0, obs_normal_deriv,
+                                                       integrate_s, want_k)
+            else:
+                s_blk, k_blk = _integrate_linear_pairs_adaptive_sk_batched(
+                    chosen_obs, chosen_src, k0, obs_normal_deriv, tensor_order,
+                    compute_single_layer=integrate_s, compute_double_layer=want_k)
+            positions = separated[np.asarray(selected, dtype=np.int64)]
+            if s_near is not None:
+                s_near[positions] = s_blk
+            if k_near is not None:
+                k_near[positions] = k_blk
+            done[positions] = True
 
     # Remaining self and adaptive linear pairs, one at a time (the few close
     # pairs whose rule adapts, and self terms outside the series' range).
