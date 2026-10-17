@@ -5,7 +5,12 @@ import cmath
 import math
 from dataclasses import dataclass, field
 from itertools import product
-from .sweep_admission import sweep_count, validate_axis_count, validate_grid
+from .sweep_admission import (
+    SWEEP_RELATIVE_TOLERANCE,
+    sweep_count,
+    validate_axis_count,
+    validate_grid,
+)
 
 try:
     import numpy as np
@@ -427,6 +432,252 @@ def interp_components_on_grid(
     return eps_cols, mu_cols
 
 
+_BRUGGEMAN_DEN_TOL = 1e-14
+# Newton stops at this residual, so candidates at or below it are equally
+# converged roots; their residuals differ only by rounding noise.
+BRUGGEMAN_CONVERGED_RESIDUAL = 1e-11
+# Relative separation above which two converged candidates are different roots.
+BRUGGEMAN_DISTINCT_ROOT = 1e-6
+
+
+def _bruggeman_continuity_override(candidates):
+    """Return the converged candidate closest to the continuity reference
+    when it is a different root from the minimum-residual pick, else None.
+
+    With lossless constituents both quadratic-family roots are real and pass
+    the passivity test (for example eps 3.09 and 243 at 59/41% give 40.0 and
+    -9.39). Ranking those by rounding-noise residual could return the
+    unphysical negative root; among equally converged roots continuity with
+    the previous point (or the linear mix) decides instead.
+    """
+    converged = [c for c in candidates if c[0] <= BRUGGEMAN_CONVERGED_RESIDUAL]
+    if not converged:
+        return None
+    best = min(converged, key=lambda item: item[1])
+    picked = candidates[0][2]
+    if abs(best[2] - picked) > BRUGGEMAN_DISTINCT_ROOT * max(abs(picked), 1e-12):
+        return best
+    return None
+
+
+def _bruggeman_residual_many(zs, fractions, eff):
+    """sum_i f_i (z_i - eff) / (z_i + 2 eff), summed in component order."""
+    acc = None
+    for f, z in zip(fractions, zs):
+        term = f * (z - eff) / (z + 2.0 * eff)
+        acc = term if acc is None else acc + term
+    return acc
+
+
+def _bruggeman_newton_many(zs, fractions, seed):
+    """Vector form of the scalar damped Newton loop in ``_combine_columns``.
+
+    Every sample runs the scalar iteration (100 Newton steps, 1e-11 residual
+    stop, up to 20 step halvings accepting the first strict residual
+    decrease); finished samples drop out of the active set. Returns the final
+    iterate, NaN where the seed was not finite.
+    """
+    eff = np.array(seed, dtype=complex)
+    active = np.isfinite(eff.real) & np.isfinite(eff.imag)
+    eff[~active] = complex(math.nan, math.nan)
+    for _ in range(100):
+        idx = np.flatnonzero(active)
+        if idx.size == 0:
+            break
+        e = eff[idx]
+        z_act = [z[idx] for z in zs]
+        dens = [z + 2.0 * e for z in z_act]
+        keep = np.minimum.reduce([np.abs(d) for d in dens]) > _BRUGGEMAN_DEN_TOL
+        residual = None
+        deriv = None
+        with np.errstate(all="ignore"):
+            for f, z, den in zip(fractions, z_act, dens):
+                term = f * (z - e) / den
+                d_term = -3.0 * f * z / (den * den)
+                residual = term if residual is None else residual + term
+                deriv = d_term if deriv is None else deriv + d_term
+        base_res = np.abs(residual)
+        keep &= ~(base_res <= 1e-11)
+        keep &= ~(np.abs(deriv) <= 1e-14)
+        step = np.zeros_like(e)
+        np.divide(residual, deriv, out=step, where=keep)
+        accepted = np.zeros(idx.size, dtype=bool)
+        alpha = 1.0
+        for _ in range(20):
+            pending = keep & ~accepted
+            if not np.any(pending):
+                break
+            trial = e - alpha * step
+            trial_dens = [z + 2.0 * trial for z in z_act]
+            ok = pending & (
+                np.minimum.reduce([np.abs(d) for d in trial_dens]) > _BRUGGEMAN_DEN_TOL
+            )
+            trial_res = None
+            with np.errstate(all="ignore"):
+                for f, z, den in zip(fractions, z_act, trial_dens):
+                    term = f * (z - trial) / den
+                    trial_res = term if trial_res is None else trial_res + term
+            trial_abs = np.abs(trial_res)
+            take = ok & np.isfinite(trial_abs) & (trial_abs < base_res)
+            e = np.where(take, trial, e)
+            accepted |= take
+            alpha *= 0.5
+        eff[idx] = e
+        active[idx] = keep & accepted
+    return eff
+
+
+def _bruggeman_candidates(zs, fractions, eff, ref):
+    """Residual/distance scores for one seed's result; inf marks rejection."""
+    finite = np.isfinite(eff.real) & np.isfinite(eff.imag)
+    safe = np.where(finite, eff, 0.0)
+    dens_ok = np.minimum.reduce([np.abs(z + 2.0 * safe) for z in zs]) > _BRUGGEMAN_DEN_TOL
+    with np.errstate(all="ignore"):
+        residual = np.abs(_bruggeman_residual_many(zs, fractions, safe))
+        distance = np.abs(safe - ref) / np.maximum(np.abs(ref), 1e-12)
+    tol = 64.0 * np.finfo(float).eps * np.maximum(1.0, np.abs(safe))
+    valid = finite & dens_ok & (safe.imag <= tol) & np.isfinite(residual)
+    return (np.where(valid, residual, math.inf),
+            np.where(valid, distance, math.inf), safe)
+
+
+def _select_bruggeman(scored):
+    """Per sample: minimum residual, then minimum distance, then seed order.
+
+    See ``_bruggeman_continuity_override`` for the one exception.
+    """
+    residual = np.stack([item[0] for item in scored])
+    distance = np.stack([item[1] for item in scored])
+    values = np.stack([item[2] for item in scored])
+    best_res = residual.min(axis=0)
+    dist = np.where(residual == best_res, distance, math.inf)
+    choice = np.argmin(dist, axis=0)
+    cols = np.arange(residual.shape[1])
+    picked, picked_res = values[choice, cols], residual[choice, cols]
+    converged = residual <= BRUGGEMAN_CONVERGED_RESIDUAL
+    alt = np.argmin(np.where(converged, distance, math.inf), axis=0)
+    alt_values = values[alt, cols]
+    swap = np.any(converged, axis=0) & (
+        np.abs(alt_values - picked)
+        > BRUGGEMAN_DISTINCT_ROOT * np.maximum(np.abs(picked), 1e-12)
+    )
+    picked = np.where(swap, alt_values, picked)
+    picked_res = np.where(swap, residual[alt, cols], picked_res)
+    return picked, picked_res
+
+
+def _bruggeman_two_component(zs, fractions):
+    """Closed-form 2-phase roots of 2 e^2 - b e - z1 z2 = 0.
+
+    b = (3 f1 - 1) z1 + (3 f2 - 1) z2. The larger-magnitude root is formed
+    without cancellation and the other from the product -z1 z2 / 2; one
+    Newton step polishes each. Both are scored like the scalar candidates.
+    """
+    (f1, f2), (z1, z2) = fractions, zs
+    b = (3.0 * f1 - 1.0) * z1 + (3.0 * f2 - 1.0) * z2
+    prod = z1 * z2
+    r = np.sqrt(b * b + 8.0 * prod)
+    r = np.where((np.conjugate(b) * r).real >= 0.0, r, -r)
+    big = (b + r) / 4.0
+    linear = f1 * z1 + f2 * z2
+    scored = []
+    with np.errstate(all="ignore"):
+        small = np.where(big != 0.0, (-0.5 * prod) / big, 0.0)
+        for root in (big, small):
+            residual = _bruggeman_residual_many(zs, fractions, root)
+            den1 = z1 + 2.0 * root
+            den2 = z2 + 2.0 * root
+            deriv = -3.0 * f1 * z1 / (den1 * den1) + -3.0 * f2 * z2 / (den2 * den2)
+            polished = np.where(np.abs(deriv) > 1e-14, root - residual / deriv, root)
+            scored.append(_bruggeman_candidates(zs, fractions, polished, linear))
+    return scored
+
+
+def _bruggeman_columns_many(cols, fractions):
+    """Vectorized Bruggeman with the scalar path's root-selection rules.
+
+    The scalar loop seeds each frequency with the previous root, the linear
+    mix and every constituent, then keeps the passive candidate of smallest
+    residual (ties: closest to the previous root). The linear and constituent
+    seeds do not depend on other frequencies, so they run once over the whole
+    sweep. The continuity seed is resolved by fixed-point passes: pass k
+    reseeds from pass k-1's roots. Once the selection stops changing it equals
+    the sequential recursion, because the first frequency has no previous seed
+    and each later point depends only on its predecessor. Two components use
+    the closed-form quadratic; samples whose constituents are all identical
+    (e.g. every mu = 1) return that value, which is the exact root.
+    """
+    zs = [np.asarray(col, dtype=complex) for col in cols]
+    n = zs[0].size
+    out = np.empty(n, dtype=complex)
+    same = np.ones(n, dtype=bool)
+    for z in zs[1:]:
+        same &= z == zs[0]
+    out[same] = zs[0][same]
+    work = np.flatnonzero(~same)
+    if work.size == 0:
+        return out.tolist()
+    zw = [z[work] for z in zs]
+    if len(zs) == 2:
+        values, best = _select_bruggeman(_bruggeman_two_component(zw, fractions))
+    else:
+        linear = None
+        for f, z in zip(fractions, zw):
+            term = f * z
+            linear = term if linear is None else linear + term
+        fixed_results = [
+            _bruggeman_newton_many(zw, fractions, seed) for seed in [linear, *zw]
+        ]
+        nan = complex(math.nan, math.nan)
+
+        def select(previous):
+            scored = []
+            ref = linear
+            if previous is not None:
+                no_prev = np.isnan(previous.real)
+                ref = np.where(no_prev, linear, previous)
+                eff = _bruggeman_newton_many(zw, fractions, previous)
+                res, dist, vals = _bruggeman_candidates(zw, fractions, eff, ref)
+                scored.append((np.where(no_prev, math.inf, res), dist, vals))
+            scored.extend(
+                _bruggeman_candidates(zw, fractions, eff_i, ref)
+                for eff_i in fixed_results
+            )
+            values, best = _select_bruggeman(scored)
+            return np.where(np.isfinite(best), values, nan), best
+
+        def shifted(values):
+            # Continuity follows the full sweep order, so a sample after an
+            # identical-constituent point is seeded by that exact value.
+            full = out.copy()
+            full[work] = values
+            prev = np.empty(n, dtype=complex)
+            prev[0] = nan
+            prev[1:] = full[:-1]
+            return prev[work]
+
+        values, best = select(None)
+        for _ in range(n + 1):
+            new_values, new_best = select(shifted(values))
+            converged = np.array_equal(new_values, values, equal_nan=True)
+            values, best = new_values, new_best
+            if converged:
+                break
+    # The scalar loop raises at the first failing frequency; report that
+    # point's reason (no passive candidate vs. an unconverged one).
+    bad = np.flatnonzero(~(best <= 1e-8))
+    if bad.size:
+        if np.isinf(best[bad[0]]):
+            raise ValueError(
+                "Bruggeman solver failed to find a finite passive physical root."
+            )
+        raise ValueError(
+            "Bruggeman solver did not converge to a passive physical root."
+        )
+    out[work] = values
+    return out.tolist()
+
+
 def _combine_columns(
     cols: list[list[complex]], fractions: list[float], rule: str
 ) -> list[complex]:
@@ -514,6 +765,8 @@ def _combine_columns(
     # iterations from multiple seeds. Select a passive root with a small
     # residual and prefer continuity with the previous frequency point.
     if rule == MIX_RULE_BRUGGEMAN:
+        if NUMPY_AVAILABLE:
+            return _bruggeman_columns_many(cols, fractions)
         out = []
         previous: complex | None = None
         for i in range(n):
@@ -580,7 +833,9 @@ def _combine_columns(
                     "Bruggeman solver failed to find a finite passive physical root."
                 )
             candidates.sort(key=lambda item: (item[0], item[1]))
-            residual_score, _distance, eff_pt = candidates[0]
+            residual_score, _distance, eff_pt = (
+                _bruggeman_continuity_override(candidates) or candidates[0]
+            )
             if residual_score > 1e-8 or eff_pt.imag > _complex_tolerance(eff_pt):
                 raise ValueError(
                     "Bruggeman solver did not converge to a passive physical root."
@@ -747,7 +1002,15 @@ def snap_to_increment(
 
 def make_sweep(f_start: float, f_stop: float, f_step: float) -> list[float]:
     count = validate_axis_count(sweep_count(f_start, f_stop, f_step))
-    return [f_start + i * f_step for i in range(count)]
+    values = [f_start + i * f_step for i in range(count)]
+    # start + n*step can land an ulp past stop (0.1 + 2*0.1 is
+    # 0.30000000000000004), which then falls outside a table ending exactly
+    # at stop. When the last sample is stop to within rounding, use stop.
+    # sweep_count accepted the same relative slack on the interval count.
+    slack = SWEEP_RELATIVE_TOLERANCE * max(1, count - 1) * f_step
+    if count > 1 and abs(values[-1] - f_stop) <= slack:
+        values[-1] = f_stop
+    return values
 
 
 def make_frequency_sweep(f_start: float, f_stop: float, f_step: float) -> list[float]:
@@ -921,10 +1184,59 @@ def build_uncertainty_scales(cfg: UncertaintyConfig) -> list[tuple[float, float,
     e_vals = [1.0 - de, 1.0 + de] if de > 0 else [1.0]
     m_vals = [1.0 - dm, 1.0 + dm] if dm > 0 else [1.0]
 
-    scales = sorted(set(product(t_vals, e_vals, m_vals)))
-    if (1.0, 1.0, 1.0) not in scales:
-        scales.append((1.0, 1.0, 1.0))
-    return scales
+    # The +-delta box corners alone miss interior extrema of non-monotonic
+    # responses (a quarter-wave resonance inside a +-10% thickness band peaks
+    # near nominal, not at the corners). Each axis is therefore also sampled
+    # at UNCERTAINTY_AXIS_SAMPLES evenly spaced points across [-delta, +delta]
+    # with the other two scales held at nominal. The envelope is a sampled
+    # bound, not a certified one: off-axis interior points are not visited.
+    # All layers share one scale per axis (systematic, fully correlated).
+    scales = set(product(t_vals, e_vals, m_vals))
+    for axis, delta in enumerate((dt, de, dm)):
+        for value in _uncertainty_axis_values(delta):
+            point = [1.0, 1.0, 1.0]
+            point[axis] = value
+            scales.add(tuple(point))
+    scales.add((1.0, 1.0, 1.0))
+    return sorted(scales)
+
+
+# Evenly spaced samples per tolerance axis (odd, so nominal is included).
+UNCERTAINTY_AXIS_SAMPLES = 9
+
+
+def _uncertainty_axis_values(delta: float) -> list[float]:
+    if delta <= 0:
+        return [1.0]
+    half = (UNCERTAINTY_AXIS_SAMPLES - 1) // 2
+    # k / half is exactly +-1.0 at the ends, so the axis endpoints coincide
+    # bit for bit with the box corners' +-delta values.
+    return [1.0 + delta * (k / half) for k in range(-half, half + 1)]
+
+
+def describe_uncertainty_sampling(cfg: UncertaintyConfig) -> str:
+    """One-line statement of what the tolerance envelope actually samples."""
+    if not cfg.enabled:
+        return "Tolerance envelope: off (nominal only)."
+    active = [
+        f"{label} ±{pct:g}%"
+        for label, pct in (
+            ("thickness", cfg.thickness_pct),
+            ("ε", cfg.eps_pct),
+            ("μ", cfg.mu_pct),
+        )
+        if pct > 0
+    ]
+    if not active:
+        return "Tolerance envelope: all tolerances are 0% (nominal only)."
+    cases = len(build_uncertainty_scales(cfg))
+    return (
+        f"Tolerance envelope: min/max over {cases} sampled cases "
+        f"({', '.join(active)}): the ±δ box corners plus "
+        f"{UNCERTAINTY_AXIS_SAMPLES} evenly spaced points along each scale "
+        "axis (other scales nominal); one scale per axis applies to all layers. "
+        "Sampled, not a certified bound."
+    )
 
 
 def is_nominal_scale(t_scale: float, e_scale: float, m_scale: float, tol: float = 1e-12) -> bool:
@@ -1609,65 +1921,29 @@ def _db_from_mag_many(x: "np.ndarray") -> "np.ndarray":
     return 20.0 * np.log10(np.maximum(np.abs(values), 1e-15))
 
 
-def compute_angle_metrics_many(
-    f_ghz: list[float],
-    theta_deg: float,
-    layers: list[LoadedLayer],
-    wave_pol: str,
-    thickness_scale: float = 1.0,
-    eps_scale: float = 1.0,
-    mu_scale: float = 1.0,
-    *,
-    prepared_properties: list[tuple[list[complex], list[complex]] | None] | None = None,
-    prepared_wave_terms: list[tuple["np.ndarray", "np.ndarray"] | None] | None = None,
-    return_arrays: bool = False,
-) -> dict[str, list[float] | "np.ndarray"]:
-    """Frequency-vector metrics; array output avoids boxing dense GUI sweeps.
+def _validate_metric_inputs(f_ghz, theta_deg, layers, wave_pol, prepared_wave_terms):
+    """Shared admission for the vector metric paths.
 
-    The public default remains lists. Without NumPy the scalar fallback also
-    returns lists, which both consumers can assign into their output grids.
+    Prepared wave terms were built by ``prepare_layer_wave_terms_many``, which
+    already validated every frequency; repeating that per-sample Python loop
+    for each candidate/corner/angle dominated inverse scoring. Only the array
+    lengths are then checked against ``f_ghz`` (in ``_metric_chain_terms``).
     """
-    if not f_ghz:
-        return {
-            "metal_loss_db": [],
-            "metal_phase_deg": [],
-            "air_loss_db": [],
-            "air_phase_deg": [],
-            "insertion_loss_db": [],
-            "insertion_phase_deg": [],
-            "metal_absorption_db": [],
-            "air_absorption_db": [],
-        }
-    if len(f_ghz):
-        validate_grid(len(f_ghz), layer_count=len(layers), label="Solver frequency sweep")
-    _validate_frequency_vector(f_ghz)
+    validate_grid(len(f_ghz), layer_count=len(layers), label="Solver frequency sweep")
+    if prepared_wave_terms is None or not NUMPY_AVAILABLE or all(
+        term is None for term in prepared_wave_terms
+    ):
+        _validate_frequency_vector(f_ghz)
     theta_deg = validate_incidence_angle(theta_deg)
     validate_anisotropic_oblique_model(layers, theta_deg, wave_pol)
+    return theta_deg
 
-    if not NUMPY_AVAILABLE:
-        rows = [
-            compute_angle_metrics(
-                f,
-                theta_deg,
-                layers,
-                wave_pol,
-                thickness_scale=thickness_scale,
-                eps_scale=eps_scale,
-                mu_scale=mu_scale,
-            )
-            for f in f_ghz
-        ]
-        return {
-            "metal_loss_db": [r["metal_loss_db"] for r in rows],
-            "metal_phase_deg": [r["metal_phase_deg"] for r in rows],
-            "air_loss_db": [r["air_loss_db"] for r in rows],
-            "air_phase_deg": [r["air_phase_deg"] for r in rows],
-            "insertion_loss_db": [r["insertion_loss_db"] for r in rows],
-            "insertion_phase_deg": [r["insertion_phase_deg"] for r in rows],
-            "metal_absorption_db": [r["metal_absorption_db"] for r in rows],
-            "air_absorption_db": [r["air_absorption_db"] for r in rows],
-        }
 
+def _metric_chain_terms(
+    f_ghz, theta_deg, layers, wave_pol, thickness_scale, eps_scale, mu_scale,
+    prepared_properties, prepared_wave_terms,
+):
+    """Return ``(z0, f_hz, layer_terms, layer_sheet_rs)`` for the vector chain."""
     z0 = ambient_wave_impedance(theta_deg, wave_pol)
     f_arr_ghz = np.asarray(f_ghz, dtype=float)
     f_hz = f_arr_ghz * GHZ_TO_HZ
@@ -1688,6 +1964,9 @@ def compute_angle_metrics_many(
         if len(prepared_wave_terms) != len(layers):
             raise ValueError("Prepared wave terms do not match the layer stack.")
         wave_terms = prepared_wave_terms
+        for wave_term in wave_terms:
+            if wave_term is not None and len(wave_term[1]) != len(f_ghz):
+                raise ValueError("Prepared wave terms do not match the frequency sweep.")
 
     # Cache layer wave terms once; they are reused by both reflection cascades
     # and the scaled transmission chain. For sheet layers, the entry is None.
@@ -1726,16 +2005,123 @@ def compute_angle_metrics_many(
             upper, lower, kz, layer.thickness_m * thickness_scale
         ))
 
+    return z0, f_hz, layer_terms, layer_sheet_rs
+
+
+def _cascade_chain_terms(f_hz, layer_terms, layer_sheet_rs, z_load: complex) -> "np.ndarray":
+    z_next = np.full_like(f_hz, z_load, dtype=complex)
+    for idx in reversed(range(len(layer_terms))):
+        if layer_terms[idx] is None:
+            rs = complex(layer_sheet_rs[idx], 0.0)
+            z_next = (z_next * rs) / (z_next + rs)
+        else:
+            ai, bi, ci, _scale = layer_terms[idx]
+            z_next = (ai * z_next + bi) / (ci * z_next + ai)
+    return z_next
+
+
+def compute_metal_loss_db_many(
+    f_ghz: list[float],
+    theta_deg: float,
+    layers: list[LoadedLayer],
+    wave_pol: str,
+    thickness_scale: float = 1.0,
+    eps_scale: float = 1.0,
+    mu_scale: float = 1.0,
+    *,
+    prepared_properties: list[tuple[list[complex], list[complex]] | None] | None = None,
+    prepared_wave_terms: list[tuple["np.ndarray", "np.ndarray"] | None] | None = None,
+) -> list[float] | "np.ndarray":
+    """PEC-backed reflection |Gamma| (dB) only: the inverse-search objective.
+
+    Bit-identical to ``compute_angle_metrics_many(...)["metal_loss_db"]`` but
+    skips the free-space-backed cascade, the transmission chain and the
+    absorption checks, which the inverse score never reads.
+    """
+    if not f_ghz:
+        return []
+    if not NUMPY_AVAILABLE:
+        return compute_angle_metrics_many(
+            f_ghz, theta_deg, layers, wave_pol,
+            thickness_scale=thickness_scale, eps_scale=eps_scale, mu_scale=mu_scale,
+            prepared_properties=prepared_properties,
+            prepared_wave_terms=prepared_wave_terms,
+        )["metal_loss_db"]
+    theta_deg = _validate_metric_inputs(
+        f_ghz, theta_deg, layers, wave_pol, prepared_wave_terms
+    )
+    z0, f_hz, layer_terms, layer_sheet_rs = _metric_chain_terms(
+        f_ghz, theta_deg, layers, wave_pol, thickness_scale, eps_scale,
+        mu_scale, prepared_properties, prepared_wave_terms,
+    )
+    zin_metal = _cascade_chain_terms(f_hz, layer_terms, layer_sheet_rs, 0.0 + 0.0j)
+    return _db_from_mag_many((zin_metal - z0) / (zin_metal + z0))
+
+
+def compute_angle_metrics_many(
+    f_ghz: list[float],
+    theta_deg: float,
+    layers: list[LoadedLayer],
+    wave_pol: str,
+    thickness_scale: float = 1.0,
+    eps_scale: float = 1.0,
+    mu_scale: float = 1.0,
+    *,
+    prepared_properties: list[tuple[list[complex], list[complex]] | None] | None = None,
+    prepared_wave_terms: list[tuple["np.ndarray", "np.ndarray"] | None] | None = None,
+    return_arrays: bool = False,
+) -> dict[str, list[float] | "np.ndarray"]:
+    """Frequency-vector metrics; array output avoids boxing dense GUI sweeps.
+
+    The public default remains lists. Without NumPy the scalar fallback also
+    returns lists, which both consumers can assign into their output grids.
+    """
+    if not f_ghz:
+        return {
+            "metal_loss_db": [],
+            "metal_phase_deg": [],
+            "air_loss_db": [],
+            "air_phase_deg": [],
+            "insertion_loss_db": [],
+            "insertion_phase_deg": [],
+            "metal_absorption_db": [],
+            "air_absorption_db": [],
+        }
+    theta_deg = _validate_metric_inputs(
+        f_ghz, theta_deg, layers, wave_pol, prepared_wave_terms
+    )
+
+    if not NUMPY_AVAILABLE:
+        rows = [
+            compute_angle_metrics(
+                f,
+                theta_deg,
+                layers,
+                wave_pol,
+                thickness_scale=thickness_scale,
+                eps_scale=eps_scale,
+                mu_scale=mu_scale,
+            )
+            for f in f_ghz
+        ]
+        return {
+            "metal_loss_db": [r["metal_loss_db"] for r in rows],
+            "metal_phase_deg": [r["metal_phase_deg"] for r in rows],
+            "air_loss_db": [r["air_loss_db"] for r in rows],
+            "air_phase_deg": [r["air_phase_deg"] for r in rows],
+            "insertion_loss_db": [r["insertion_loss_db"] for r in rows],
+            "insertion_phase_deg": [r["insertion_phase_deg"] for r in rows],
+            "metal_absorption_db": [r["metal_absorption_db"] for r in rows],
+            "air_absorption_db": [r["air_absorption_db"] for r in rows],
+        }
+
+    z0, f_hz, layer_terms, layer_sheet_rs = _metric_chain_terms(
+        f_ghz, theta_deg, layers, wave_pol, thickness_scale, eps_scale,
+        mu_scale, prepared_properties, prepared_wave_terms,
+    )
+
     def _cascade(z_load: complex) -> np.ndarray:
-        z_next = np.full_like(f_hz, z_load, dtype=complex)
-        for idx in reversed(range(len(layer_terms))):
-            if layer_terms[idx] is None:
-                rs = complex(layer_sheet_rs[idx], 0.0)
-                z_next = (z_next * rs) / (z_next + rs)
-            else:
-                ai, bi, ci, _scale = layer_terms[idx]
-                z_next = (ai * z_next + bi) / (ci * z_next + ai)
-        return z_next
+        return _cascade_chain_terms(f_hz, layer_terms, layer_sheet_rs, z_load)
 
     zin_metal = _cascade(0.0 + 0.0j)
     gamma_metal = (zin_metal - z0) / (zin_metal + z0)

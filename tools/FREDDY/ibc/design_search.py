@@ -31,6 +31,7 @@ from .compute import (
     build_uncertainty_scales,
     combine_mix,
     compute_angle_metrics_many,
+    compute_metal_loss_db_many,
     interp_components_on_grid,
     is_nominal_scale,
     mix_model_advisories,
@@ -70,6 +71,21 @@ def score_inverse_candidate(target_freqs, target_angles, candidate_layers, wave_
                 if prepared_wave_terms is not None
                 else None
             )
+            if compute_metrics is compute_angle_metrics_many:
+                # The score reads only PEC reflection; skip the free-space
+                # cascade and transmission chain (bit-identical values).
+                loss_db = compute_metal_loss_db_many(
+                    target_freqs,
+                    angle_deg,
+                    candidate_layers,
+                    wave_pol,
+                    thickness_scale=t_scale,
+                    eps_scale=e_scale,
+                    mu_scale=m_scale,
+                    prepared_wave_terms=prepared,
+                )
+                values.extend(loss_db.tolist() if hasattr(loss_db, "tolist") else loss_db)
+                continue
             metrics = compute_metrics(
                 target_freqs,
                 angle_deg,
@@ -500,6 +516,10 @@ def run_mix_search(request: MixSearchRequest, *, evaluate_performance=evaluate_m
             raise ValueError('Material recipe produced a nonfinite score.')
         return score, nominal, worst, average, min(corner_values)
 
+    # A blank seed must still be reproducible: draw one, use it, report it.
+    seed_generated = search_seed is None
+    if seed_generated:
+        search_seed = random.SystemRandom().randrange(2**31)
     rng = random.Random(search_seed)
     current_amounts = [component["parts"] for component in comps]
     if sum(current_amounts) > 0:
@@ -710,6 +730,9 @@ def run_mix_search(request: MixSearchRequest, *, evaluate_performance=evaluate_m
         f"{result_text}\n"
         f"Evaluated {evaluated} bounded recipe sample(s) of up to {sample_budget}; "
         f"{invalid_count} invalid under model; refinement evaluations "
-        f"{refine_evals}.\nApplicability: {advisories}"
+        f"{refine_evals}.\n"
+        f"Random seed: {search_seed}"
+        f"{' (generated; enter it as Seed to reproduce this search)' if seed_generated else ''}.\n"
+        f"Applicability: {advisories}"
     )
     return candidates, plot_data, message

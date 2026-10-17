@@ -2769,8 +2769,31 @@ class AssemblyTreePanel(QWidget):
             self._notify("Build failed: "+result["error"])
         elif result["grid"] is not None:
             self.platform_built.emit(self._build_title, result["grid"], result["history"])
+            self._show_build_summary(result.get("report") or [])
         else:
             self._notify("Build produced no data; select enabled, loaded responses.")
+
+    def _show_build_summary(self, report) -> None:
+        """Show build advisories and intersect crops where the user looks.
+
+        The status bar is overwritten as soon as the result is published, so
+        anything that changes how the result should be read is shown in a
+        non-modal summary (its text is also in the dataset history).
+        """
+        if not report:
+            return
+        text = (
+            f"Built '{self._build_title}'. Review before using the result:\n\n"
+            + "\n\n".join(f"• {line}" for line in report)
+        )
+        self._last_build_summary = text
+        box = QMessageBox(
+            QMessageBox.Warning, "Assembly Build Summary", text,
+            QMessageBox.Ok, self,
+        )
+        box.setAttribute(Qt.WA_DeleteOnClose)
+        box.setWindowModality(Qt.NonModal)
+        box.show()
 
     def _build_stopped(self):
         self._build_dialog.close()
@@ -2914,6 +2937,80 @@ def _intersect_categorical_axes(arrays) -> np.ndarray:
     return np.asarray(keep)
 
 
+_CROSS_POL_LABELS = ("HV", "VH")
+
+
+def _cross_pol_labels(grid) -> list[str]:
+    return [
+        str(label)
+        for label in np.asarray(grid.polarizations).ravel()
+        if str(label).strip().upper() in _CROSS_POL_LABELS
+    ]
+
+
+def _relabel_polarizations(grid, polarizations):
+    """Return the same samples under new polarization labels."""
+
+    return grid._new_grid(
+        grid.azimuths,
+        grid.elevations,
+        grid.frequencies,
+        np.asarray(polarizations),
+        **grid._sample_kwargs(),
+        rcs_domain="power_phase",
+        extra=grid._exact_transform_extra(
+            coordinate_change="reciprocal-cross-pol-relabel"
+        ),
+        _adopt_clean_arrays=True,
+    )
+
+
+def _alias_reciprocal_cross_pols(grids, names=None) -> tuple[list, list[str]]:
+    """Match HV and VH as one monostatic cross-pol channel (reciprocity).
+
+    When no input carries more than one cross-pol label, inputs labelled
+    differently from the first are relabelled to its label (as GHOST does),
+    so an exact intersection does not silently drop the cross-pol channel.
+    If any input holds both HV and VH the labels are ambiguous and are left
+    to match exactly; the returned notes say which channel was lost.
+    """
+
+    grids = list(grids)
+    names = list(names) if names is not None else [
+        f"input {index}" for index in range(1, len(grids) + 1)
+    ]
+    per_grid = [_cross_pol_labels(grid) for grid in grids]
+    canonical = {label.strip().upper() for labels in per_grid for label in labels}
+    if len(grids) < 2 or len(canonical) < 2:
+        return grids, []
+    if all(len(labels) <= 1 for labels in per_grid):
+        target = next(labels[0] for labels in per_grid if labels)
+        renamed = []
+        for index, (grid, labels) in enumerate(zip(grids, per_grid)):
+            if not labels or labels[0] == target:
+                continue
+            pols = [
+                target if str(label) == labels[0] else str(label)
+                for label in np.asarray(grid.polarizations).ravel()
+            ]
+            grids[index] = _relabel_polarizations(grid, pols)
+            renamed.append(f"'{names[index]}' {labels[0]}")
+        return grids, [
+            "reciprocal cross-pol alias: "
+            + ", ".join(renamed)
+            + f" matched to {target} (HV = VH for monostatic data)"
+        ]
+    holders = [
+        f"'{name}' ({'/'.join(labels) or 'none'})"
+        for name, labels in zip(names, per_grid)
+    ]
+    return grids, [
+        "cross-pol labels were matched exactly (no HV/VH alias) because an "
+        "input holds both HV and VH: " + ", ".join(holders)
+        + "; a cross-pol channel absent from any input is dropped"
+    ]
+
+
 def _interp_target_axes(grids) -> tuple:
     """For interp mode: target axes = the first grid's values restricted to the
     common axis range across all grids, plus the categorical intersection of
@@ -3016,30 +3113,12 @@ def _align_coherent_grid(grid, target, *, mode: str):
 
     from GRIM_Backend.datasets.grid import RcsGrid
 
-    if mode == "intersect":
-        indices = _coherent_target_indices(grid, target)
-        field = grid.rcs_slice(np.ix_(*indices))
-    elif mode == "interp":
-        polarization_indices = grid._indices_for_axis_values(
-            grid.polarizations, target.polarizations, tol=0.0
-        )
-        if (
-            polarization_indices is None
-            or len(polarization_indices) != len(target.polarizations)
-        ):
-            raise ValueError("polarization axis mismatch for coherent interp")
-        field = grid.rcs_slice(
-            (slice(None), slice(None), slice(None), polarization_indices)
-        )
-        for axis, old, new, label in (
-            (0, grid.azimuths, target.azimuths, "azimuth"),
-            (1, grid.elevations, target.elevations, "elevation"),
-            (2, grid.frequencies, target.frequencies, "frequency"),
-        ):
-            grid._check_axis_sorted(old, label)
-            field = grid._interp_complex_axis(field, old, new, axis)
-    else:
+    # Coherent fields are only ever cropped to exact shared samples; the
+    # assembly refuses Interpolate whenever a Field + child is present.
+    if mode != "intersect":
         raise ValueError(f"unsupported coherent alignment mode {mode!r}")
+    indices = _coherent_target_indices(grid, target)
+    field = grid.rcs_slice(np.ix_(*indices))
     aligned = RcsGrid(
         target.azimuths,
         target.elevations,
@@ -3051,11 +3130,34 @@ def _align_coherent_grid(grid, target, *, mode: str):
     return aligned
 
 
+def _power_only_grid(grid):
+    """Drop the phase of a Power + contributor so only power is resampled.
+
+    Interpolating stored I/Q of an incoherent child would interpolate its
+    field (losing up to tens of dB between phase-rotating samples) although
+    only its power enters the sum.
+    """
+
+    from GRIM_Backend.datasets.grid import RcsGrid
+
+    if grid.phase_coverage() == "none":
+        return grid
+    return RcsGrid(
+        grid.azimuths, grid.elevations, grid.frequencies, grid.polarizations,
+        rcs_power=np.array(grid.power, copy=True),
+        rcs_domain="power_phase",
+        units=copy.deepcopy(grid.units or {}),
+        extra=grid._safe_derived_scalar_extra(include_field_conventions=False),
+    )
+
+
 def _align_grids_for_assembly(
     grids,
     axis_mode: str,
     *,
     coherent_count: int | None = None,
+    names=None,
+    notes: list | None = None,
 ) -> list:
     """Align every grid in `grids` to a shared set of axes per `axis_mode`.
 
@@ -3064,6 +3166,9 @@ def _align_grids_for_assembly(
     interp: build a common grid clipped to the overlapping range and resample
             power-only contributors. Coherent Field + interpolation is refused
             because it can change field phase/amplitude relationships.
+
+    For intersect and interp a lone HV label is matched to a lone VH label
+    (reciprocity); ``notes`` receives a line describing any such alias.
     """
     if not grids:
         return []
@@ -3086,6 +3191,11 @@ def _align_grids_for_assembly(
         for g in grids[1:]:
             ref._assert_compatible(g)
         return list(grids)
+
+    if axis_mode in ("intersect", "interp"):
+        grids, alias_notes = _alias_reciprocal_cross_pols(grids, names)
+        if notes is not None:
+            notes.extend(alias_notes)
 
     if axis_mode == "intersect":
         az = _intersect_numeric_axes([g.azimuths for g in grids])
@@ -3115,15 +3225,10 @@ def _align_grids_for_assembly(
         # and reorder polarization first without discarding the source numeric
         # samples needed to support interpolation.
         aligned = []
-        for index, grid in enumerate(grids):
-            if index < coherent_count:
-                aligned.append(_align_coherent_grid(grid, target, mode="interp"))
-                continue
-            prepared = (
-                grid
-                if np.array_equal(grid.polarizations, pol)
-                else grid.axis_crop(polarizations=pol)
-            )
+        for grid in grids:
+            prepared = _power_only_grid(grid)
+            if not np.array_equal(prepared.polarizations, pol):
+                prepared = prepared.axis_crop(polarizations=pol)
             aligned.append(prepared.align_to(target, mode="interp"))
         return aligned
 
@@ -3131,7 +3236,7 @@ def _align_grids_for_assembly(
 
 
 def _validate_coherent_sources(
-    grids, *, metadata_attested: bool
+    grids, *, metadata_attested: bool, names=None
 ) -> dict[str, list[int]]:
     """Validate explicit Field + contradictions and report unknown labels.
 
@@ -3154,8 +3259,15 @@ def _validate_coherent_sources(
             )
     if len(grids) < 2:
         return {}
-    for grid in grids[1:]:
-        grids[0]._assert_coherent_metadata_compatible(grid)
+    # Opposite phasor conventions make the coherent sum wrong, not merely
+    # unlabelled; other convention differences are reported as advisories.
+    grids[0]._assert_coherent_time_conventions_agree(
+        *grids[1:],
+        operation="Field + assembly",
+        labels=(
+            [f"'{name}'" for name in names] if names is not None else None
+        ),
+    )
 
     missing_by_field: dict[str, list[int]] = {}
     labels = {
@@ -3656,10 +3768,33 @@ class _AssemblyBuildWorker(QObject):
             storage = (operation_result_storage(**self.storage_options)
                        if self.storage_options else nullcontext())
             with storage, work_control(cancelled=self.cancellation.is_set):
-                grid, history = build_assembly_grid(self.snapshot, axis_mode=self.axis_mode, cancel_check=self.cancellation.is_set)
-            self.finished.emit({"grid": grid, "history": history})
+                report = []
+                grid, history = build_assembly_grid(self.snapshot, axis_mode=self.axis_mode, cancel_check=self.cancellation.is_set, report=report)
+            self.finished.emit({"grid": grid, "history": history, "report": report})
         except Exception as exc:
             self.finished.emit({"error": str(exc)})
+
+
+def _phase_identically_zero(grid) -> bool:
+    """True when every nonzero-power sample of a grid has phase exactly 0."""
+
+    power = np.asarray(grid.power)
+    live = np.isfinite(power) & (power > 0)
+    if not np.any(live):
+        return False
+    phase = np.asarray(grid.phase)
+    return not bool(np.any(phase[live] != 0))
+
+
+def _with_build_notes(history, node_name, advisories, retention, report):
+    """Append advisories to one node's history and to the build report."""
+
+    lines = [f"Advisory: {text}" for text in advisories] + list(retention)
+    if report is not None:
+        report.extend(f"{node_name}: {line}" for line in lines)
+    if lines:
+        history += " | " + " | ".join(lines)
+    return history
 
 
 def build_assembly_grid(
@@ -3668,6 +3803,7 @@ def build_assembly_grid(
     axis_mode: str = "intersect",
     coherent_metadata_attested: bool = False,
     cancel_check=None,
+    report: list | None = None,
 ):
     """Recursively materialize an assembly subtree into a single RcsGrid.
 
@@ -3681,7 +3817,9 @@ def build_assembly_grid(
     scripts and optional provenance only; it is not required to build.
 
     Returns (grid, history_string). Both are None / "" if the subtree has
-    no loaded data.
+    no loaded data. When ``report`` is a list, every user-facing advisory and
+    per-input sample-retention line of the build is appended to it (the GUI
+    shows these in its build summary); the same text is in the history.
     """
     if cancel_check is not None and cancel_check():
         raise InterruptedError("Assembly build canceled.")
@@ -3712,6 +3850,7 @@ def build_assembly_grid(
             axis_mode=axis_mode,
             coherent_metadata_attested=coherent_metadata_attested,
             cancel_check=cancel_check,
+            report=report,
         )
         if child_grid is None:
             continue
@@ -3720,13 +3859,37 @@ def build_assembly_grid(
         if stored_mode == _MODE_AUTO:
             child_history += f" [Auto -> {_MODE_LABEL[child_mode]}]"
         bucket = coh if child_mode == _MODE_COH else incoh
-        bucket.append((child_history, child_grid))
+        bucket.append((child_history, child_grid, child.text(0), child))
 
     if not coh and not incoh:
         return None, ""
 
+    advisories: list[str] = []
+    for _history, grid, name, child in incoh:
+        if (
+            child.data(0, _ROLE_TYPE) == _TYPE_LEAF
+            and grid.phase_coverage() == "complete"
+        ):
+            advisories.append(
+                f"'{name}' carries complete phase but is set to "
+                "Power +, so its power is added "
+                "(|A|² + |B|²) instead of its field; set it to "
+                "Field + if it shares the vehicle frame "
+                "and phase center (e.g. a featured − clean delta)"
+            )
+    for _history, grid, name, _child in coh:
+        if _phase_identically_zero(grid):
+            advisories.append(
+                f"'{name}' is a Field + contributor whose "
+                "every phase sample is exactly 0. That is physical only for a "
+                "real, positive field (e.g. a scatterer at the phase center); "
+                "if the source stored unknown phase as 0, the coherent sum is "
+                "wrong"
+            )
+
     all_pairs = coh + incoh
-    grids_in_order = [g for _, g in all_pairs]
+    grids_in_order = [pair[1] for pair in all_pairs]
+    names_in_order = [pair[2] for pair in all_pairs]
 
     # Axis values alone do not establish physical compatibility. Refuse unit,
     # quantity, angular-frame, and convention mismatches before alignment can
@@ -3739,6 +3902,12 @@ def build_assembly_grid(
     _validate_coherent_sources(
         source_coh,
         metadata_attested=bool(coherent_metadata_attested),
+        names=names_in_order[:len(coh)],
+    )
+    advisories.extend(
+        issue
+        for grid in source_coh[1:]
+        for issue in source_coh[0]._assert_coherent_metadata_compatible(grid)
     )
     body_occupancy = _assert_no_shared_body_totals(grids_in_order)
     component_signatures = _assert_no_duplicate_feature_components(
@@ -3749,15 +3918,20 @@ def build_assembly_grid(
     # it (and thereby laundering feature/SENTRi provenance) when its declared
     # operation is already coherent.
     if len(grids_in_order) == 1 and coh:
-        return grids_in_order[0], (
-            f"Σ {node.text(0)} ({axis_mode}): coh[{coh[0][0]}]"
+        history = f"Σ {node.text(0)} ({axis_mode}): coh[{coh[0][0]}]"
+        return grids_in_order[0], _with_build_notes(
+            history, node.text(0), advisories, [], report
         )
 
+    alignment_notes: list[str] = []
     aligned = _align_grids_for_assembly(
         grids_in_order,
         axis_mode=axis_mode,
         coherent_count=len(coh),
+        names=names_in_order,
+        notes=alignment_notes,
     )
+    advisories.extend(alignment_notes)
     n_coh = len(coh)
     if cancel_check is not None and cancel_check():
         raise InterruptedError("Assembly build canceled.")
@@ -3777,13 +3951,32 @@ def build_assembly_grid(
 
     parts = []
     if coh:
-        parts.append("coh[" + " + ".join(h for h, _ in coh) + "]")
+        parts.append("coh[" + " + ".join(pair[0] for pair in coh) + "]")
     if incoh:
-        parts.append("incoh[" + " + ".join(h for h, _ in incoh) + "]")
+        parts.append("incoh[" + " + ".join(pair[0] for pair in incoh) + "]")
     history = f"Σ {node.text(0)} ({axis_mode}): " + " ⊕ ".join(parts)
+    retention = []
     if axis_mode == "intersect":
-        losses = [int(source.power.size-aligned_grid.power.size) for source, aligned_grid in zip(grids_in_order, aligned)]
-        history += " | Exact intersection discarded samples per input: " + ", ".join(map(str, losses))
+        kept = [
+            (name, int(aligned_grid.power.size), int(source.power.size))
+            for name, source, aligned_grid in zip(
+                names_in_order, grids_in_order, aligned
+            )
+        ]
+        history += " | Exact intersection kept samples per input: " + ", ".join(
+            f"'{name}' {n_kept} of {n_total}" for name, n_kept, n_total in kept
+        )
+        if any(n_kept < n_total for _name, n_kept, n_total in kept):
+            retention.append(
+                "Intersect cropped the inputs to their common samples: "
+                + "; ".join(
+                    f"'{name}' {n_kept} of {n_total} samples kept"
+                    for name, n_kept, n_total in kept
+                )
+            )
+    history = _with_build_notes(
+        history, node.text(0), advisories, retention, report
+    )
     if cancel_check is not None and cancel_check():
         raise InterruptedError("Assembly build canceled.")
     if len(coh) > 1:

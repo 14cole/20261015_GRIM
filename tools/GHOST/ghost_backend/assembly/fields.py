@@ -271,6 +271,13 @@ def _decode_grim_fields(d, path):
         values = {key: np.asarray(d[key][selection], dtype=float) for key in keys}
         for key, value in values.items():
             if not np.all(np.isfinite(value)):
+                if (key == "rcs_phase" and not has_real
+                        and np.any(np.isnan(value) & np.isfinite(values["rcs_power"]))):
+                    raise ValueError(
+                        f"{path}: phase is unknown (power-only dataset; rcs_phase "
+                        "is NaN). Feature assembly adds fields coherently and "
+                        "needs a coherent complex field; export the response "
+                        "with its phase (I/Q) to use it here.")
                 raise ValueError(f"{path}: {key} contains NaN or infinity.")
         power, phase = values["rcs_power"], values["rcs_phase"]
         if np.any(power < 0):

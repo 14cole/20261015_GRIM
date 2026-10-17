@@ -2182,9 +2182,20 @@ if GUI_AVAILABLE:
                         f"plotted samples ({percent:.1f}%)."
                     )
 
+            def horizontal_value(plot: PlotSpec, value: float) -> float:
+                # Polar azimuth is periodic: 270 deg is drawn at -90 deg, so
+                # wrap into the fixed span before testing for clipping.
+                if (
+                    plot.kind != "azimuth_polar"
+                    or x_limits is None
+                    or not math.isfinite(value)
+                ):
+                    return value
+                return x_limits[0] + math.fmod(value - x_limits[0], 360.0) % 360.0
+
             clipped_summary(
                 (
-                    value
+                    horizontal_value(plot, value)
                     for plot in plots
                     for series in plot.series
                     for value in series.x

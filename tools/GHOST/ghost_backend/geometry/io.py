@@ -675,6 +675,26 @@ def _interior_medium(chain: 'ChainSpec', drawn_ccw: 'bool') -> 'Tuple[str, int]'
     return table.get(chain.seg_type, ('unknown', 0))
 
 
+def _medium_name(medium: 'Tuple[str, int]') -> 'str':
+    kind, flag = medium
+    return f"dielectric {flag}" if kind == 'dielectric' else kind.upper() if kind == 'pec' else kind
+
+
+def _revisited_vertex(points: 'List[Tuple[float, float]]', tol: 'float') -> 'Optional[Tuple[float, float]]':
+    """First vertex a closed chain passes through twice (a figure-8 / bow-tie pinch), else None.
+
+    The closing vertex repeats the first one by construction and is skipped.
+    """
+
+    seen: 'Set[int]' = set()
+    body = points[:-1]
+    for point, cluster in zip(body, _weld_point_keys(body, tol)):
+        if cluster in seen:
+            return point
+        seen.add(cluster)
+    return None
+
+
 def _weld_point_keys(points: 'List[Tuple[float, float]]', tol: 'float') -> 'List[int]':
     """Cluster ids for points, joining points within ``tol`` (Euclidean) of an earlier one.
 
@@ -726,20 +746,30 @@ def check_orientation_consistency(
        into the enclosed air; parity alternates with depth). The depth counts
        only enclosing closed TYPE 2/3 chains: TYPE 1 sheets have air on both
        sides and TYPE 4/5 contours bound no air.
-    2. A closed TYPE 4 chain enclosed by a matching-pos_mat TYPE 3/5 contour
-       (standard coated-body layout) wound so its normal points away from
-       the coating; without such a contour, a closed TYPE 4 chain whose
-       innermost enclosing contour puts its pos_mat dielectric (or PEC) just
-       outside it and whose winding disagrees.
+    2. A closed TYPE 4 or TYPE 5 chain whose declared outside medium (pos_mat
+       when drawn CW; PEC for TYPE 4 or neg_mat for TYPE 5 when drawn CCW)
+       is not the medium the innermost enclosing contour puts around it
+       (unbounded air when nothing encloses it). Depending on the labels
+       this is a reversed winding, swapped TYPE 5 pos/neg labels, or a
+       pos_mat that names a different dielectric than the one the contour
+       sits in -- solved as drawn, the PEC core of a TYPE 4 contour in the
+       wrong dielectric silently vanished and swapped TYPE 5 labels changed
+       a two-layer cylinder by 10-21 dB. No inference is made when an open
+       chain lies between the contour and its parent (the medium there is
+       then set by the open walls) or when the parent's medium is unknown.
     3. Two open TYPE 2/3 chains meeting end-to-end or start-to-start at a
        degree-2 junction: their air sides disagree there (e.g. an
        air|dielectric wall chained to an air|PEC wall the wrong way round).
     4. A closed loop stitched head-to-tail from open TYPE 2/3 chains whose
        overall winding is inside-out for its nesting depth (consistent with
        each other, but all reversed together).
+    5. A closed TYPE 2-5 chain (or stitched loop) that passes through one
+       vertex twice. Its winding is judged from the whole chain's signed
+       area, so a figure-8 or bow-tie lobe drawn the other way round hides
+       behind the larger lobe (or both cancel to zero area and nothing is
+       checked); such a chain must be split into one segment per loop.
 
-    TYPE 5 chains and TYPE 1 sheets are never flagged: for TYPE 5 the
-    winding IS the user's pos/neg labeling choice, and TYPE 1 is symmetric.
+    TYPE 1 sheets are never flagged: air lies on both sides.
     """
 
     findings: 'List[Tuple[str, int, str]]' = []
@@ -755,7 +785,17 @@ def check_orientation_consistency(
         if len(ch.points) < 2:
             continue
         if _chain_is_closed(ch.points, tol):
-            if abs(_chain_area2(ch.points)) > 0.0:
+            pinch = _revisited_vertex(ch.points, tol) if ch.seg_type != 1 else None
+            if pinch is not None:
+                findings.append((
+                    "ERROR", idx,
+                    f"Segment '{ch.name}' (TYPE {ch.seg_type}) is a closed contour that passes "
+                    f"through the vertex ({pinch[0]:.6g}, {pinch[1]:.6g}) twice (a figure-8 or "
+                    "bow-tie), so the winding of each loop cannot be checked from the whole "
+                    "chain. Split it into one segment per loop at that vertex, each drawn "
+                    "with the winding its own air/dielectric side requires.",
+                ))
+            elif abs(_chain_area2(ch.points)) > 0.0:
                 closed_polys.append((idx, ch.points))
             continue
         if ch.seg_type != 1:
@@ -794,6 +834,29 @@ def check_orientation_consistency(
         return len(_enclosing(rep, exclude, AIR_BOUNDING_TYPES))
 
 
+    def _medium_around(idx: 'int', poly: 'List[Tuple[float, float]]') -> 'Tuple[Optional[Tuple[str, int]], Optional[int]]':
+        """(medium just outside closed chain ``idx``, innermost enclosing chain), medium None if unknown."""
+        parents = _enclosing(_rep_point(poly), {idx}, (1, 2, 3, 4, 5))
+        parent = min(parents, key=lambda cidx: abs(areas[cidx])) if parents else None
+        # An open boundary between the contour and that parent (a cavity wall
+        # stitched from several segments, or a whole body outline stitched
+        # from open segments) may change the medium in between: no inference
+        # is made then.
+        for other in open_chains:
+            other_rep = _rep_point(chains[other].points)
+            if ((parent is None or _point_in_polygon(*other_rep, closed_polys_by_idx[parent]))
+                    and not _point_in_polygon(*other_rep, poly)):
+                return None, parent
+        if parent is None:
+            return ('air', 0), None
+        if chains[parent].seg_type == 1:
+            # A closed sheet has the same medium on both sides.
+            return _medium_around(parent, closed_polys_by_idx[parent])
+        around = _interior_medium(chains[parent], areas[parent] > 0.0)
+        if around[0] == 'unknown' or around == ('dielectric', 0):
+            return None, parent
+        return around, parent
+
     for idx, poly in closed_polys:
         ch = chains[idx]
         drawn_ccw = _chain_area2(poly) > 0.0
@@ -812,13 +875,11 @@ def check_orientation_consistency(
                     f"(normal into air) requires {'CCW' if expected_ccw else 'CW'} winding. "
                     "Reverse the segment's endpoint order.",
                 ))
-        elif ch.seg_type == 4:
+        elif ch.seg_type in (4, 5):
             rep = _rep_point(poly)
-            has_matching_parent = any(
-                chains[cidx].pos_mat == ch.pos_mat
-                for cidx in _enclosing(rep, {idx}, (3, 5))
-            )
-            if has_matching_parent and drawn_ccw:
+            if ch.seg_type == 4 and drawn_ccw and any(
+                    chains[cidx].pos_mat == ch.pos_mat
+                    for cidx in _enclosing(rep, {idx}, (3, 5))):
                 findings.append((
                     "ERROR", idx,
                     f"Segment '{ch.name}' (TYPE 4) is a closed contour drawn CCW, but the "
@@ -826,38 +887,59 @@ def check_orientation_consistency(
                     "(normal into the dielectric) requires CW winding. "
                     "Reverse the segment's endpoint order.",
                 ))
-            elif not has_matching_parent:
-                # Otherwise the region just outside the contour is the inside
-                # of its innermost enclosing contour. A second coating layer
-                # (a TYPE 5 parent labeled pos_mat outside) or a filled cavity
-                # in a PEC body has no matching TYPE 3/5 parent, and a reversed
-                # core there changed a two-layer cylinder by 17-31 dB unnoticed.
-                parents = _enclosing(rep, {idx}, (1, 2, 3, 4, 5))
-                parent = min(parents, key=lambda cidx: abs(areas[cidx])) if parents else None
-                # An open boundary between the contour and that parent (a
-                # cavity wall stitched from several segments) may change the
-                # medium in between: no inference is made then.
-                if parent is not None and not any(
-                        _point_in_polygon(*_rep_point(chains[other].points), closed_polys_by_idx[parent])
-                        and not _point_in_polygon(*_rep_point(chains[other].points), poly)
-                        for other in open_chains):
-                    around = _interior_medium(chains[parent], areas[parent] > 0.0)
-                    expected_ccw = None
-                    if around == ('dielectric', ch.pos_mat):
-                        expected_ccw = False      # PEC inside, the coating outside
-                    elif around == ('pec', 0):
-                        expected_ccw = True       # the dielectric fills the contour
-                    if expected_ccw is not None and drawn_ccw != expected_ccw:
-                        side = "outside" if not expected_ccw else "inside"
-                        findings.append((
-                            "ERROR", idx,
-                            f"Segment '{ch.name}' (TYPE 4) is a closed contour drawn "
-                            f"{'CCW' if drawn_ccw else 'CW'}, but its enclosing contour "
-                            f"'{chains[parent].name}' puts the pos_mat={ch.pos_mat} dielectric "
-                            f"{side} it, so the drawing convention (normal into the dielectric) "
-                            f"requires {'CCW' if expected_ccw else 'CW'} winding. "
-                            "Reverse the segment's endpoint order.",
-                        ))
+                continue
+            # The region just outside the contour is the inside of its
+            # innermost enclosing contour, and the contour's declared outside
+            # medium must be that one. A TYPE 4 core whose pos_mat names
+            # another dielectric lost its PEC core silently, a reversed core
+            # in a second coating layer changed a two-layer cylinder by
+            # 17-31 dB, and swapped TYPE 5 labels by 10-21 dB.
+            around, parent = _medium_around(idx, poly)
+            if around is None:
+                continue
+            declared_out = _interior_medium(ch, not drawn_ccw)
+            if around == declared_out:
+                continue
+            where = (f"its enclosing contour '{chains[parent].name}' puts {_medium_name(around)} "
+                     "around it" if parent is not None
+                     else "no closed contour encloses it, so it lies in the unbounded air")
+            drawn = 'CCW' if drawn_ccw else 'CW'
+            other = 'CW' if drawn_ccw else 'CCW'
+            if ch.seg_type == 4 and around == _interior_medium(ch, drawn_ccw):
+                side = "outside" if around[0] == 'dielectric' else "inside"
+                findings.append((
+                    "ERROR", idx,
+                    f"Segment '{ch.name}' (TYPE 4) is a closed contour drawn {drawn}, but its "
+                    f"enclosing contour '{chains[parent].name}' puts the pos_mat={ch.pos_mat} "
+                    f"dielectric {side} it, so the drawing convention (normal into the "
+                    f"dielectric) requires {other} winding. Reverse the segment's endpoint order.",
+                ))
+                continue
+            if around == _interior_medium(ch, drawn_ccw):
+                # The declared inside medium is the one around it: reversed.
+                fix = (f"Reverse the segment's endpoint order (draw it {other})"
+                       + (" or swap its pos_mat and neg_mat." if ch.seg_type == 5 else "."))
+                problem = (f"puts {_medium_name(declared_out)} outside it (and "
+                           f"{_medium_name(around)} inside)")
+            else:
+                problem = f"puts {_medium_name(declared_out)} outside it"
+                if around[0] != 'dielectric':
+                    fix = (f"A TYPE {ch.seg_type} contour has a dielectric on its outside, "
+                           f"so it cannot border {_medium_name(around)}; use the TYPE that "
+                           "matches the media on its two sides.")
+                elif ch.seg_type == 4:
+                    fix = (f"Set pos_mat to {around[1]} (the dielectric the contour sits in), "
+                           "or correct the enclosing contour's labels.")
+                else:
+                    fix = (f"Set the outside label (pos_mat when drawn CW, neg_mat when drawn "
+                           f"CCW) to {around[1]}, or correct the enclosing contour's labels.")
+            findings.append((
+                "ERROR", idx,
+                f"Segment '{ch.name}' (TYPE {ch.seg_type}, pos_mat={ch.pos_mat}"
+                + (f", neg_mat={ch.neg_mat}" if ch.seg_type == 5 else "")
+                + f") is a closed contour drawn {drawn} that {problem}, but {where}. "
+                "Solved as drawn the regions disagree across the contour. " + fix,
+            ))
 
 
     end_records = [(idx, which) for idx in open_air_chains for which in ("start", "end")]
@@ -922,7 +1004,20 @@ def check_orientation_consistency(
         for idx in loop:
             pts = chains[idx].points
             stitched.extend(pts if not stitched else pts[1:])
-        if not _chain_is_closed(stitched, tol) or abs(_chain_area2(stitched)) <= 0.0:
+        if not _chain_is_closed(stitched, tol):
+            continue
+        pinch = _revisited_vertex(stitched, tol)
+        if pinch is not None:
+            names = ", ".join(f"'{chains[i].name}'" for i in loop)
+            findings.append((
+                "ERROR", loop[0],
+                f"Segments {names} form a closed boundary that passes through the vertex "
+                f"({pinch[0]:.6g}, {pinch[1]:.6g}) twice (a figure-8 or bow-tie), so the "
+                "winding of each loop cannot be checked from the whole boundary. Split it "
+                "into one closed boundary per loop at that vertex.",
+            ))
+            continue
+        if abs(_chain_area2(stitched)) <= 0.0:
             continue
         drawn_ccw = _chain_area2(stitched) > 0.0
         depth = _depth(_rep_point(stitched), set(loop))

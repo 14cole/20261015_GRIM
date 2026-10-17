@@ -38,6 +38,14 @@ def _audit_json_default(value):
     raise TypeError(f"{type(value).__name__} is not JSON serializable")
 
 
+STITCH_POLICIES = ("priority-first", "priority-last", "power-mean", "coherent-mean")
+
+
+def _stitch_policy(value: str) -> str:
+    # Accept the spellings RcsGrid.stitch() normalizes (case, underscores).
+    return str(value).strip().lower().replace("_", "-")
+
+
 def _parser():
     parser = argparse.ArgumentParser(description="Headless GRIM dataset operations")
     parser.add_argument("inputs", nargs="*", help="input files")
@@ -68,6 +76,8 @@ def _parser():
     )
     parser.add_argument(
         "--stitch-policy",
+        type=_stitch_policy,
+        choices=STITCH_POLICIES,
         default="priority-first",
         help=(
             "stitch overlap policy: priority-first, priority-last, power-mean, "
@@ -99,22 +109,70 @@ def _parser():
     return parser
 
 
-def main(argv=None) -> int:
-    args = _parser().parse_args(argv)
-    limit = None if args.max_gib is None else int(args.max_gib * 1024**3)
-    if args.audit:
-        if args.folder:
-            paths = _matching_dataset_paths(
+def _resolve_input_paths(parser, args) -> list[str]:
+    """Validate the input selection before any dataset is loaded."""
+
+    if args.folder and args.inputs:
+        parser.error("give either input files or --folder, not both")
+    if args.folder:
+        if not os.path.isdir(args.folder):
+            parser.error(f"--folder does not exist or is not a folder: {args.folder}")
+        try:
+            return _matching_dataset_paths(
                 args.folder, pattern=args.pattern, recursive=args.recursive
             )
-        else:
-            paths = list(args.inputs)
-            if not paths:
-                raise SystemExit("provide input files or --folder")
+        except ValueError:
+            parser.error(
+                f"no supported datasets in {args.folder} matched --pattern "
+                f"{args.pattern!r}" + (" (recursive)" if args.recursive else "")
+            )
+    if not args.inputs:
+        parser.error("provide input files or --folder")
+    return list(args.inputs)
+
+
+def _load_input(parser, path: str) -> RcsGrid:
+    try:
+        return load_dataset(path)
+    except FileNotFoundError:
+        parser.error(f"input file not found: {path}")
+    except IsADirectoryError:
+        parser.error(f"input is a folder, not a dataset file (use --folder): {path}")
+
+
+def _validate_dataset_output(parser, output: str | None, inputs: list[str]) -> None:
+    """Reject an unusable --output before an expensive combination runs."""
+
+    if not output:
+        parser.error("--output is required")
+    resolved = os.path.abspath(output)
+    if os.path.isdir(resolved):
+        parser.error(f"--output is a folder, not a file path: {output}")
+    parent = os.path.dirname(resolved)
+    if parent and not os.path.isdir(parent):
+        parser.error(f"--output folder does not exist: {parent}")
+    identity = os.path.normcase(os.path.realpath(resolved))
+    for path in inputs:
+        same = identity == os.path.normcase(os.path.realpath(os.path.abspath(path)))
+        if not same and os.path.exists(resolved):
+            try:
+                same = os.path.samefile(resolved, path)
+            except OSError:
+                same = False
+        if same:
+            parser.error("--output must not overwrite an input dataset")
+
+
+def main(argv=None) -> int:
+    parser = _parser()
+    args = parser.parse_args(argv)
+    limit = None if args.max_gib is None else int(args.max_gib * 1024**3)
+    paths = _resolve_input_paths(parser, args)
+    if args.audit:
         reports = [
             {
                 "input": os.path.abspath(path),
-                "report": audit_dataset(load_dataset(path)),
+                "report": audit_dataset(_load_input(parser, path)),
             }
             for path in paths
         ]
@@ -152,6 +210,7 @@ def main(argv=None) -> int:
         else:
             print(rendered)
         return 0
+    _validate_dataset_output(parser, args.output, paths)
     if args.folder:
         result = load_folder(
             args.folder, pattern=args.pattern, recursive=args.recursive,
@@ -162,18 +221,14 @@ def main(argv=None) -> int:
             tol=args.tol,
         )
     else:
-        if not args.inputs:
-            raise SystemExit("provide input files or --folder")
         result = combine_datasets(
-            [load_dataset(path) for path in args.inputs], args.operation,
+            [_load_input(parser, path) for path in paths], args.operation,
             overlap=args.overlap,
             max_output_bytes=limit,
             coherent_metadata_attested=args.attest_coherent_metadata,
             stitch_policy=args.stitch_policy,
             tol=args.tol,
         )
-    if not args.output:
-        raise SystemExit("--output is required")
-    output = result.save(args.output)
+    output = result.save(args.output, compressed="auto")
     print(output)
     return 0

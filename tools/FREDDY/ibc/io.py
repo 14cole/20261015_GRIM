@@ -34,6 +34,16 @@ IMPEDANCE_UNCERTAINTY_HEADER = (
     "resistance_ohm_min,resistance_ohm_max,"
     "reactance_ohm_min,reactance_ohm_max"
 )
+# Free-space (air) terminated input impedance is a planar analysis result,
+# not a one-sided IBC. Its distinct header makes GHOST's IBC loader (which
+# requires IMPEDANCE_HEADER exactly and skips '#' comment lines) refuse it.
+FREE_SPACE_IMPEDANCE_HEADER = (
+    "frequency_hz,free_space_backed_resistance_ohm,free_space_backed_reactance_ohm"
+)
+FREE_SPACE_IMPEDANCE_NOTE = (
+    "# FREDDY free-space-backed input impedance: planar analysis output, not a "
+    "one-sided IBC for a closed RCS body. Use PEC backing for a GHOST IBC."
+)
 MATERIAL_SINGULAR_TOL = 1e-12
 
 PROJECT_SCHEMA_VERSION = 2
@@ -381,11 +391,21 @@ def _validate_impedance_rows(
         _validate_surface_impedance(complex(zr, zi), f"{context} row {index}")
 
 
+def _impedance_header_lines(backing: str) -> list[str]:
+    if backing == "pec":
+        return [IMPEDANCE_HEADER]
+    if backing == "air":
+        return [FREE_SPACE_IMPEDANCE_NOTE, FREE_SPACE_IMPEDANCE_HEADER]
+    raise ValueError(f"Unsupported backing: {backing}")
+
+
 def _write_impedance_rows(
     stream: TextIO,
     rows: list[tuple[float, float, float]],
+    backing: str = "pec",
 ) -> None:
-    stream.write(IMPEDANCE_HEADER + "\n")
+    for line in _impedance_header_lines(backing):
+        stream.write(line + "\n")
     for freq_ghz, zr, zi in rows:
         stream.write(
             f"{freq_ghz * HZ_PER_GHZ:.17g},{zr:.17g},{zi:.17g}\n"
@@ -435,9 +455,18 @@ def uncertainty_report_path(nominal_path: Path) -> Path:
     return nominal_path.with_name(f"{nominal_path.stem}_uncertainty{suffix}")
 
 
+def _uncertainty_comment_lines(note: str | None, backing: str) -> list[str]:
+    lines = [] if backing == "pec" else [FREE_SPACE_IMPEDANCE_NOTE]
+    if note:
+        lines.extend("# " + part for part in note.splitlines() if part.strip())
+    return lines
+
+
 def write_impedance_uncertainty_report(
     path: Path,
     rows: list[tuple[float, float, float, float, float, float, float]],
+    note: str | None = None,
+    backing: str = "pec",
 ) -> None:
     """Write nominal/min/max impedance values to an analysis-only sidecar."""
     _validate_csv_path(path)
@@ -463,7 +492,10 @@ def write_impedance_uncertainty_report(
                 f"Impedance uncertainty report row {index} contains negative "
                 f"minimum resistance {zr_min:g} ohm."
             )
+    comments = _uncertainty_comment_lines(note, backing)
     with _atomic_text_file(path) as f:
+        for line in comments:
+            f.write(line + "\n")
         f.write(IMPEDANCE_UNCERTAINTY_HEADER + "\n")
         for row in rows:
             freq_hz = row[0] * HZ_PER_GHZ
@@ -478,9 +510,18 @@ def write_impedance_bundle(
     uncertainty_rows: (
         list[tuple[float, float, float, float, float, float, float]] | None
     ) = None,
+    *,
+    backing: str = "pec",
+    uncertainty_note: str | None = None,
 ) -> None:
-    """Atomically publish a nominal IBC and its optional uncertainty sidecar."""
+    """Atomically publish a nominal IBC and its optional uncertainty sidecar.
 
+    PEC-backed output keeps the exact GHOST IBC header. Free-space-backed
+    output gets FREE_SPACE_IMPEDANCE_HEADER so no IBC solver accepts it.
+    ``uncertainty_note`` is written as leading '#' lines of the sidecar.
+    """
+
+    _impedance_header_lines(backing)
     _validate_csv_path(nominal_path)
     if uncertainty_path is not None:
         _validate_csv_path(uncertainty_path)
@@ -521,13 +562,15 @@ def write_impedance_bundle(
                 )
 
     def write_nominal(stream: TextIO) -> None:
-        _write_impedance_rows(stream, nominal_rows)
+        _write_impedance_rows(stream, nominal_rows, backing)
 
     entries: list[tuple[Path, Callable[[TextIO], None]]] = [
         (Path(nominal_path), write_nominal)
     ]
     if uncertainty_path is not None and uncertainty_rows is not None:
         def write_uncertainty(stream: TextIO) -> None:
+            for line in _uncertainty_comment_lines(uncertainty_note, backing):
+                stream.write(line + "\n")
             stream.write(IMPEDANCE_UNCERTAINTY_HEADER + "\n")
             for row in uncertainty_rows:
                 values = (row[0] * HZ_PER_GHZ, *row[1:])

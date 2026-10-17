@@ -1469,7 +1469,7 @@ class StatisticsDialog(QDialog):
         params_grid.addWidget(QLabel("Percentile:"), 0, 2)
         self.spin_pct = QDoubleSpinBox()
         self.spin_pct.setRange(0.0, 100.0)
-        self.spin_pct.setDecimals(1)
+        self.spin_pct.setDecimals(3)
         self.spin_pct.setSingleStep(5.0)
         self.spin_pct.setValue(50.0)
         self.spin_pct.setEnabled(False)
@@ -1829,7 +1829,7 @@ class PhaseCenterDialog(QDialog):
         self.spins = []
         for column, axis in enumerate(("x", "y", "z")):
             spin = QDoubleSpinBox()
-            spin.setDecimals(4)
+            spin.setDecimals(7)
             spin.setRange(-1.0e6, 1.0e6)
             spin.setSingleStep(0.01)
             grid.addWidget(QLabel(axis), 0, 2 * column)

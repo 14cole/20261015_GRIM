@@ -1750,6 +1750,43 @@ def _reference_panel_counts(
     return result
 
 
+def _reject_open_dielectric_boundaries(segments, meters_scale: 'float') -> 'None':
+    """Refuse a TYPE 3/4/5 boundary that ends in a free endpoint (2-D only).
+
+    A dielectric region must be enclosed: an open TYPE 3/4/5 chain leaves its
+    medium unbounded at the free end, and the 2-D transmission rows then
+    solve a different body without complaint (an open 64-gon dielectric
+    cylinder missing one primitive was off by 0.3-0.5 dB). TYPE 2 is held to
+    the same rule for TE in the solver; TYPE 1 sheets are open by design.
+    BoR meridians end on the axis and share the solver preflight, so this
+    check runs on the 2-D mesher path only.
+    """
+
+    welder = _NodeWelder(NODE_WELD_TOLERANCE_M)
+    degree: 'Dict[Tuple[int, int], int]' = {}
+    dielectric_ends: 'Dict[Tuple[int, int], Tuple[str, Tuple[float, float]]]' = {}
+    for seg in segments:
+        seg_type = _segment_mesh_flags(seg)[0]
+        name = str(seg.get("name", "segment"))
+        for pair in list(seg.get("point_pairs", []) or []):
+            for xk, yk in (("x1", "y1"), ("x2", "y2")):
+                point = (float(pair.get(xk, 0.0)) * meters_scale,
+                         float(pair.get(yk, 0.0)) * meters_scale)
+                key = welder.key(point)
+                degree[key] = degree.get(key, 0) + 1
+                if seg_type in (3, 4, 5):
+                    dielectric_ends.setdefault(key, (f"TYPE {seg_type} segment '{name}'", point))
+    dangling = [dielectric_ends[key] for key in dielectric_ends if degree[key] == 1]
+    if dangling:
+        owner, (x, y) = dangling[0]
+        raise ValueError(
+            f"Open dielectric boundary: {owner} ends at ({x:.9g}, {y:.9g}) m without "
+            f"meeting another primitive ({len(dangling)} free TYPE 3/4/5 endpoint(s) in "
+            "all). A dielectric region must be closed by its boundaries; close the "
+            "contour or stitch it to the neighboring segment."
+        )
+
+
 def _build_panels(
     geometry_snapshot: 'Dict[str, Any]',
     meters_scale: 'float',
@@ -1804,6 +1841,7 @@ def _build_panels(
     if segment_wavelengths is not None:
         if len(segment_wavelengths) != len(segments) or any(not math.isfinite(v) or v < min_wavelength for v in segment_wavelengths):
             raise ValueError('Invalid local material mesh wavelengths.')
+    _reject_open_dielectric_boundaries(segments, float(meters_scale))
     law_library = materials if materials is not None else _inline_impedance_laws(geometry_snapshot)
     junctions = _boundary_condition_junctions(
         segments, meters_scale, law_library, frequencies_ghz)

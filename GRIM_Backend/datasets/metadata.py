@@ -249,6 +249,40 @@ class GridMetadataMixin:
                 )
         return issues
 
+    def _assert_coherent_time_conventions_agree(
+        self, *others, operation="coherent operation", labels=None
+    ):
+        """Refuse coherent arithmetic across opposite declared time conventions.
+
+        exp(+jwt) and exp(-jwt) phasors of one field are complex conjugates, so
+        adding or differencing them as supplied is wrong rather than merely
+        unlabelled.  Inputs without a declaration, or whose own declarations
+        contradict each other, cannot be compared and stay advisory.
+        """
+
+        inputs = (self, *others)
+        if labels is None:
+            labels = [f"input {index}" for index in range(1, len(inputs) + 1)]
+        declared = []
+        for label, grid in zip(labels, inputs):
+            values = {
+                self._canonical_time_convention(value)
+                for value in grid._coherent_source_convention_values(
+                    "time_convention"
+                )
+            }
+            if len(values) == 1:
+                declared.append((label, next(iter(values))))
+        if len({value for _label, value in declared}) > 1:
+            raise ValueError(
+                f"{operation} refused: contributors declare different time "
+                "conventions ("
+                + ", ".join(f"{label}: {value}" for label, value in declared)
+                + "). Samples in opposite conventions are complex conjugates; "
+                "conjugate one response (or correct its time_convention label) "
+                "before combining them coherently."
+            )
+
     def _assert_acquisition_metadata_compatible(
         self,
         other,

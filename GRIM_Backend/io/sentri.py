@@ -470,21 +470,26 @@ class SentriFormatMixin:
         format error.
         """
         from GRIM_Backend.io.cst import _cst_compact_header
+        from GRIM_Backend.io.csv import TextEncodingError, open_text_table
 
-
-        with open(path, "r", newline="", encoding="utf-8-sig") as stream:
-            sample = stream.read(8192)
-            stream.seek(0)
-            try:
-                dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
-                delimiter = dialect.delimiter
-            except csv.Error:
-                delimiter = max((",", "\t", ";"), key=sample.count)
-            rows = []
-            for row_index, row in enumerate(csv.reader(stream, delimiter=delimiter)):
-                rows.append(row)
-                if row_index >= 255:
-                    break
+        try:
+            with open_text_table(path, newline="") as stream:
+                sample = stream.read(8192)
+                stream.seek(0)
+                try:
+                    dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
+                    delimiter = dialect.delimiter
+                except csv.Error:
+                    delimiter = max((",", "\t", ";"), key=sample.count)
+                rows = []
+                for row_index, row in enumerate(csv.reader(stream, delimiter=delimiter)):
+                    rows.append(row)
+                    if row_index >= 255:
+                        break
+        except (TextEncodingError, UnicodeError, csv.Error):
+            # A sniffer only answers "is this SENTRi?"; the selected reader
+            # reports undecodable text with the file name.
+            return False
         compact_required = {
             "freqmhz",
             "thetadeg",

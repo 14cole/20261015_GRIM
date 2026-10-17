@@ -175,7 +175,23 @@ frequency_hz,resistance_ohm,reactance_ohm
 ```
 
 Uncertainty bounds are written to a separate `_uncertainty.csv` analysis file
-so the nominal file remains directly readable by GHOST. Phase uncertainty
+so the nominal file remains directly readable by GHOST. The bounds are the
+min/max over sampled tolerance cases: the corners of the ±δ thickness/ε/μ box
+plus 9 evenly spaced points along each scale axis across `[-δ, +δ]` (the other
+two scales nominal), so an interior extremum such as a quarter-wave resonance
+inside a ±10% thickness band is captured. One scale per axis applies to all
+layers together (fully correlated); off-axis interior points are not visited,
+so the envelope is a sampled bound, not a certified one. Leading `#` lines in
+the sidecar state the case count and sampling. The same case set drives
+Off Angle/Thickness tolerance envelopes and the Inverse Design and Material
+Mix worst/average tolerance scores.
+
+Free-space (air) backed exports are planar analysis results, not one-sided
+IBCs. They are written with a leading `#` note and the distinct header
+`frequency_hz,free_space_backed_resistance_ohm,free_space_backed_reactance_ohm`,
+which GHOST's IBC loader refuses; PEC-backed output keeps the header above.
+
+Phase uncertainty
 bounds are unwrapped about the nominal phase and can therefore lie outside
 `[-180, 180]`; this avoids false 360-degree spans at the phase branch cut.
 
@@ -428,7 +444,9 @@ retained for comparison. Fixed bounds defining one recipe evaluate it once.
 The setup shows the sample budget plus up to 300 additional refinement
 evaluations per retained candidate. **Stop search** cancels sampling, refinement,
 or result preparation without publishing an incomplete result. Changing inputs
-while a search runs invalidates its eventual result.
+while a search runs invalidates its eventual result. A blank **Seed** draws a
+random seed for that run; the result message reports the seed actually used,
+so entering it reproduces the search.
 
 **Export selected CSV** and **Add selected as layer** use the properties,
 frequency grid, and thickness captured in the displayed result. They do not
@@ -441,8 +459,9 @@ candidate's requirement gap is evaluated at every requested frequency/angle
 point: for an upper limit the gap is `max(value) - target`, and for a lower
 limit it is `target - min(value)`. A gap at or below zero passes. When material
 or thickness uncertainty is enabled, the results separately report the worst
-uncertainty-corner gap; this is the pass/fail value even if average-corner
-scoring was selected for ranking.
+uncertainty-case gap (box corners plus per-axis samples, as described under
+the impedance uncertainty report); this is the pass/fail value even if
+average-case scoring was selected for ranking.
 
 The predicted or optimized effective properties still depend on the selected
 mixing law and its morphology assumptions. Performance optimization does not

@@ -129,7 +129,7 @@ class SectorStatisticsDialog(QDialog):
         self.combo_statistic.setToolTip("Statistic of linear power inside each sector, displayed in dB.")
         self.spin_percentile = QDoubleSpinBox()
         self.spin_percentile.setRange(0, 100)
-        self.spin_percentile.setDecimals(1)
+        self.spin_percentile.setDecimals(3)
         self.spin_percentile.setSingleStep(5)
         self.spin_percentile.setSuffix(" %")
         self.spin_percentile.setKeyboardTracking(False)

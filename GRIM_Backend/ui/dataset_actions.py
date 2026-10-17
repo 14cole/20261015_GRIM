@@ -1698,6 +1698,29 @@ class DatasetOpsMixin:
             ("btn_dataset_undo_delete",),
             bool(getattr(self, "_last_deleted_dataset_rows", ())),
         )
+        self._set_inline_edits_locked(busy)
+
+    def _set_inline_edits_locked(self, locked: bool) -> None:
+        """Block inline coordinate edits and row renames while a job runs.
+
+        A queued job already captured its inputs; an edit made meanwhile would
+        be recorded before the job's result and replay against different
+        coordinates. Selection stays available so plotting still works.
+        """
+
+        saved = getattr(self, "_inline_edit_triggers", None)
+        if saved is None:
+            saved = self._inline_edit_triggers = {}
+        for name in ("table", "list_pol", "list_freq", "list_elev", "list_az"):
+            widget = getattr(self, name, None)
+            if widget is None or not hasattr(widget, "setEditTriggers"):
+                continue
+            if locked:
+                if name not in saved:
+                    saved[name] = widget.editTriggers()
+                    widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+            elif name in saved:
+                widget.setEditTriggers(saved.pop(name))
 
     def _update_dataset_selection_order(self, selected_rows: list[int]) -> None:
         selected_set = set(selected_rows)
@@ -1972,6 +1995,13 @@ class DatasetOpsMixin:
             finally:
                 widget.blockSignals(signals_were_blocked)
 
+        if self._background_job_active():
+            restore_item()
+            self.status.showMessage(
+                "Parameter edit rejected: wait for the running dataset job to finish."
+            )
+            return
+
         owning_row = None
         for row in range(self.table.rowCount()):
             name_item = self.table.item(row, 0)
@@ -2021,6 +2051,10 @@ class DatasetOpsMixin:
             name_item.setToolTip("Unsaved parameter edits")
 
             if source_item is not None:
+                # The row no longer matches its file: drop the durable path so
+                # script replay (after a recorder clear), save-in-place and the
+                # report catalog cannot reload the unedited original.
+                source_item.setData(DATASET_PATH_ROLE, "")
                 source_item.setText("Unsaved")
                 source_item.setToolTip(
                     "Unsaved parameter edits"
@@ -2414,6 +2448,8 @@ class DatasetOpsMixin:
                     lambda variables: (
                         f"{variables[0]}.support_referenced_difference("
                         f"{variables[1]}, "
+                        f"metadata_attested={metadata_attested!r}, "
+                        f"assumptions_attested={assumptions_attested!r}, "
                         f"target_label={target_name!r}, "
                         f"support_label={support_name!r})"
                     ),
@@ -2560,6 +2596,9 @@ class DatasetOpsMixin:
                         coherent=True,
                         coherent_metadata_attested=False,
                         _scan_phase_samples=False,
+                    )
+                    reference._assert_coherent_time_conventions_agree(
+                        dataset, operation="coherent arithmetic"
                     )
                 except Exception as exc:
                     lines.append(f"  FAIL coherent declarations: {exc}")
@@ -5069,7 +5108,11 @@ class DatasetOpsMixin:
             self._python_reference_for_dataset(dataset) for _name, dataset in datasets
         ]
         verb = "Keep" if params["mode"] == "keep" else "Remove"
-        span = f"{params['start_m']:g} to {params['stop_m']:g} m"
+        # Name the gate in the dialog's display units (inches, 5 decimals);
+        # the recorded kwargs keep the exact metres passed to time_gate().
+        start_in = round(params["start_m"] / 0.0254, 5)
+        stop_in = round(params["stop_m"] / 0.0254, 5)
+        span = f"{start_in:g} to {stop_in:g} in"
 
         def operation(_index, _name, dataset):
             return time_gate(dataset, **params)

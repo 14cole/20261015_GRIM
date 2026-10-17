@@ -664,6 +664,30 @@ def _signed_degree_label(value: float) -> str:
     return f"{number}°"
 
 
+def _has_consecutive_finite_pair(x: Sequence[float], y: Sequence[float]) -> bool:
+    previous = False
+    for x_value, y_value in zip(x, y):
+        current = math.isfinite(x_value) and math.isfinite(y_value)
+        if current and previous:
+            return True
+        previous = current
+    return False
+
+
+def _default_polar_limits(series: Sequence["PlotSeries"]) -> tuple[float, float]:
+    """Choose a full-circle theta span matching the data's angle convention."""
+
+    finite = [
+        x_value
+        for item in series
+        for x_value, y_value in zip(item.x, item.y)
+        if math.isfinite(x_value) and math.isfinite(y_value)
+    ]
+    if finite and min(finite) >= 0.0 and max(finite) > 180.0:
+        return (0.0, 360.0)
+    return (-180.0, 180.0)
+
+
 def polar_degree_ticks(
     limits: tuple[float, float] | None = None,
     step: float | None = None,
@@ -825,6 +849,10 @@ def render_plot_png(
         x_values = series.x
         if plot.kind == "azimuth_polar":
             x_values = tuple(math.radians(value) for value in x_values)
+        # A line needs two consecutive finite samples. Isolated samples (and
+        # single-sample sweeps) would otherwise draw no ink at all, so mark
+        # the points of any series that has no drawable segment.
+        needs_markers = not _has_consecutive_finite_pair(series.x, series.y)
         axes.plot(
             x_values,
             series.y,
@@ -832,15 +860,19 @@ def render_plot_png(
             color=series.color or style.default_colors[index % len(style.default_colors)],
             linestyle=series.line_style,
             linewidth=series.line_width,
+            marker="o" if needs_markers else None,
+            markersize=max(3.0, series.line_width * 2.5) if needs_markers else None,
         )
 
     if plot.kind == "azimuth_polar":
         axes.set_theta_zero_location("N")
         axes.set_theta_direction(-1)
-        polar_low, polar_high = plot.x_limits or (-180.0, 180.0)
-        if plot.x_limits is not None:
-            axes.set_thetamin(polar_low)
-            axes.set_thetamax(polar_high)
+        polar_low, polar_high = plot.x_limits or _default_polar_limits(plot.series)
+        # Always pin the theta span: setting ticks below would otherwise
+        # autoscale theta to the union of the tick and data ranges (e.g.
+        # [-180, 360]) and draw only part of the pattern.
+        axes.set_thetamin(polar_low)
+        axes.set_thetamax(polar_high)
         polar_step = plot.x_tick_step or 45.0
         polar_ticks = polar_degree_ticks((polar_low, polar_high), polar_step)
         axes.set_xticks([math.radians(value) for value, _label in polar_ticks])
@@ -883,6 +915,9 @@ def render_plot_png(
         color=style.text,
         fontsize=8 if width_points < 400 else 11,
         fontfamily=style.font_family,
+        # On polar axes the radial label sits beside the -90 deg theta tick;
+        # pad it clear of that tick label.
+        labelpad=(27 if width_points < 400 else 30) if plot.kind == "azimuth_polar" else None,
     )
     axes.grid(plot.show_grid, color=style.grid, linewidth=0.55, alpha=0.7)
     labels = [series.label for series in plot.series if series.label]

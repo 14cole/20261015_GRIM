@@ -31,7 +31,18 @@ def sweep_count(start: float, stop: float, step: float) -> int:
             "Sweep point count exceeds the supported desktop range. "
             "Reduce the range or increase the step."
         )
-    return math.floor(intervals + 1e-12) + 1
+    # A fixed absolute slack drops the stop point once the interval count is
+    # large (1-2 GHz at 1e-5 GHz gives 99999.99999999999 intervals). Accept a
+    # count within a relative rounding tolerance of an integer as that integer.
+    nearest = round(intervals)
+    if abs(intervals - nearest) <= SWEEP_RELATIVE_TOLERANCE * max(1.0, nearest):
+        return int(nearest) + 1
+    return math.floor(intervals) + 1
+
+
+# Relative slack on the interval count; far above double rounding error and
+# far below any deliberately off-step stop value.
+SWEEP_RELATIVE_TOLERANCE = 1e-9
 
 
 def frequency_sweep_count(start: float, stop: float, step: float) -> int:

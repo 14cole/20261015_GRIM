@@ -32,14 +32,53 @@ def _safe_comment(value) -> str:
 
 
 def _compact_numeric_sequence(value) -> str | None:
-    """Represent long uniform numeric axes with three hard-coded numbers."""
+    """Represent long uniform numeric axes with three hard-coded numbers.
 
+    The emitted expression must replay to exactly the recorded value: a list
+    stays a list (``.tolist()``) and integer sequences stay integers
+    (``np.arange``), so operation arguments and the provenance derived from
+    them do not change between the GUI and the replayed script.
+    """
+
+    as_list = isinstance(value, list)
+    if as_list:
+        if not value or any(isinstance(item, (bool, np.bool_)) for item in value):
+            return None
+        if all(isinstance(item, (int, np.integer)) for item in value):
+            kind = "i"
+        elif all(isinstance(item, (float, np.floating)) for item in value):
+            kind = "f"
+        else:
+            return None
     try:
         array = np.asarray(value)
     except (TypeError, ValueError):
         return None
     if array.ndim != 1 or array.size < 16 or array.dtype.kind not in "iuf":
         return None
+    if not as_list:
+        kind = "f" if array.dtype.kind == "f" else "i"
+        if kind == "f" and array.dtype != np.float64:
+            return None
+    suffix = ".tolist()" if as_list else ""
+    if kind == "i":
+        integers = [int(item) for item in array.tolist()]
+        step = integers[1] - integers[0]
+        if step <= 0:
+            return None
+        if any(right - left != step for left, right in zip(integers, integers[1:])):
+            return None
+        stop = integers[-1] + step
+        dtype_text = ""
+        replayed = np.arange(integers[0], stop, step)
+        if not as_list and replayed.dtype != array.dtype:
+            dtype_text = f", dtype=np.{array.dtype.name}"
+            replayed = np.arange(integers[0], stop, step, dtype=array.dtype)
+        if not np.array_equal(replayed, array) or (
+            not as_list and replayed.dtype != array.dtype
+        ):
+            return None
+        return f"np.arange({integers[0]}, {stop}, {step}{dtype_text}){suffix}"
     numeric = np.asarray(array, dtype=np.float64)
     if not np.all(np.isfinite(numeric)):
         return None
@@ -47,13 +86,11 @@ def _compact_numeric_sequence(value) -> str | None:
     if steps.size == 0 or not np.all(steps > 0.0):
         return None
     expected = np.linspace(numeric[0], numeric[-1], numeric.size, dtype=np.float64)
-
-
     if not np.array_equal(numeric, expected):
         return None
     return (
         f"np.linspace({_literal(float(numeric[0]))}, "
-        f"{_literal(float(numeric[-1]))}, {int(numeric.size)})"
+        f"{_literal(float(numeric[-1]))}, {int(numeric.size)}){suffix}"
     )
 
 
@@ -378,7 +415,7 @@ except ModuleNotFoundError as exc:
         self._lines.extend(
             [
                 f"# Save {_safe_comment(reference.name)}",
-                f"{variable}.save(Path({_literal(resolved)}))",
+                f"{variable}.save(Path({_literal(resolved)}), compressed=\"auto\")",
                 "",
             ]
         )

@@ -128,10 +128,12 @@ from .compute import (
     MaterialTable,
     MixCandidate,
     MixComponent,
+    UNCERTAINTY_AXIS_SAMPLES,
     UncertaintyConfig,
     align_phase_degrees,
     blend_density_gcc,
     build_uncertainty_scales,
+    describe_uncertainty_sampling,
     combine_mix,
     compute_angle_metrics,
     compute_angle_metrics_many,
@@ -591,10 +593,16 @@ def _output_row(
 
 
 def _uncertainty_group(enabled_var, t_var, eps_var, mu_var, sync_cb):
-    group = QGroupBox("Uncertainty corners")
+    group = QGroupBox("Uncertainty cases")
     grid = QGridLayout(group)
     check = QCheckBox(
-        "Enable analyzed tolerance corners"
+        "Enable analyzed tolerance cases"
+    )
+    check.setToolTip(
+        "Min/max over sampled cases: the ±δ box corners plus "
+        f"{UNCERTAINTY_AXIS_SAMPLES} evenly spaced points along each of the "
+        "thickness, ε and μ scale axes (others nominal). One scale per axis "
+        "applies to every layer. A sampled envelope, not a certified bound."
     )
     bind_check_box(enabled_var, check)
     check.clicked.connect(sync_cb)
@@ -3490,6 +3498,12 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             nominal_rows,
             uncertainty_path,
             uncertainty_rows,
+            backing=backing,
+            uncertainty_note=(
+                describe_uncertainty_sampling(uncertainty)
+                if uncertainty_rows is not None
+                else None
+            ),
         )
 
         summary = self._summarize_frequency_run(
@@ -3501,6 +3515,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         )
         if uncertainty_path is not None:
             summary += f"\nUncertainty report: {uncertainty_path}"
+            summary += f"\n{describe_uncertainty_sampling(uncertainty)}"
         return len(sweep), summary
 
     def _compute_angle_mode(
@@ -5327,10 +5342,18 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
                         "The nominal CSV was written but could not be made "
                         f"available to GHOST:\n{exc}",
                     )
-            message = (
-                f"Wrote {int(result['count'])} nominal solver-compatible "
-                f"frequency points to:\n{output_path}"
-            )
+            if backing == "pec":
+                message = (
+                    f"Wrote {int(result['count'])} nominal solver-compatible "
+                    f"frequency points to:\n{output_path}"
+                )
+            else:
+                message = (
+                    f"Wrote {int(result['count'])} nominal free-space-backed "
+                    f"frequency points to:\n{output_path}\n\nThe file uses a "
+                    "free_space_backed_* header, so GHOST and other IBC "
+                    "loaders refuse it."
+                )
             if uncertainty_has_bounds:
                 message += (
                     "\n\nUncertainty bounds were written separately to:\n"

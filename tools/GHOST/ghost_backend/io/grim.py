@@ -1034,6 +1034,31 @@ def _group_incidence_samples(samples, channel=''):
     return grouped
 
 
+# The generic exporter stores a BoR result on its native aspect axis: the
+# angle from the +z rotation axis, written to the GRIM azimuth axis with a
+# single zero elevation. That is not radar azimuth, so the file says so.
+# Radar-frame azimuth/elevation BoR files (body model, roll, look grid)
+# come from io.solver_export.export_solver_result, used by the GUI.
+BOR_ASPECT_FRAME_CONVENTION = (
+    "BoR body frame: GRIM azimuth = aspect from the +z rotation axis "
+    "(0 = nose-on, 90 = broadside, 180 = tail-on) -- NOT radar azimuth; "
+    "elevation axis is a single 0 placeholder. Radar-frame azimuth/elevation "
+    "output: ghost_backend.io.solver_export.export_solver_result"
+)
+
+
+def _is_bor_result(result: 'Dict[str, Any]') -> 'bool':
+    return (str(result.get('solver', '')).strip().lower() == 'bor_mom_rcs'
+            or str(result.get('rcs_linear_quantity', '')).strip().lower() == 'sigma_3d')
+
+
+def _stamp_bor_frame_metadata(payload: 'Dict[str, Any]', result: 'Dict[str, Any]') -> 'None':
+    """Declare the body-frame aspect axis of a BoR payload (metadata only)."""
+    if _is_bor_result(result):
+        payload['pattern_frame_convention'] = BOR_ASPECT_FRAME_CONVENTION
+        payload['time_convention'] = 'exp(+jwt)'
+
+
 def export_result_to_grim(
     result: 'Dict[str, Any]',
     output_path: 'str',
@@ -1103,6 +1128,7 @@ def export_result_to_grim(
                 **unit_kwargs,
             )
         payload['solver_metadata_json'] = _solver_metadata_json(result)
+        _stamp_bor_frame_metadata(payload, result)
         return [os.path.abspath(_save_grim_npz(
             payload, output_path, format_version=format_version
         ))]
@@ -1137,6 +1163,7 @@ def export_result_to_grim(
             if metadata_json is None:
                 metadata_json = _solver_metadata_json(result)
             payload['solver_metadata_json'] = metadata_json
+            _stamp_bor_frame_metadata(payload, result)
             out = f'{root_no_ext}_{_suffix_for_incidence(inc)}.grim'
             batch.append((payload, out))
         return _save_grim_npz_batch(batch, format_version=format_version)
@@ -1159,6 +1186,7 @@ def export_result_to_grim(
         if metadata_json is None:
             metadata_json = _solver_metadata_json(result)
         payload['solver_metadata_json'] = metadata_json
+        _stamp_bor_frame_metadata(payload, result)
         out = f'{root_no_ext}_{_suffix_for_incidence(inc)}.grim'
         batch.append((payload, out))
     return _save_grim_npz_batch(batch, format_version=format_version)

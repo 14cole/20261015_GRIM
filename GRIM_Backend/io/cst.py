@@ -13,6 +13,7 @@ from GRIM_Backend.datasets.result_storage import allocate_result, resident_resul
 from GRIM_Backend.datasets.work_control import checkpoint
 from GRIM_Backend.io.text_storage import discover_coordinates, text_reader
 
+from GRIM_Backend.io.csv import open_text_table
 from GRIM_Backend.io.samples import construct_parsed_grid, parsed_sample_memory
 
 
@@ -22,7 +23,7 @@ class _DelimitedRows:
     def __init__(self, path):
         self.path = path
         self.signature = self._signature()
-        with open(path, "r", newline="", encoding="utf-8-sig") as stream:
+        with open_text_table(path, newline="") as stream:
             sample = stream.read(8192)
         try:
             self.delimiter = csv.Sniffer().sniff(sample, delimiters=",\t;").delimiter
@@ -39,7 +40,7 @@ class _DelimitedRows:
 
     def __iter__(self):
         self.check_unchanged()
-        with open(self.path, "r", newline="", encoding="utf-8-sig") as stream:
+        with open_text_table(self.path, newline="") as stream:
             for line_number, row in enumerate(csv.reader(stream, delimiter=self.delimiter)):
                 if line_number % 1024 == 0:
                     checkpoint(detail="Reading table rows")
@@ -123,7 +124,7 @@ def estimate_vendor_text_import(path):
     if not recognized and not str(path).lower().endswith(".csv"):
         legacy_required = {"thetadeg", "phideg", "absthetadbm2", "phasethetadeg",
                            "absphidbm2", "phasephideg"}
-        with open(path, "r", encoding="utf-8-sig") as stream:
+        with open_text_table(path) as stream:
             for line in itertools.islice(stream, 256):
                 tokens = {_cst_compact_header(token).replace("dbsm", "dbm2")
                           for token in re.split(r"[,\s]+", line.strip())}
@@ -278,6 +279,15 @@ class CstFormatMixin:
                 return "phase_deg"
             return None
 
+        def _unrecognized_physics_header(cell_value):
+            # Phase or magnitude headings whose unit the flat schema cannot
+            # interpret (radians, unitless, linear m^2, ...).
+            compact = _cst_compact_header(cell_value)
+            return _flat_key(cell_value) is None and (
+                "phase" in compact or "magnitude" in compact
+                or compact.startswith("rcs")
+            )
+
         required = {"elevation", "azimuth", "frequency", "polarization"}
         for header_idx, row in enumerate(rows):
             mapped = {}
@@ -287,6 +297,17 @@ class CstFormatMixin:
                 if key is not None and key not in mapped:
                     mapped[key] = column_idx
                     tokens[key] = str(cell)
+            if required.issubset(mapped):
+                unrecognized = [str(cell) for cell in row
+                                if _unrecognized_physics_header(cell)]
+                if unrecognized:
+                    raise ValueError(
+                        f"line {header_idx + 1}: unsupported CST flat-table "
+                        "column header(s) "
+                        + ", ".join(repr(name) for name in unrecognized)
+                        + "; magnitudes must be Magnitude(dBsm) and phases "
+                        "Phase(deg) rather than being silently dropped"
+                    )
             if required.issubset(mapped) and (
                 "magnitude_dbsm" in mapped or "iq" in mapped
             ):
@@ -380,11 +401,22 @@ class CstFormatMixin:
             header_tokens.get("frequency", "")
         )
         counters = dict(iq_validated=0, iq_only=0, iq_unparsed=0)
+        header_row = rows[header_idx]
+        # Trailing blank header cells are delimiter noise, not columns.
+        header_width = max(
+            (index + 1 for index, value in enumerate(header_row) if str(value).strip()),
+            default=0,
+        )
 
         def _records(*, coordinates_only=False):
             for row_idx, row in enumerate(rows[header_idx + 1 :], start=header_idx + 2):
                 if not row or all(not str(value).strip() for value in row):
                     continue
+                if len(row) < header_width:
+                    raise ValueError(
+                        f"line {row_idx}: {len(row)} value(s) but the header has "
+                        f"{header_width} columns (truncated row)"
+                    )
 
                 elevation = _required_float(row, "elevation", row_idx)
                 azimuth = _wrap_cst_azimuth_deg(
@@ -774,11 +806,23 @@ class CstFormatMixin:
                 "guessed and generic Abs(field) tables are not accepted."
             )
 
+        header_row = rows[header_idx]
+        # Trailing blank header cells are delimiter noise, not columns.
+        header_width = max(
+            (index + 1 for index, value in enumerate(header_row) if str(value).strip()),
+            default=0,
+        )
+
         def _records():
             for row_index, row in enumerate(rows[data_start_idx:], start=data_start_idx):
                 line_no = row_index + 1
                 if not row or all(str(cell).strip() == "" for cell in row):
                     continue
+                if len(row) < header_width:
+                    raise ValueError(
+                        f"line {line_no}: {len(row)} value(s) but the header has "
+                        f"{header_width} columns (truncated row)"
+                    )
 
                 def _axis_cell(key: str) -> float:
                     idx = col_idx[key]
@@ -968,6 +1012,7 @@ class CstFormatMixin:
         path,
         *,
         frequency_ghz=None,
+        incident_polarization=None,
         max_output_bytes=None,
         _estimate_only=False,
     ):
@@ -977,17 +1022,46 @@ class CstFormatMixin:
             theta(deg), phi(deg), abs(rcs)(dbm^2), abs(theta)(dbm^2),
             phase(theta)(deg), abs(phi)(dbm^2), phase(phi)(deg), ax.ratio(db)
 
-        Axis/polarization mapping:
-            - theta(deg) -> azimuth
-            - phi(deg)   -> elevation
-            - theta -> V, phi -> H
-              abs(theta), phase(theta) -> VV
-              abs(phi),   phase(phi)   -> HH
-            - abs(rcs) is loaded as a third polarization channel: TOTAL
+        Axis mapping (identical to the CST wide reader):
+            - phi(deg), wrapped to [-180, 180), -> azimuth
+            - standard CST theta colatitude -> elevation = 90 - theta
+
+        Polarization mapping: abs(theta)/abs(phi) are the theta (V) and phi
+        (H) *receive* components of the scattered field for one excitation.
+        The file does not state that excitation, so:
+            - ``incident_polarization="V"`` (or ``"theta"``) gives VV and HV;
+              ``"H"`` (or ``"phi"``) gives VH and HH (receive letter first,
+              as in the CST wide and SENTRi readers);
+            - without it the channels are labeled THETA and PHI rather than
+              being guessed as co-polarized VV/HH.
+            - abs(rcs) is loaded as a magnitude-only channel: TOTAL
         """
         from GRIM_Backend.datasets.constants import _ADOPT_CLEAN_ARRAYS_TOKEN
-        from GRIM_Backend.io.cst import _cst_dbsm_to_power
+        from GRIM_Backend.io.cst import _cst_dbsm_to_power, _wrap_cst_azimuth_deg
         from GRIM_Backend.io.samples import _cst_samples_equivalent
+
+        incident_aliases = {"v": "V", "theta": "V", "h": "H", "phi": "H"}
+        if incident_polarization is None:
+            incident = None
+        else:
+            incident = incident_aliases.get(str(incident_polarization).strip().lower())
+            if incident is None:
+                raise ValueError(
+                    "incident_polarization must be 'V'/'theta' or 'H'/'phi', got "
+                    f"{incident_polarization!r}"
+                )
+        if incident is None:
+            theta_label, phi_label = "THETA", "PHI"
+            polarization_mapping = (
+                "abs(theta)->THETA, abs(phi)->PHI receive components; incident "
+                "polarization not declared, so no VV/HH/HV/VH label is implied"
+            )
+        else:
+            theta_label, phi_label = f"V{incident}", f"H{incident}"
+            polarization_mapping = (
+                f"declared incident {incident}; theta=V, phi=H receive components: "
+                f"abs(theta)->{theta_label}, abs(phi)->{phi_label}"
+            )
 
         def _norm_token(text: str) -> str:
             normalized = (
@@ -1056,7 +1130,7 @@ class CstFormatMixin:
         saw_line = False
 
 
-        with open(path, "r", encoding="utf-8-sig") as f:
+        with open_text_table(path) as f:
             for i, line in enumerate(f):
                 saw_line = True
                 tokens = _tokenize(line)
@@ -1158,7 +1232,7 @@ class CstFormatMixin:
             )
 
         def _iter_data_tokens():
-            with open(path, "r", encoding="utf-8-sig") as stream:
+            with open_text_table(path) as stream:
                 for line_index, line in enumerate(stream, start=1):
                     if line_index % 1024 == 0:
                         checkpoint(detail="Reading theta/phi rows")
@@ -1199,16 +1273,21 @@ class CstFormatMixin:
 
 
             _optional_value(tokens, line_index, "ax_ratio_db")
+            if theta_deg < -1.0e-9 or theta_deg > 180.0 + 1.0e-9:
+                raise ValueError(
+                    f"line {line_index}: standard CST theta must be "
+                    f"within [0, 180] deg, got {theta_deg:g}"
+                )
             sample_values = (
                 (
-                    "VV",
+                    theta_label,
                     _cst_dbsm_to_power(
                         abs_theta_db, context=f"line {line_index} abs(theta)"
                     ),
                     float(np.deg2rad(phase_theta_deg)),
                 ),
                 (
-                    "HH",
+                    phi_label,
                     _cst_dbsm_to_power(
                         abs_phi_db, context=f"line {line_index} abs(phi)"
                     ),
@@ -1226,18 +1305,21 @@ class CstFormatMixin:
                     float("nan"),
                 ),
             )
-            return float(theta_deg), float(phi_deg), sample_values
-
+            # Same angular mapping as the CST wide reader.
+            azimuth = _wrap_cst_azimuth_deg(phi_deg)
+            elevation = float(90.0 - theta_deg)
+            return (float(theta_deg), float(phi_deg), azimuth, elevation,
+                    sample_values)
 
         def _discover():
             azimuth_values = set()
             elevation_values = set()
             data_row_count = 0
             for line_index, tokens in _iter_data_tokens():
-                theta_deg, phi_deg, _ = _parse_data_tokens(tokens, line_index)
+                _, _, azimuth, elevation, _ = _parse_data_tokens(tokens, line_index)
                 data_row_count += 1
-                azimuth_values.add(theta_deg)
-                elevation_values.add(phi_deg)
+                azimuth_values.add(azimuth)
+                elevation_values.add(elevation)
 
             return azimuth_values, elevation_values, data_row_count
 
@@ -1248,23 +1330,20 @@ class CstFormatMixin:
         azims = np.asarray(sorted(azimuth_values), dtype=float)
         elevs = np.asarray(sorted(elevation_values), dtype=float)
         freqs = np.asarray([float(selected_frequency)], dtype=float)
-        pols = np.asarray(["VV", "HH", "TOTAL"], dtype=str)
+        pols = np.asarray([theta_label, phi_label, "TOTAL"], dtype=str)
         del azimuth_values, elevation_values
 
         shape = (len(azims), len(elevs), 1, len(pols))
         allocation = _vendor_import_allocation(
             shape, source=f"legacy theta/phi TXT import {path}",
-            max_output_bytes=max_output_bytes, sample_dtype=np.float32,
-            duplicate_bytes_per_cell=24,
+            max_output_bytes=max_output_bytes,
         )
         if _estimate_only:
             return _vendor_estimate(allocation, "legacy theta/phi TXT")
-        power = allocate_result(shape, np.float32, fill=np.nan)
-        phase = allocate_result(shape, np.float32, fill=np.nan)
-        # Keep first-row values at original precision for duplicate comparisons.
-        # Output stays float32 and keeps the last equivalent row, as before.
-        first_power = allocate_result(shape, np.float64, fill=np.nan)
-        first_phase = allocate_result(shape, np.float64, fill=np.nan)
+        # float64 like the other CST readers, so dBsm values keep their
+        # precision and float32-range overflow cannot occur.
+        power = allocate_result(shape, np.float64, fill=np.nan)
+        phase = allocate_result(shape, np.float64, fill=np.nan)
         first_line = allocate_result(shape, np.uint64, fill=0)
         el_idx = {float(v): i for i, v in enumerate(elevs.tolist())}
         az_idx = {float(v): i for i, v in enumerate(azims.tolist())}
@@ -1272,11 +1351,11 @@ class CstFormatMixin:
 
 
         for line_index, tokens in _iter_data_tokens():
-            theta_deg, phi_deg, sample_values = _parse_data_tokens(
+            theta_deg, phi_deg, azimuth, elevation, sample_values = _parse_data_tokens(
                 tokens, line_index
             )
-            ai = az_idx[theta_deg]
-            ei = el_idx[phi_deg]
+            ai = az_idx[azimuth]
+            ei = el_idx[elevation]
             for polarization, sample_power, sample_phase in sample_values:
                 if not np.isfinite(sample_power):
                     continue
@@ -1284,7 +1363,7 @@ class CstFormatMixin:
                 index = (ai, ei, 0, pi)
                 if first_line[index]:
                     if not _cst_samples_equivalent(
-                        first_power[index], first_phase[index], sample_power, sample_phase
+                        power[index], phase[index], sample_power, sample_phase
                     ):
                         raise ValueError(
                             f"line {line_index}: conflicting duplicate legacy "
@@ -1292,17 +1371,10 @@ class CstFormatMixin:
                             f"polarization={polarization}; first defined on line "
                             f"{int(first_line[index])}"
                         )
-                else:
-                    first_line[index] = line_index
-                    first_power[index], first_phase[index] = sample_power, sample_phase
-                if np.isfinite(sample_power) and sample_power > np.finfo(np.float32).max:
-                    # The float32 output would silently turn this into inf.
-                    raise ValueError(
-                        f"line {line_index}: legacy TXT magnitude for polarization="
-                        f"{polarization} overflows float32 linear power"
-                    )
+                    continue
+                first_line[index] = line_index
                 power[index], phase[index] = sample_power, sample_phase
-        del first_line, first_power, first_phase
+        del first_line
 
         if not np.isfinite(power).any():
             raise ValueError("TXT parsed, but no finite magnitude values were found")
@@ -1316,7 +1388,11 @@ class CstFormatMixin:
             rcs_phase=phase,
             rcs_domain="power_phase",
             source_path=path,
-            history=f"Loaded theta/phi TXT: {path}",
+            history=(
+                "Loaded theta/phi TXT; standard theta converted with "
+                "elevation=90-theta; phi wrapped to [-180, 180); "
+                f"{polarization_mapping}: {path}"
+            ),
             units={
                 "azimuth": "deg", "elevation": "deg", "frequency": "GHz",
                 "rcs_log_unit": "dBsm", "rcs_linear_quantity": "sigma_3d",
@@ -1324,6 +1400,10 @@ class CstFormatMixin:
             extra={
                 "source_format": "legacy theta/phi TXT",
                 "legacy_txt_frequency_source": frequency_source,
+                "cst_angle_mapping": (
+                    "elevation=90-theta; phi wrapped to [-180, 180)"
+                ),
+                "cst_polarization_mapping": polarization_mapping,
                 "dense_import_allocation_bytes": allocation["dense_bytes"],
                 "dense_import_peak_bytes": allocation["peak_bytes"],
                 "dense_import_limit_bytes": allocation["limit_bytes"],

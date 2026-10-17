@@ -150,7 +150,7 @@ def join_folder(
         overlap=overlap,
         max_output_bytes=max_output_bytes,
     )
-    written = Path(joined.save(output_path)).resolve()
+    written = Path(joined.save(output_path, compressed="auto")).resolve()
     return joined, written, paths
 
 

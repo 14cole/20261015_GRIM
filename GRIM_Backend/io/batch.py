@@ -148,6 +148,16 @@ def _grim_save_compression_decision(dataset: RcsGrid) -> dict[str, object]:
     }
 
 
+def grim_save_compression(dataset: RcsGrid) -> bool:
+    """Return whether a .grim save of ``dataset`` should be compressed.
+
+    This is the adaptive decision behind ``RcsGrid.save(path,
+    compressed="auto")``; see ``_grim_save_compression_decision``.
+    """
+
+    return bool(_grim_save_compression_decision(dataset)["compressed"])
+
+
 def _stage_and_publish_grim_batch(
     entries: list[tuple[RcsGrid, str, str]],
     *,
@@ -418,8 +428,14 @@ def _replace_file(source: str, destination: str) -> None:
 
 def save_dataset_batch(
     entries: Sequence[tuple[RcsGrid, str | os.PathLike[str]]],
+    *,
+    compressed: bool | str = "auto",
 ) -> tuple[Path, ...]:
-    """Stage and transactionally publish an ordered batch of GRIM datasets."""
+    """Stage and transactionally publish an ordered batch of GRIM datasets.
+
+    ``compressed`` is passed to ``RcsGrid.save``; the default ``"auto"``
+    compresses each dataset only when that pays off, as the application does.
+    """
 
     normalized = [(dataset, _grim_output_path(path)) for dataset, path in entries]
     if not normalized:
@@ -451,7 +467,7 @@ def save_dataset_batch(
             )
             os.close(fd)
             try:
-                dataset.save(stage_path)
+                dataset.save(stage_path, compressed=compressed)
             except Exception:
                 try:
                     os.unlink(stage_path)

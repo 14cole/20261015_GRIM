@@ -1,23 +1,29 @@
 """Private numeric-member caches for bounded native archive loading.
 
-Mapped files are never the input archive. A cache owns no arrays: array base
-chains retain its owner, so closing a dataset cannot invalidate surviving views.
+Retained mapped files are never the input archive; an uncompressed member is
+mapped read-only in place only while its selected or converted cells are copied.
+A cache owns no arrays: array base chains retain its owner, so closing a dataset
+cannot invalidate surviving views.
 """
 from __future__ import annotations
 
 import atexit
 import json
+import math
 import os
 from pathlib import Path
 import shutil
+import struct
 import tempfile
 import weakref
 import zipfile
+import zlib
 
 import numpy as np
 from GRIM_Backend.datasets.work_control import checkpoint
 
 from GRIM_Backend.datasets.memory import _bounded_grid_selections
+from GRIM_Backend.datasets.storage import seal_samples
 from GRIM_Backend.datasets.storage_registry import register_cache, forget_cache
 
 AXES = ("azimuths", "elevations", "frequencies", "polarizations")
@@ -139,6 +145,70 @@ def _mapped(path, owner, *, mode="r+"):
     return result
 
 
+def _stored_member_map(path, info):
+    """Map an uncompressed ``.npy`` member of the archive read-only, in place.
+
+    Only a ZIP_STORED, unencrypted member whose local header matches the
+    central directory entry, whose NPY header is version 1.0 or 2.0 with a
+    non-object dtype, and whose header plus data exactly fill the member is
+    mapped; anything else returns ``None`` for the extracting path. The member
+    CRC is verified as a full extraction would. The mapping is transient:
+    callers copy what they need and close it, so a loaded dataset never keeps
+    the input archive mapped (or locked).
+    """
+    if (info.compress_type != zipfile.ZIP_STORED or info.flag_bits & 0x1
+            or info.compress_size != info.file_size):
+        return None
+    with open(path, "rb") as handle:
+        handle.seek(info.header_offset)
+        local = handle.read(30)
+        if len(local) != 30 or local[:4] != b"PK\x03\x04":
+            return None
+        flags, method = struct.unpack("<HH", local[6:10])
+        name_length, extra_length = struct.unpack("<HH", local[26:30])
+        name = handle.read(name_length)
+        if method != zipfile.ZIP_STORED or flags & 0x1 or len(name) != name_length:
+            return None
+        try:
+            name = name.decode("utf-8" if flags & 0x800 else "cp437")
+        except UnicodeDecodeError:
+            return None
+        if name != info.orig_filename:
+            return None
+        data_offset = info.header_offset + 30 + name_length + extra_length
+        handle.seek(data_offset)
+        try:
+            version = np.lib.format.read_magic(handle)
+            if version == (1, 0):
+                shape, fortran, dtype = np.lib.format.read_array_header_1_0(handle)
+            elif version == (2, 0):
+                shape, fortran, dtype = np.lib.format.read_array_header_2_0(handle)
+            else:
+                return None
+        except ValueError:
+            return None
+        array_offset = handle.tell()
+        count = math.prod(shape)
+        if (dtype.hasobject or not count
+                or array_offset - data_offset + count * dtype.itemsize != info.file_size
+                or os.path.getsize(path) < data_offset + info.file_size):
+            return None
+        # Read sequentially instead of writing a private copy of the member.
+        handle.seek(data_offset)
+        crc = completed = 0
+        while completed < info.file_size:
+            checkpoint(completed, info.file_size, 'Verifying native samples')
+            block = handle.read(min(1024 * 1024, info.file_size - completed))
+            if not block:
+                return None
+            crc = zlib.crc32(block, crc)
+            completed += len(block)
+        if crc != info.CRC:
+            raise zipfile.BadZipFile(f"Bad CRC-32 for file {info.filename!r}")
+    return np.memmap(path, dtype=dtype, mode="r", offset=array_offset, shape=shape,
+                     order="F" if fortran else "C")
+
+
 def _output_array(owner, index, shape, dtype, storage):
     if storage == "memory":
         return np.empty(shape, dtype=dtype)
@@ -196,50 +266,79 @@ def load_native_arrays(path, report, *, storage="disk", selection=None, cache_di
                         value = target
                     arrays[key] = value
                     continue
+                def plan(member_shape, member_dtype):
+                    grid_shaped = len(member_shape) >= 4 and tuple(member_shape[:4]) == source_shape
+                    # Preserve all ancillary cell arrays with the same exact
+                    # coordinate selection; lower-dimensional metadata is unchanged.
+                    target_dtype = member_dtype
+                    if key == "rcs_complex" and member_dtype.kind == "c":
+                        target_dtype = np.dtype(np.complex128 if member_dtype.itemsize > 8 else np.complex64)
+                    elif key in {"rcs_power", "rcs_phase"} and member_dtype.kind in "iuf":
+                        target_dtype = component_dtype
+                    must_copy = (storage == "memory" or (selection is not None and grid_shaped)
+                                 or target_dtype != member_dtype)
+                    return grid_shaped, target_dtype, must_copy
+
+                # A member that is only copied (a region, a RAM load, or a
+                # dtype conversion) is read straight from an uncompressed
+                # archive instead of first being written out as a whole.
+                direct = None
+                if plan(tuple(report["member_layouts"][key][0]), dtype)[2]:
+                    direct = _stored_member_map(path, info)
+                    if direct is not None and not plan(direct.shape, direct.dtype)[2]:
+                        mapping = direct._mmap
+                        del direct
+                        mapping.close()
+                        direct = None
                 member_path = Path(owner.path) / f"member-{number}.npy"
-                with archive.open(info) as member, member_path.open("wb") as output:
-                    completed = 0
-                    while True:
-                        checkpoint(completed, info.file_size, 'Decoding native samples')
-                        block = member.read(1024 * 1024)
-                        if not block:
-                            break
-                        output.write(block)
-                        completed += len(block)
-                value = _mapped(member_path, owner)
-                grid_shaped = value.ndim >= 4 and value.shape[:4] == source_shape
-                # Preserve all ancillary cell arrays with the same exact
-                # coordinate selection; lower-dimensional metadata is unchanged.
-                target_dtype = value.dtype
-                if key == "rcs_complex" and value.dtype.kind == "c":
-                    target_dtype = np.dtype(np.complex128 if value.dtype.itemsize > 8 else np.complex64)
-                elif key in {"rcs_power", "rcs_phase"} and value.dtype.kind in "iuf":
-                    target_dtype = component_dtype
-                must_copy = storage == "memory" or (selection is not None and grid_shaped) or target_dtype != value.dtype
+                if direct is None:
+                    with archive.open(info) as member, member_path.open("wb") as output:
+                        completed = 0
+                        while True:
+                            checkpoint(completed, info.file_size, 'Decoding native samples')
+                            block = member.read(1024 * 1024)
+                            if not block:
+                                break
+                            output.write(block)
+                            completed += len(block)
+                    value = _mapped(member_path, owner)
+                    mapping = value.base._mmap
+                else:
+                    value, mapping = direct, direct._mmap
+                    del direct
+                grid_shaped, target_dtype, must_copy = plan(value.shape, value.dtype)
                 if not must_copy:
                     arrays[key] = value
+                    if key in {"rcs_amp_real", "rcs_amp_imag"}:
+                        # Nothing else references this private member.
+                        seal_samples(value)
                     continue
-                shape = selected_shape + value.shape[4:] if grid_shaped else value.shape
-                target = _output_array(owner, number, shape, target_dtype, storage)
-                if not shape:
-                    target[()] = value[()]
-                elif target.size:
-                    for tile in _bounded_grid_selections(shape, BLOCK_CELLS):
-                        if grid_shaped:
-                            index = tuple(indices[axis][part] for axis, part in enumerate(tile[:4]))
-                            index += tuple(np.arange(value.shape[axis])[part] for axis, part in enumerate(tile[4:], 4))
-                            target[tile] = value[np.ix_(*index)]
-                        else:
-                            target[tile] = value[tile]
+                try:
+                    shape = selected_shape + value.shape[4:] if grid_shaped else value.shape
+                    target = _output_array(owner, number, shape, target_dtype, storage)
+                    if not shape:
+                        target[()] = value[()]
+                    elif target.size:
+                        for tile in _bounded_grid_selections(shape, BLOCK_CELLS):
+                            if grid_shaped:
+                                index = tuple(indices[axis][part] for axis, part in enumerate(tile[:4]))
+                                index += tuple(np.arange(value.shape[axis])[part] for axis, part in enumerate(tile[4:], 4))
+                                target[tile] = value[np.ix_(*index)]
+                            else:
+                                target[tile] = value[tile]
+                finally:
+                    # The selected/converted destination is independent.
+                    # Release the complete member (an extracted copy or the
+                    # archive mapping) now instead of retaining it for the
+                    # lifetime of a tiny selected region.
+                    del value
+                    mapping.close()
+                    if mapping in owner.mappings:
+                        owner.mappings.remove(mapping)
+                        member_path.unlink()
                 arrays[key] = target
-                # The selected/converted destination is independent. Release
-                # the complete extracted member now instead of retaining it
-                # for the lifetime of a tiny selected region.
-                mapping = value.base._mmap
-                del value
-                mapping.close()
-                owner.mappings.remove(mapping)
-                member_path.unlink()
+                if key in {"rcs_amp_real", "rcs_amp_imag"}:
+                    seal_samples(target)
         arrays.cache_path = owner.path
         arrays.storage = storage
         arrays.cache_dir = cache_dir

@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -69,6 +70,8 @@ from ghost_backend.runs.quality import (
     validate_mesh_convergence_policy,
 )
 from ghost_backend.ui.result_table import ResultRows, SolverResultsTableModel, plot_groups
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _2d_panel_limit() -> 'int':
@@ -1374,6 +1377,13 @@ class SolverTab(RunSetupMixin, QWidget):
         return values
 
     def _parse_sweep(self, start_s: 'str', stop_s: 'str', step_s: 'str', field_name: 'str') -> 'List[float]':
+        """Values start + i*step through stop, the last snapped to stop.
+
+        Accumulating ``current += step`` drifted (8-12 GHz in 0.001 GHz steps
+        ended at 11.999999999998). A step that does not divide the range still
+        ends on stop, with a note.
+        Notes are logged and kept in ``self._sweep_notes`` for the status line.
+        """
         try:
             start = float(start_s)
             stop = float(stop_s)
@@ -1385,21 +1395,34 @@ class SolverTab(RunSetupMixin, QWidget):
         if step <= 0.0:
             raise ValueError(f"{field_name}: step must be > 0.")
 
-        direction = 1.0 if stop >= start else -1.0
-        signed_step = step * direction
-        values: 'List[float]' = []
-        current = start
-        for _ in range(20_000):
-            if direction > 0 and current > stop + 1e-9:
-                break
-            if direction < 0 and current < stop - 1e-9:
-                break
-            values.append(round(current, 12))
-            current += signed_step
-        if not values or abs(values[-1] - stop) > 1e-9:
+        signed_step = step if stop >= start else -step
+        intervals = abs(stop - start) / step
+        # A step that divides the range to round-off (1e-9 of a step) does.
+        count = int(math.floor(intervals + 1e-9))
+        if count + 2 > 5000:
+            raise ValueError(f"{field_name}: too many samples ({count + 1}).")
+        values = [start + index * signed_step for index in range(count + 1)]
+        notes: 'List[str]' = []
+        snap_tol = 1e-9 * max(abs(step), abs(stop), abs(start), 1e-300)
+        if abs(values[-1] - stop) <= snap_tol:
+            values[-1] = stop
+        else:
+            notes.append(
+                f"{field_name}: step {step:g} does not divide {start:g}..{stop:g}; "
+                f"the last interval is {abs(stop - values[-1]):.12g} (stop {stop:g} was included)."
+            )
             values.append(stop)
-        if len(values) > 5000:
-            raise ValueError(f"{field_name}: too many samples ({len(values)}).")
+        # Twelve decimals remove the float noise of start + i*step without
+        # moving any value a user could type.
+        values = [round(value, 12) + 0.0 for value in values]
+        for note in notes:
+            _LOGGER.warning(note)
+        if self is not None:
+            sweep_notes = getattr(self, "_sweep_notes", None)
+            if sweep_notes is None:
+                sweep_notes = []
+                setattr(self, "_sweep_notes", sweep_notes)
+            sweep_notes.extend(note for note in notes if note not in sweep_notes)
         return values
 
     def _collect_frequency_values(self) -> 'List[float]':
@@ -1853,6 +1876,8 @@ class SolverTab(RunSetupMixin, QWidget):
             mesh_suffix = " Survey mode: base mesh only (not mesh-certified)."
         if metadata.get('frequency_checkpoints', {}).get('write_warnings') and not partial:
             mesh_suffix += ' Checkpoint storage warning: computed samples are available, but some frequencies cannot be resumed.'
+        for note in list(getattr(self, "_sweep_notes", []) or []):
+            mesh_suffix += f" Note: {note}"
 
         if partial:
             completed = metadata.get('frequency_checkpoints', {}).get('completed', 0)
@@ -1968,6 +1993,7 @@ class SolverTab(RunSetupMixin, QWidget):
     def _run_solver(self):
         if self._job_is_active():
             return
+        self._sweep_notes = []
         try:
             frequencies = self._collect_frequency_values()
             elevations = self._collect_elevation_values()
@@ -2004,7 +2030,9 @@ class SolverTab(RunSetupMixin, QWidget):
             return
 
         self.progress.setValue(0)
-        self.lbl_status.setText("Starting solver thread...")
+        sweep_notes = list(getattr(self, "_sweep_notes", []) or [])
+        self.lbl_status.setText(
+            "Starting solver thread..." + "".join(f" Note: {note}" for note in sweep_notes))
         self._set_solving_state(True)
 
         abort_event = threading.Event()

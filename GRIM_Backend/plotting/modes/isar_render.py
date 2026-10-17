@@ -11,6 +11,28 @@ from GRIM_Backend.isar.geometry import (
 from GRIM_Backend.isar.quality import reconstruction_advisories
 
 
+
+def _spin_band_bounds(lo_spin, hi_spin, lo: float, hi: float) -> tuple[float, float]:
+    """Widen a spin-box band by half a display step and open it at range limits.
+
+    The spins round their range and value to their display decimals, so an
+    exact comparison can drop the dataset's endpoint frequency even when the
+    band is left at its "full band" default.
+    """
+    tolerance = 0.0
+    decimals = getattr(lo_spin, "decimals", None)
+    if callable(decimals):
+        tolerance = 0.5 * 10.0 ** -int(decimals())
+    low, high = lo - tolerance, hi + tolerance
+    minimum = getattr(lo_spin, "minimum", None)
+    if callable(minimum) and lo <= float(minimum()):
+        low = -np.inf
+    maximum = getattr(hi_spin, "maximum", None)
+    if callable(maximum) and hi >= float(maximum()):
+        high = np.inf
+    return low, high
+
+
 def render(self) -> None:
     """GUI-thread half: validate the selections, capture everything the worker
     needs into a params dict, and hand off to the mixin's async submit. The
@@ -98,7 +120,8 @@ def render(self) -> None:
             self.status.showMessage("ISAR freq band: max must exceed min.")
             return
         fvals = self.active_dataset.frequencies
-        freq_indices = [i for i in freq_indices if f_lo <= float(fvals[i]) <= f_hi]
+        band_lo, band_hi = _spin_band_bounds(self.spin_isar_freq_min, self.spin_isar_freq_max, f_lo, f_hi)
+        freq_indices = [i for i in freq_indices if band_lo <= float(fvals[i]) <= band_hi]
         if len(freq_indices) < 2:
             self.status.showMessage(
                 f"ISAR freq band [{f_lo:g}, {f_hi:g}] contains fewer than 2 "

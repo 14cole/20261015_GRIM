@@ -223,14 +223,19 @@ The reader also deliberately supports two older unversioned layouts:
 - GRIM tables with plain `azimuth,elevation,frequency` axes interpret
   `magnitude_linear` as linear power. Missing frequency units retain the old
   magnitude-based inference, but the loaded dataset history and metadata now
-  flag that inference instead of silently presenting it as authoritative.
+  flag that inference instead of silently presenting it as authoritative, and
+  the loader also emits a Python `UserWarning` so headless and batch callers
+  see it (for example, 450/900 values with no unit column load as GHz).
 - CEM Tools tables with `azimuth_deg,elevation_deg,frequency_GHz` interpret
   their legacy `magnitude_linear` as field amplitude and square it. New CEM
   exports always write the versioned power column.
 
 Versioned files reject the ambiguous `magnitude_linear` name. When a file
 contains both linear and logarithmic magnitude columns, GRIM converts and
-cross-checks them rather than arbitrarily trusting the first. Before creating
+cross-checks them rather than arbitrarily trusting the first. Every frequency
+must be greater than zero. A data row with fewer fields than the header is
+rejected with its line number rather than loaded as a missing sample; a file
+whose last row lacks a trailing newline is still read normally. Before creating
 power and phase arrays, the loader evaluates the Cartesian axis product and
 available RAM. It scans large tables twice instead of retaining a Python
 dictionary for every row. `GRIM_MAX_CSV_GRID_GB` can declare an intentional
@@ -866,7 +871,17 @@ the dB difference between total and body. The optional right-hand axis shows
 that total-minus-body dB comparison separately. Cuts are streamed on a worker with
 bounded archive reads. Use the plot toolbar to save a figure. Advanced tree
 builds likewise run on a cancellable worker with a capacity check. Their
-default is Strict axes; choosing Intersect records discarded samples.
+default is Strict axes. Intersect keeps only exact shared samples and the build
+summary states "N of M samples kept" for each input; a lone `HV` label is
+matched to a lone `VH` label (reciprocity) and the alias is recorded, while an
+input holding both cross-pols is matched exactly. Interpolate is only for
+Power + children and resamples their power, never their I/Q. Untagged leaves
+default to Power +; a dataset tagged `combine_role=coherent` (including every
+GRIM coherent-subtract delta) defaults to Field +. The build summary also
+flags a Power + leaf that carries complete phase, a Field + contributor whose
+phase is identically 0, and phase-reference or polarization-basis differences
+between Field + contributors. Opposite declared time conventions
+(`exp(+jωt)` vs `exp(-jωt)`) stop a Field + build and a coherent subtraction.
 
 GHOST 2-D `amplitude_version` is provenance, not an eligibility requirement.
 Subtraction uses the supplied complex samples even with mixed or absent
@@ -1063,6 +1078,17 @@ shared loader accepts `.grim`, native flat `.csv`, SENTRi `.csv`/`.txt`, CST
 legacy `.ptm`, and Xpatch `.ss` files. Folder and headless loads use the same
 extension registry.
 
+Text tables are read as UTF-8 (with or without a byte-order mark) or as UTF-16
+when the file starts with a UTF-16 byte-order mark. Any other encoding (for
+example a Windows-1252 `°` in a header) fails with an error naming the file and
+asking for it to be saved as UTF-8; the bytes are never guessed.
+
+`.out` files take their polarization from a `# polarization:` comment or, if
+absent, from one `HH`, `VV`, `HV`, or `VH` token in the filename (for example
+`target_HV.out`). A filename naming several different channels is rejected
+unless the file's comment declares the channel; with neither, the channel loads
+as `NA`.
+
 Saved and exported filenames (`.grim`, CSV, `.pio`, `.ptm`) are derived from
 the dataset name but always use plain printable ASCII, so external programs
 can open them. Symbols are spelled out (`→` becomes `-to-`, `°` becomes `deg`,
@@ -1079,9 +1105,19 @@ complex samples are calibrated scattering amplitudes: |sample|² is 3-D RCS in
 m², so imports are labeled `sigma_3d`/dBsm and behave like any other absolute
 RCS dataset for plotting, export, and calibration.
 
-Generic theta/phi TXT input requires a unit-bearing column header and either an
-explicit `frequency_ghz=` argument or a unit-qualified filename such as
-`f=10GHz`; headerless column order and unitless filename numbers are not guessed.
+Generic theta/phi TXT input (CST farfield ASCII) requires a unit-bearing column
+header and either an explicit `frequency_ghz=` argument or a unit-qualified
+filename such as `f=10GHz`; headerless column order and unitless filename
+numbers are not guessed. Its angles use the same mapping as the CST wide
+reader: azimuth is `Phi` wrapped to [-180°, 180°) and elevation is
+`90° - Theta` (`Theta` must lie in [0°, 180°]). `Abs(Theta)`/`Abs(Phi)` are the
+theta (V) and phi (H) receive components of the scattered field for a single
+excitation, which the file does not name. Pass
+`load_theta_phi_txt(..., incident_polarization="V")` (or `"H"`) to label them
+`VV`/`HV` (or `VH`/`HH`), receive letter first as in the CST wide and SENTRi
+readers. Without that declaration the channels load as `THETA` and `PHI`, not
+as co-polarized `VV`/`HH`. `Abs(RCS)` loads as a magnitude-only `TOTAL`
+channel. Power and phase are stored in float64.
 Pioneer PIO input likewise requires explicit X/Y axis units. Elevation values
 default to degrees when ElevationUnits is absent or blank; an explicit elevation
 unit is honored independently of the X axis unit. Explicit XVals/YVals are
@@ -1158,7 +1194,11 @@ for an opaque vendor IQ token. A full sweep may contain both -180 and +180;
 GRIM merges those seam aliases when their complex samples agree and rejects a
 conflicting pair. CST headers must state their angular, frequency, RCS, and
 phase units explicitly; generic `Abs(field)` tables, radian columns, and
-headerless/order-guessed data are rejected rather than interpreted as RCS.
+headerless/order-guessed data are rejected rather than interpreted as RCS. In
+a `.cst_data` header, any phase or magnitude column that is not
+`Phase(deg)`/`Magnitude(dBsm)` (for example `Phase(rad)`, a unitless `Phase`,
+or `Magnitude(m^2)`) is an error instead of being dropped. In both CST layouts
+a data row with fewer fields than the header is rejected with its line number.
 
 PTM import/export preserves complex IQ and writes one file for each selected
 elevation/polarization slice. Use **Export as → PTM (.ptm)…** from the dataset
@@ -1169,7 +1209,12 @@ and a documented `VV`, `HH`, `VH`, or `HV` polarization. PTM aspect and pitch
 load directly as azimuth and elevation, and export writes the selected
 elevation as the PTM pitch; no coordinate conversion happens in either
 direction. Header roll/tilt are kept as PTM metadata only and are never
-applied as rotations. Because no formal PTM
+applied as rotations. PTM I/Q is `exp(+jwt)` and the header has no field for
+another convention: exporting a dataset that declares `exp(-jwt)` conjugates
+the samples on write and emits a `UserWarning`; an unrecognized declaration is
+refused. Samples are stored as float32, so a sample with |I| or |Q| above the
+float32 maximum (about 3.4e38) is refused rather than written as infinity.
+Because no formal PTM
 specification or known-good sample accompanied the reference code, byte-level
 interoperability with the originating program remains provisional until it is
 checked against one real file in each direction.

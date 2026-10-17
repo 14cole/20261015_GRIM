@@ -24,6 +24,7 @@ from GRIM_Backend.isar.memory import (
 from GRIM_Backend.datasets.result_storage import (
     allocate_result, operation_result_storage, result_blocks,
 )
+from GRIM_Backend.datasets.storage import raw_coverage_scope
 
 try:  # scipy.fft is multithreaded and preserves single precision
     from scipy import fft as _sp_fft
@@ -1431,6 +1432,35 @@ def _array_token(values) -> tuple:
     return (arr.dtype.str, arr.shape, digest.digest())
 
 
+class _MergedRawPair:
+    """Index a raw real/imaginary pair as the complex array a save would merge.
+
+    Each read builds only the selected cells, with the same dtype and values as
+    ``RcsGrid.native_sample_payload``'s merged ``rcs_complex``.
+    """
+
+    def __init__(self, pair):
+        self.real, self.imag = pair
+        self.shape = self.real.shape
+        self.dtype = np.dtype(np.result_type(self.real.dtype, self.imag.dtype, np.complex64))
+
+    def __getitem__(self, selection):
+        real, imag = self.real[selection], self.imag[selection]
+        merged = np.empty(np.shape(real), dtype=self.dtype)
+        merged.real, merged.imag = real, imag
+        return merged
+
+
+def _native_sample_bytes(dataset) -> int:
+    """Bytes of a dataset's native sample payload, without merging a raw pair."""
+
+    payload = dataset.native_sample_payload(_raw_pair=True)
+    if "rcs_raw_pair" in payload:
+        merged = _MergedRawPair(payload["rcs_raw_pair"])
+        return int(np.prod(merged.shape, dtype=np.int64)) * merged.dtype.itemsize
+    return _result_array_bytes([payload])
+
+
 def _selected_data_token(
     dataset,
     azimuth_indices,
@@ -1503,8 +1533,14 @@ def _selected_data_token(
         digest.update(len(encoded).to_bytes(8, "little") + encoded)
     if _cancel_requested(cancel_check):
         return None
-    sample_payload = dataset.native_sample_payload()
-    if sample_payload["storage_kind"] == "complex":
+    # A retained raw pair is digested as the complex field a save would store,
+    # without merging the whole pair into a grid-sized complex copy first.
+    sample_payload = dataset.native_sample_payload(_raw_pair=True)
+    if "rcs_raw_pair" in sample_payload:
+        sources = ((b"complex", _MergedRawPair(sample_payload["rcs_raw_pair"])),)
+        digest.update(str(sample_payload["storage_domain"]).encode("ascii"))
+        digest.update(str(dataset.linear_quantity()).encode("utf-8"))
+    elif sample_payload["storage_kind"] == "complex":
         sources = ((b"complex", sample_payload["rcs_complex"]),)
         digest.update(str(sample_payload["storage_domain"]).encode("ascii"))
         digest.update(str(dataset.linear_quantity()).encode("utf-8"))
@@ -2810,7 +2846,10 @@ def compute_bands(params: dict):
         # Retain only a modest fraction of the formation budget in ordinary
         # staging arrays. Larger destinations map directly to temporary disk.
         with operation_result_storage("auto", ram_budget_bytes=min(128 * 1024**2, limit // 8)):
-            return _compute_bands(params)
+            # Every band digests and slices the same source: validate a
+            # retained raw pair once for the formation, not once per read.
+            with raw_coverage_scope():
+                return _compute_bands(params)
 
 
 def _compute_bands(params: dict):
@@ -2897,7 +2936,7 @@ def _compute_bands(params: dict):
         result["resolved_reconstruction"] = recon
         result["memory_budget"] = {
             # Keep the report key readable by older replay/report consumers.
-            "source_power_phase_bytes": _result_array_bytes([params["dataset"].native_sample_payload()]),
+            "source_power_phase_bytes": _native_sample_bytes(params["dataset"]),
             "retained_previous_results_bytes": resident_bytes,
             "preparation_cache_bytes": _PREPROCESS_CACHE_BYTES, "preparation_cache_limit_bytes": _PREPROCESS_CACHE_LIMIT,
             "geometry_plan_cache_bytes": plan_cache_bytes(), "geometry_plan_cache_limit_bytes": 8 * 1024**2,

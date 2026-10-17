@@ -187,8 +187,7 @@ The solver checks `k0*d*max(1,abs(sqrt(epsilon_r*mu_r))) <= 0.15` and
 `d/local_radius <= 0.05`. Here `d` is physical thickness in meters and `k0` is
 the free-space wavenumber. Check the full requested frequency band. Passing
 these limits or converging the mesh does not certify the physical thin-layer
-approximation; compare important cases against explicit thickness. See
-[solver updates](../../SOLVER_UPDATES.md) for the current scope.
+approximation; compare important cases against explicit thickness.
 
 In the GUI, add the dielectric first, then choose **+ Thin layer**, select its
 dielectric flag and enter thickness in **inches**. The material table also
@@ -237,6 +236,16 @@ Consequences for closed contours:
 - A normal TYPE 4 inner boundary around a PEC core is drawn **clockwise**, so
   its normal points outward from the core into the coating.
 - TYPE 5 endpoint order directly chooses which material is `POS_MAT`.
+- The medium outside a closed TYPE 4/5 contour is fixed by the innermost
+  closed contour around it. A clockwise TYPE 4 core needs `POS_MAT` equal to
+  that surrounding dielectric; a TYPE 5 contour needs `POS_MAT` (drawn
+  clockwise) or `NEG_MAT` (drawn counterclockwise) equal to it. The
+  preflight rejects a contour whose labels or winding disagree with its
+  surroundings.
+- A closed segment must not pass through one vertex twice (a figure-8 or
+  bow-tie). Draw each loop as its own segment.
+- In 2D every TYPE 3/4/5 boundary must be closed (or stitched end-to-end to
+  other segments); a free dielectric endpoint is an error.
 
 These directions matter especially for TE/VV because the boundary jump term
 depends on the normal. The preflight rejects common reversed-winding cases.
@@ -608,8 +617,9 @@ on one of these square cross sections does not make it a valid BoR model.
 - A nonzero TYPE 4 backing impedance remains a **2D-only** capability.
   TYPE 3/5 bulk interfaces cannot carry an IBC flag in either solver.
 
-See [BoR conventions](BOR_CONVENTIONS.md) and
-[solver update limits](../../SOLVER_UPDATES.md) before adapting an example.
+See [BoR formulations and geometry](NUMERICAL_METHODS.md#bor-formulations-and-geometry)
+and [BoR material interfaces](NUMERICAL_METHODS.md#bor-material-interfaces-weighted-region-equations)
+before adapting an example.
 
 ## Common mistakes
 

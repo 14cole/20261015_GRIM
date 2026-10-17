@@ -30,6 +30,27 @@ from GRIM_Backend.isar.interpolation import resample_pair
 from GRIM_Backend.isar.geometry import angular_bands, pool_image_peaks, attach_block_peak_probe
 
 
+def _spin_band_bounds(lo_spin, hi_spin, lo: float, hi: float) -> tuple[float, float]:
+    """Widen a spin-box band by half a display step and open it at range limits.
+
+    The spins round their range and value to their display decimals, so an
+    exact comparison can drop the dataset's endpoint frequency even when the
+    band is left at its "full band" default.
+    """
+    tolerance = 0.0
+    decimals = getattr(lo_spin, "decimals", None)
+    if callable(decimals):
+        tolerance = 0.5 * 10.0 ** -int(decimals())
+    low, high = lo - tolerance, hi + tolerance
+    minimum = getattr(lo_spin, "minimum", None)
+    if callable(minimum) and lo <= float(minimum()):
+        low = -np.inf
+    maximum = getattr(hi_spin, "maximum", None)
+    if callable(maximum) and hi >= float(maximum()):
+        high = np.inf
+    return low, high
+
+
 def _prepare_uniform_frequency_history(
     frequency_hz: np.ndarray,
     complex_history: np.ndarray,
@@ -246,7 +267,8 @@ def render(self) -> None:
         if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
             self.status.showMessage("Frequency band max must exceed min; both must be finite.")
             return
-        freq_indices = [i for i in freq_indices if lo <= self.active_dataset.frequencies[i] <= hi]
+        band_lo, band_hi = _spin_band_bounds(self.spin_isar_freq_min, self.spin_isar_freq_max, lo, hi)
+        freq_indices = [i for i in freq_indices if band_lo <= self.active_dataset.frequencies[i] <= band_hi]
     if not freq_indices:
         self.status.showMessage("Select one or more frequencies to plot.")
         return

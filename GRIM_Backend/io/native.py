@@ -8,6 +8,7 @@ import warnings
 
 import numpy as np
 from GRIM_Backend.datasets.memory import _bounded_grid_selections
+from GRIM_Backend.datasets.storage import seal_samples
 from GRIM_Backend.datasets.work_control import checkpoint
 
 from GRIM_Backend.datasets.constants import (
@@ -64,6 +65,10 @@ def _owned_decoded_member(array):
 
 
 LEGACY_DELTA_HISTORY_NOTE = "converted legacy delta_amp_sq (physical amplitude)"
+
+# ``RcsGrid.save(path, compressed=SAVE_COMPRESSION_AUTO)`` applies the
+# application's adaptive compressed/uncompressed decision.
+SAVE_COMPRESSION_AUTO = "auto"
 
 
 def _native_tag(data, keys, name):
@@ -212,12 +217,18 @@ class NativeFormatMixin:
             compressed: ``True`` (default) writes a compact ZIP-compressed
                 archive for distribution/storage. ``False`` uses the faster
                 uncompressed NPZ path for temporary high-throughput work.
+                ``"auto"`` (``SAVE_COMPRESSION_AUTO``) compresses only when a
+                bounded sample of the payload shows a worthwhile saving, as
+                the application's own saves decide.
 
         Returns:
             The actual path written (always ends with .grim).
         """
+        if isinstance(compressed, str) and compressed == SAVE_COMPRESSION_AUTO:
+            from GRIM_Backend.io.batch import grim_save_compression
+            compressed = grim_save_compression(self)
         if not isinstance(compressed, (bool, np.bool_)):
-            raise TypeError("compressed must be True or False")
+            raise TypeError("compressed must be True, False, or 'auto'")
         path = os.fspath(path)
         if not path.casefold().endswith(".grim"):
             path = f"{path}.grim"
@@ -810,8 +821,18 @@ class NativeFormatMixin:
         constructor_samples = {}
         candidate = None
         deferred_raw_pair = {}
+        # NumPy decodes each NPZ member into a fresh buffer that only this load
+        # references. A raw pair retained from one is sealed read-only, so its
+        # coverage verdict can be cached instead of rescanned on every read.
+        decoded = isinstance(data, np.lib.npyio.NpzFile)
+        if decoded:
+            for key in ("rcs_amp_real", "rcs_amp_imag"):
+                if isinstance(extra.get(key), np.ndarray) and not extra[key].dtype.hasobject:
+                    extra[key] = seal_samples(_owned_decoded_member(extra[key]))
         if version == 1:
             power, phase = data["rcs_power"], data["rcs_phase"]
+            if decoded:
+                power, phase = _owned_decoded_member(power), _owned_decoded_member(phase)
         else:
             kind = scalar("storage_kind")
             domain = scalar("storage_domain")
@@ -879,6 +900,10 @@ class NativeFormatMixin:
                 power = np.asarray(data["rcs_power"])
                 phase = (np.asarray(data["rcs_phase"]) if kind == "power_phase" else
                          np.broadcast_to(np.asarray(np.nan, dtype=power.dtype if power.dtype.kind == "f" else np.float64), power.shape))
+                if decoded:
+                    power = _owned_decoded_member(power)
+                    if kind == "power_phase":
+                        phase = _owned_decoded_member(phase)
 
         (azimuths, elevations, frequencies, polarizations, power, phase, units) = cls._validate_native_payload(
             path=path, azimuths=data["azimuths"], elevations=data["elevations"],
@@ -918,9 +943,14 @@ class NativeFormatMixin:
             constructor_samples = {"rcs_power": power}
         else:
             constructor_samples = {"rcs_power": power, "rcs_phase": phase}
+        # Validated, freshly decoded members are sanitized in place exactly as
+        # the constructor would and then adopted, like decoded complex fields,
+        # instead of being copied (two grid-sized arrays) by the constructor.
+        adopt = cls._adopt_owned_samples(**constructor_samples, extra=extra) if decoded else None
         return cls(azimuths, elevations, frequencies, polarizations,
                    **constructor_samples, source_path=source_path,
-                   history=scalar("history") or None, units=units, extra=extra)
+                   history=scalar("history") or None, units=units, extra=extra,
+                   _adopt_clean_arrays=adopt)
 
     @classmethod
     def load(

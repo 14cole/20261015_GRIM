@@ -14,6 +14,9 @@ import numpy as np
 from GRIM_Backend.datasets.constants import _PTM_GRIM_GC_MARKER
 
 
+_PTM_FLOAT32_MAX = float(np.finfo(np.float32).max)
+
+
 def _ptm_configuration_has_grim_gc_marker(value):
     return bool(
         re.search(
@@ -591,14 +594,26 @@ def write_ptm(
                     checkpoint(output_row * expected_shape[1] + first,
                                sample_count, "Writing PTM samples")
                     last = min(expected_shape[1], first + BLOCK_CELLS)
-                    part = np.asarray(_block_reader(int(source_row), first, last),
-                                      dtype=np.dtype("<c8"))
-                    if part.shape != (last - first,):
+                    source = np.asarray(_block_reader(int(source_row), first, last))
+                    if source.shape != (last - first,):
                         raise ValueError("PTM IQ block shape does not match the frequency axis")
-                    if not np.all(np.isfinite(part.real) & np.isfinite(part.imag)):
+                    if not np.all(np.isfinite(source.real) & np.isfinite(source.imag)):
                         raise ValueError(
                             "PTM IQ data contains a non-finite sample; the format has no "
                             "documented missing-sample marker")
+                    # Check before the float32 cast, which would silently
+                    # turn out-of-range I/Q values into infinities.
+                    overflow = (
+                        (np.abs(source.real) > _PTM_FLOAT32_MAX)
+                        | (np.abs(source.imag) > _PTM_FLOAT32_MAX)
+                    )
+                    if np.any(overflow):
+                        raise ValueError(
+                            "PTM stores I/Q as float32; "
+                            f"{int(np.count_nonzero(overflow))} sample(s) at aspect "
+                            f"row {int(source_row)} exceed the float32 maximum "
+                            f"{_PTM_FLOAT32_MAX:.6g} in |I| or |Q|")
+                    part = np.asarray(source, dtype=np.dtype("<c8"))
                     stream.write(part.tobytes(order="C"))
             stream.flush()
             os.fsync(stream.fileno())
@@ -616,6 +631,43 @@ def write_ptm(
             except FileNotFoundError:
                 pass
     return path
+
+
+def _ptm_conjugate_for_time_convention(grid) -> bool:
+    """Return True when ``grid`` must be conjugated to become exp(+jwt).
+
+    PTM has no time-convention field and its I/Q samples are read back as
+    exp(+jwt) phasors.  An explicit exp(-jwt) declaration is honored by
+    conjugating on write (with a warning); an unrecognized declaration is
+    refused rather than guessed.
+    """
+
+    import warnings
+
+    from GRIM_Backend.datasets.metadata import canonical_time_convention
+
+    evidence = grid.inspect_scalar_metadata("time_convention")
+    if evidence.malformed_sources or evidence.conflicting:
+        raise ValueError(
+            "save_ptm: dataset time_convention metadata is "
+            f"{evidence.status}; PTM requires one exp(+jwt) or exp(-jwt) declaration")
+    if not evidence.declarations:
+        return False
+    declared = evidence.declarations[0]
+    sign = canonical_time_convention(declared)
+    if sign == "+jwt":
+        return False
+    if sign != "-jwt":
+        raise ValueError(
+            f"save_ptm: unrecognized time_convention {declared!r}; PTM stores "
+            "exp(+jwt) I/Q and cannot record another convention")
+    warnings.warn(
+        f"save_ptm: dataset declares time_convention {declared!r}; PTM has no "
+        "time-convention field, so samples are conjugated to exp(+jwt) on write",
+        UserWarning,
+        stacklevel=3,
+    )
+    return True
 
 
 def header_to_extra(header: PtmHeader) -> dict[str, object]:
@@ -771,6 +823,11 @@ class PtmFormatMixin:
 
         selected_polarity = str(self.polarizations[pol_idx]).strip().upper()
 
+        # PTM I/Q samples are exp(+jwt) phasors and the header has no field
+        # for another convention, so conjugate an exp(-jwt) dataset on write
+        # instead of silently dropping its declaration.
+        conjugate = _ptm_conjugate_for_time_convention(self)
+
         def read_block(row, first, last):
             selection = (row, el_idx, slice(first, last), pol_idx)
             power_slice, phase_slice = self.power_phase_slice(selection)
@@ -789,7 +846,7 @@ class PtmFormatMixin:
             if np.any(zero_without_phase):
                 result = np.array(result, copy=True)
                 result[zero_without_phase] = 0.0 + 0.0j
-            return result
+            return np.conj(result) if conjugate else result
 
         header = header_from_extra(self.extra)
         # Elevation is written as the PTM pitch without any coordinate-system

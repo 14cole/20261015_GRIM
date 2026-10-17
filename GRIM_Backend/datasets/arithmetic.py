@@ -118,7 +118,8 @@ class GridArithmeticMixin:
         Args:
             other: Another RcsGrid with identical axes.
             metadata_attested: Record a user attestation when supplied.
-                Missing or conflicting conventions are advisory; samples are used as supplied.
+                Missing or conflicting conventions are advisory, except opposite
+                declared time conventions, which are refused.
 
         Returns:
             New RcsGrid with rcs = self.rcs + other.rcs.
@@ -128,6 +129,9 @@ class GridArithmeticMixin:
             coherent=True,
             coherent_metadata_attested=metadata_attested,
             _scan_phase_samples=False,
+        )
+        self._assert_coherent_time_conventions_agree(
+            other, operation="coherent addition"
         )
         rcs_out = _bounded_sum((self, other), coherent=True)
         usable_count = _finite_complex_count(rcs_out)
@@ -178,7 +182,8 @@ class GridArithmeticMixin:
         Args:
             *grids: One or more RcsGrid instances.
             metadata_attested: Record a user attestation when supplied.
-                Missing or conflicting conventions are advisory; samples are used as supplied.
+                Missing or conflicting conventions are advisory, except opposite
+                declared time conventions, which are refused.
 
         Returns:
             New RcsGrid with rcs = self.rcs + sum(grid.rcs).
@@ -192,6 +197,9 @@ class GridArithmeticMixin:
                 coherent_metadata_attested=metadata_attested,
                 _scan_phase_samples=False,
             )
+        self._assert_coherent_time_conventions_agree(
+            *grids, operation="coherent addition"
+        )
         total = _bounded_sum((self, *grids), coherent=True)
         usable_count = _finite_complex_count(total)
         if usable_count == 0:
@@ -247,7 +255,8 @@ class GridArithmeticMixin:
         Args:
             other: Another RcsGrid with identical axes.
             metadata_attested: Record a user attestation when supplied.
-                Missing or conflicting conventions are advisory; samples are used as supplied.
+                Missing or conflicting conventions are advisory, except opposite
+                declared time conventions, which are refused.
             maximum_working_bytes: Optional cap for the newly retained result
                 arrays plus bounded arithmetic/QA scratch. By default GRIM uses
                 half of currently available physical memory (or the reviewed
@@ -262,6 +271,11 @@ class GridArithmeticMixin:
             coherent=True,
             coherent_metadata_attested=metadata_attested,
             _scan_phase_samples=False,
+        )
+        self._assert_coherent_time_conventions_agree(
+            other,
+            operation="coherent subtraction",
+            labels=("minuend", "subtrahend"),
         )
         def response_precision_upper_bound(grid):
             raw_real = (grid.extra or {}).get("rcs_amp_real")
@@ -357,6 +371,11 @@ class GridArithmeticMixin:
             coherent=True,
             attestation_extra=attestation_extra,
         )
+        # A field difference (e.g. featured − clean) is only meaningful when it
+        # is later added back coherently; declaring the role lets Assembly
+        # default the response to Field + instead of Power +.  Later power or
+        # magnitude operations rewrite the role through the derived-extra policy.
+        extra["combine_role"] = "coherent"
         extra["coherent_sample_qa_json"] = json.dumps(
             {
                 "schema": "grim.coherent-sample-qa.v1",

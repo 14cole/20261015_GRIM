@@ -1,12 +1,15 @@
 """Flat RCS CSV schemas, validation, loading, and export."""
 from __future__ import annotations
 
+import codecs
+import contextlib
 import csv
 import ctypes
 import io
 import math
 import os
 import tempfile
+import warnings
 
 import numpy as np
 
@@ -62,6 +65,41 @@ _V1_REQUIRED_COLUMNS = (
 )
 
 
+class TextEncodingError(ValueError):
+    """A text dataset is neither UTF-8 nor BOM-marked UTF-16."""
+
+
+def text_table_encoding(path):
+    """Return the decoder for a text table: BOM-marked UTF-16 or UTF-8."""
+
+    with open(path, "rb") as stream:
+        head = stream.read(2)
+    if head in (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE):
+        return "utf-16"
+    return "utf-8-sig"
+
+
+@contextlib.contextmanager
+def open_text_table(path, *, newline=None):
+    """Open a text table, naming the file when its bytes cannot be decoded.
+
+    UTF-16 files are accepted only with a byte-order mark; everything else is
+    read as UTF-8 (optional BOM).  Decoding failures raise
+    :class:`TextEncodingError` instead of a bare ``UnicodeDecodeError``.
+    """
+
+    encoding = text_table_encoding(path)
+    try:
+        with open(path, "r", newline=newline, encoding=encoding) as stream:
+            yield stream
+    except UnicodeDecodeError as exc:
+        label = "UTF-16" if encoding == "utf-16" else "UTF-8"
+        raise TextEncodingError(
+            f"{os.path.basename(os.fspath(path))}: file is not valid {label} text "
+            f"({exc.reason}); save it as UTF-8 and reload"
+        ) from exc
+
+
 def _field_map(fieldnames):
     mapped = {}
     duplicates = []
@@ -87,13 +125,13 @@ def has_flat_csv_signature(path):
     """Return whether the file header identifies a supported flat RCS schema."""
 
     try:
-        with open(path, "r", newline="", encoding="utf-8-sig") as stream:
+        with open_text_table(path, newline="") as stream:
             sample = stream.read(4096)
             stream.seek(0)
             delimiter = "\t" if sample.count("\t") > sample.count(",") else ","
             reader = csv.reader(stream, delimiter=delimiter)
             header = next(reader, None)
-    except (OSError, UnicodeError, csv.Error):
+    except (OSError, UnicodeError, TextEncodingError, csv.Error):
         return False
     try:
         fields = _field_map(header)
@@ -687,7 +725,7 @@ class _FlatCsvSource:
 
     def __init__(self, path):
         self.path = str(path)
-        with open(self.path, "r", newline="", encoding="utf-8-sig") as stream:
+        with open_text_table(self.path, newline="") as stream:
             sample = stream.read(4096)
             stream.seek(0)
             self.delimiter = "\t" if sample.count("\t") > sample.count(",") else ","
@@ -699,7 +737,7 @@ class _FlatCsvSource:
 
     def rows(self, stage):
         detail = "Discovering CSV coordinates" if stage == "discover" else "Reading CSV samples"
-        with open(self.path, "r", newline="", encoding="utf-8-sig") as stream:
+        with open_text_table(self.path, newline="") as stream:
             reader = csv.DictReader(stream, delimiter=self.delimiter)
             if stage == "samples" and _field_map(reader.fieldnames) != self.fields:
                 raise ValueError("CSV header changed while the file was being loaded")
@@ -710,6 +748,14 @@ class _FlatCsvSource:
                     raise ValueError("line {}: more values than header columns".format(line_no))
                 if not any(str(value or "").strip() for value in row.values()):
                     continue
+                # DictReader fills absent trailing fields with None (blank
+                # cells are ""), so None marks a truncated row.
+                missing = sum(1 for key, value in row.items()
+                              if key is not None and value is None)
+                if missing:
+                    raise ValueError(
+                        "line {}: {} fewer value(s) than header columns "
+                        "(truncated row)".format(line_no, missing))
                 yield line_no, row
 
 
@@ -830,6 +876,10 @@ def _load_flat_table(source, grid_class, c0, *, _estimate_only=False, declared_u
             if not (math.isfinite(azimuth) and math.isfinite(elevation)
                     and math.isfinite(frequency)):
                 raise ValueError("line {}: axis values must be finite".format(line_no))
+            if frequency <= 0.0:
+                raise ValueError(
+                    "line {}: frequency must be positive (got {!r})".format(
+                        line_no, cell(row, axis_fields["frequency"])))
             polarization = cell(row, "polarization")
             if not polarization:
                 raise ValueError("line {}: polarization is blank".format(line_no))
@@ -1123,6 +1173,13 @@ def _load_flat_table(source, grid_class, c0, *, _estimate_only=False, declared_u
     )
     if inferred_frequency:
         history += "\nWARNING: " + inference_rule
+        # Headless and batch callers never see the history or the GUI
+        # confirmation, so surface the guess as a Python warning too.
+        warnings.warn(
+            "{}: {}".format(os.path.basename(str(path)), inference_rule),
+            UserWarning,
+            stacklevel=2,
+        )
     if declared_frequency:
         history += "\nFrequency unit {} supplied by the user; the table declares none".format(frequency_unit)
     constructor = (construct_parsed_grid if hasattr(grid_class, "_complex_from_power_phase")

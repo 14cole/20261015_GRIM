@@ -7,6 +7,8 @@ Application code uses ``power``/``phase`` and the bounded slice APIs instead.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+import contextvars
 import math
 import hashlib
 import weakref
@@ -31,6 +33,68 @@ def _readonly(value):
     array = np.asarray(value)
     array.flags.writeable = False
     return array
+
+
+# Memory owners GRIM made read-only when it allocated them, keyed by id.
+_SEALED_OWNERS = weakref.WeakValueDictionary()
+
+
+def seal_samples(array):
+    """Make a freshly allocated array and its whole view chain read-only.
+
+    Call this only for an array GRIM itself just allocated or decoded, before
+    any reference to it (or to its buffer) escapes. No writable alias of the
+    buffer can then exist, so an unchanged read-only identity proves unchanged
+    contents and validation verdicts about it may be cached.
+    """
+    current = array
+    while isinstance(current, np.ndarray):
+        current.flags.writeable = False
+        root, current = current, current.base
+    _SEALED_OWNERS[id(root)] = root
+    return array
+
+
+_RAW_COVERAGE_SCOPE = contextvars.ContextVar("grim_raw_coverage_scope", default=None)
+
+
+@contextmanager
+def raw_coverage_scope():
+    """Reuse raw-pair coverage verdicts for the duration of one operation.
+
+    Like a bounded slice reader, which validates its raw pair once when it is
+    created, an operation that reads many selections (ISAR band formation)
+    may validate an ordinary mutable pair once instead of on every read.
+    Verdicts are keyed on the exact objects, addresses and layouts and are
+    dropped when the scope ends, so later in-place edits are seen again.
+    Nested scopes share the outermost cache; other threads are unaffected.
+    """
+    if _RAW_COVERAGE_SCOPE.get() is not None:
+        yield
+        return
+    token = _RAW_COVERAGE_SCOPE.set({})
+    try:
+        yield
+    finally:
+        _RAW_COVERAGE_SCOPE.reset(token)
+
+
+def raw_coverage_scope_cache():
+    """Return the active operation's verdict cache, or ``None``."""
+    return _RAW_COVERAGE_SCOPE.get()
+
+
+def sealed_samples(value):
+    """Return whether ``value`` is a read-only view of a sealed memory owner."""
+    if not isinstance(value, np.ndarray):
+        return False
+    current = value
+    while isinstance(current, np.ndarray):
+        # Reversing a flag anywhere in the chain forfeits the proof.
+        if current.flags.writeable:
+            return False
+        root, current = current, current.base
+    return _SEALED_OWNERS.get(id(root)) is root
 
 
 class _FlatSamples(NDArrayOperatorsMixin):
@@ -176,11 +240,13 @@ class GridStorageMixin:
     def real_dtype(self):
         if self._complex is not None and not self._legacy_samples:
             if self._storage_domain == "raw_field":
-                return np.dtype(np.float64)
+                return self._complex.real.dtype
             if ("rcs_amp_real" in self.extra and "rcs_amp_imag" in self.extra
-                    and self._raw_normalization_defined()
-                    and self._complete_authoritative_raw_arrays() is not None):
-                return np.dtype(np.float64)
+                    and self._raw_normalization_defined()):
+                pair = self._complete_authoritative_raw_arrays()
+                if pair is not None:
+                    # A normalized raw field keeps its pair's precision.
+                    return np.dtype(np.result_type(pair[0].dtype, pair[1].dtype, np.float32))
             return self._complex.real.dtype
         return np.result_type(self._power.dtype, self._phase.dtype) if self._phase is not None else self._power.dtype
 
@@ -384,13 +450,21 @@ class GridStorageMixin:
 
         This avoids ``hypot`` (a square root that is squared straight away) and
         works on a read-only view, so a power read allocates only the result
-        and one same-sized scratch array instead of copying the complex field.
+        and one bounded tile of scratch instead of copying the complex field.
         """
         real, imag = field.real, field.imag
         with np.errstate(over="ignore", invalid="ignore"):
             result = np.multiply(real, real)
             if isinstance(result, np.ndarray):
-                np.add(result, np.multiply(imag, imag), out=result)
+                # Elementwise, so tiling the imaginary square is bit-identical.
+                scratch = None
+                for block in result_blocks(result.shape):
+                    target = result[block]
+                    if scratch is None or scratch.size < target.size:
+                        scratch = np.empty(target.size, dtype=result.dtype)
+                    square = scratch[:target.size].reshape(target.shape)
+                    np.multiply(imag[block], imag[block], out=square)
+                    np.add(target, square, out=target)
             else:
                 result = result + imag * imag
         return np.asarray(result)
@@ -468,8 +542,10 @@ class GridStorageMixin:
         # arrays. Once either array changes, the exposed arrays become the
         # sole authority. Hashing is deliberately confined to legacy access.
         fingerprint = self._sample_fingerprint()
+        layout = tuple((value.shape, value.dtype.str) for value in (power, phase))
         for peer in sharing:
             peer._legacy_fingerprint = fingerprint
+            peer._legacy_exposed = (weakref.ref(power), weakref.ref(phase), layout)
 
     def _sample_fingerprint(self):
         digest = hashlib.sha256()
@@ -485,14 +561,44 @@ class GridStorageMixin:
                 digest.update(np.ascontiguousarray(block).tobytes())
         return digest.digest()
 
-    def _ensure_legacy_source_current(self):
+    def _legacy_selection_unchanged(self, selection):
+        """Return True when the selected legacy cells still hold their source values.
+
+        At exposure the legacy arrays were derived elementwise from the complex
+        store, so re-deriving only the selected cells and comparing their bits
+        proves that no edit touched them (a read of those cells then returns
+        the exact source, as before any edit). Any difference, a replaced or
+        reshaped legacy array, a store without a complex field, or a large
+        selection returns False and the caller runs the whole-grid fingerprint.
+        """
+        exposed = getattr(self, "_legacy_exposed", None)
+        if (exposed is None or self._complex is None
+                or exposed[0]() is not self._power or exposed[1]() is not self._phase
+                or tuple((value.shape, value.dtype.str) for value in (self._power, self._phase)) != exposed[2]):
+            return False
+        try:
+            power, phase = self._power[selection], self._phase[selection]
+        except (IndexError, TypeError, ValueError):
+            return False
+        if np.size(power) > min(4 * _RAW_COMPLEX_VALIDATION_BLOCK_CELLS, self.size // 4):
+            return False
+        field = self._complex_samples(selection, owned=False, _source_checked=True)
+        expected_power = np.asarray(self._squared_magnitude(field)).astype(self._power.dtype, copy=False)
+        expected_phase = self._phase_from_field(field, dtype=self._phase.dtype)
+        return (np.asarray(power).tobytes() == expected_power.tobytes()
+                and np.asarray(phase).tobytes() == np.asarray(expected_phase).tobytes())
+
+    def _ensure_legacy_source_current(self, selection=None):
         # Bounded native loading can retain exact raw metadata beside a
         # power/phase store instead of allocating a canonical complex copy.
         # Those raw arrays are authority too and must be invalidated when
         # mutable legacy components change, even without a complex store.
+        # A read of ``selection`` alone needs only its own cells unedited.
         has_source = self._complex is not None or any(
             key in self.extra for key in ("rcs_amp_real", "rcs_amp_imag"))
         if self._legacy_samples and self._legacy_fingerprint is not None and has_source:
+            if selection is not None and self._legacy_selection_unchanged(selection):
+                return
             if self._sample_fingerprint() != self._legacy_fingerprint:
                 self._complex = None
                 self._storage_domain = "physical"
@@ -564,12 +670,20 @@ class GridStorageMixin:
             result["rcs_phase"] = changed(self._phase)
         return result
 
-    def native_sample_payload(self):
+    def native_sample_payload(self, *, _raw_pair=False):
+        """Return the samples a native save stores, keyed by archive member.
+
+        With ``_raw_pair=True`` a retained authoritative raw pair is returned
+        unmerged as ``rcs_raw_pair`` instead of being copied into one complex
+        array; callers that only read selected cells avoid a grid-sized copy.
+        """
         self._ensure_legacy_source_current()
         if (self._complex is not None and self._storage_domain == "physical"
                 and ("rcs_amp_real" in self.extra or "rcs_amp_imag" in self.extra)
                 and self._raw_normalization_defined()):
-            pair = self._complete_authoritative_raw_arrays()
+            pair = self._complete_authoritative_raw_arrays(_source_checked=True)
+            if pair is not None and _raw_pair:
+                return {"storage_kind": "complex", "storage_domain": "raw_field", "rcs_raw_pair": pair}
             if pair is not None:
                 raw = np.empty(pair[0].shape, dtype=np.result_type(pair[0].dtype, pair[1].dtype, np.complex64))
                 raw.real, raw.imag = pair

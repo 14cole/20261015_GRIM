@@ -13,7 +13,7 @@ from GRIM_Backend.datasets.work_control import checkpoint
 from GRIM_Backend.io.text_storage import discover_coordinates, text_reader
 
 
-_POLARIZATION_TOKENS = re.compile(r"(?<![A-Z0-9])(HH|VV)(?![A-Z0-9])")
+_POLARIZATION_TOKENS = re.compile(r"(?<![A-Z0-9])(HH|VV|HV|VH)(?![A-Z0-9])")
 
 
 def _out_records(path):
@@ -24,7 +24,9 @@ def _out_records(path):
     message and the order in which problems are reported match the former
     single-pass reader: the first offending line wins, whatever its problem.
     """
-    with open(path, "r", encoding="utf-8-sig") as f:
+    from GRIM_Backend.io.csv import open_text_table
+
+    with open_text_table(path) as f:
         for line_no, raw_line in enumerate(f, start=1):
             if line_no % 1024 == 0:
                 checkpoint(detail="Reading OUT rows")
@@ -141,7 +143,8 @@ class OutFormatMixin:
             raise ValueError("OUT contains no data rows")
         if declared_polarization is None and len(pol_matches) > 1:
             raise ValueError(
-                f"OUT filename {file_name!r} ambiguously declares both HH and VV"
+                f"OUT filename {file_name!r} ambiguously declares "
+                + " and ".join(sorted(pol_matches))
             )
 
         frequencies = np.asarray(sorted(frequency_values), dtype=float)

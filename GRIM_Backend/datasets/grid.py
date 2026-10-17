@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import weakref
 
 import numpy as np
 
@@ -24,7 +25,9 @@ from GRIM_Backend.datasets.coordinates import (
 from GRIM_Backend.datasets.memory import _bounded_grid_selections, _real_storage_dtype
 from GRIM_Backend.datasets.metadata import GridMetadataMixin
 from GRIM_Backend.datasets.parallel_blocks import run_tiles, scaled_cells
-from GRIM_Backend.datasets.storage import GridStorageMixin
+from GRIM_Backend.datasets.storage import (
+    GridStorageMixin, raw_coverage_scope_cache, sealed_samples,
+)
 from GRIM_Backend.datasets.result_storage import (
     BLOCK_CELLS, allocate_result, copy_result, result_blocks, result_storage_info, typed_samples,
 )
@@ -35,6 +38,11 @@ from GRIM_Backend.io.pioneer import PioFormatMixin
 from GRIM_Backend.io.ptm import PtmFormatMixin
 from GRIM_Backend.io.sentri import SentriFormatMixin
 from GRIM_Backend.io.xpatch import XpatchFormatMixin
+
+
+def _raw_pair_real_dtype(pair):
+    """Real precision of a normalized raw field: that of its stored pair."""
+    return np.dtype(np.result_type(np.asarray(pair[0]).dtype, np.asarray(pair[1]).dtype, np.float32))
 
 
 class RcsGrid(
@@ -432,10 +440,11 @@ class RcsGrid(
         run_tiles(convert_tile, result_blocks(power.shape, scaled_cells(BLOCK_CELLS)))
         return out
 
-    def _complete_authoritative_raw_arrays(self):
+    def _complete_authoritative_raw_arrays(self, *, _source_checked=False):
         """Return a complete raw pair, or ``None`` for malformed/partial data."""
 
-        self._ensure_legacy_source_current()
+        if not _source_checked:
+            self._ensure_legacy_source_current()
         if self._complex is not None and self._storage_domain == "raw_field":
             stored = (self._complex.real, self._complex.imag)
             for name, expected in zip(("rcs_amp_real", "rcs_amp_imag"), stored):
@@ -453,25 +462,29 @@ class RcsGrid(
                         return None
             return stored
 
-        real = self.extra.get("rcs_amp_real")
-        imag = self.extra.get("rcs_amp_imag")
-        if real is None or imag is None:
+        attached = (self.extra.get("rcs_amp_real"), self.extra.get("rcs_amp_imag"))
+        if attached[0] is None or attached[1] is None:
             return None
-        real = np.asarray(real)
-        imag = np.asarray(imag)
+        real = np.asarray(attached[0])
+        imag = np.asarray(attached[1])
         if real.shape != self.shape or imag.shape != self.shape:
             return None
-        if not self._raw_pair_coverage_matches(real, imag):
+        if not self._raw_pair_coverage_matches(real, imag, attached=attached):
             return None
         return real, imag
 
-    def _raw_pair_coverage_matches(self, real, imag):
+    def _raw_pair_coverage_matches(self, real, imag, *, attached=None):
         """Return whether finite raw coverage equals finite modeled coverage.
 
         Attached metadata and legacy samples are externally mutable. Array
-        identity (and even a read-only view) cannot prove their contents stayed
-        unchanged, so validate this exceptional path on each read. Canonical
-        raw storage takes the direct shared-buffer path above without a scan.
+        identity (and even a read-only view) cannot prove that their contents
+        stayed unchanged, so an ordinary pair is validated on each read. The
+        verdict is reused only for a pair GRIM sealed when it allocated it (see
+        ``seal_samples``) against this grid's private read-only store: nothing
+        can write either, so the same objects at the same addresses, layouts
+        and flags have the same coverage. ``attached`` names the objects held
+        in ``extra`` (``np.asarray`` returns a fresh view of a subclass).
+        Canonical raw storage takes the direct shared-buffer path above.
         """
 
         # A late raw pair may replace the physical source. Inspect coverage
@@ -481,7 +494,29 @@ class RcsGrid(
             if self._complex is not None and not self._legacy_samples
             else self._power
         )
-        return self._scan_raw_pair_coverage(real, imag, source)
+        values = (*(attached or (real, imag)), source)
+        if not all(isinstance(value, np.ndarray) for value in values):
+            return self._scan_raw_pair_coverage(real, imag, source)
+        key = tuple((id(value), value.shape, value.strides, value.dtype.str,
+                     value.__array_interface__["data"][0]) for value in values)
+        # Sealed pair over private read-only storage: valid for as long as
+        # these exact objects remain attached. Otherwise only the current
+        # bounded operation (``raw_coverage_scope``) may reuse its verdict.
+        sealed = (not self._legacy_samples and not source.flags.writeable
+                  and all(sealed_samples(value) for value in values[:-1]))
+        scope = None if sealed else raw_coverage_scope_cache()
+        cached = (getattr(self, "_raw_coverage_cache", None) if sealed
+                  else None if scope is None else scope.get((id(self), key)))
+        if (cached is not None and cached[1] == key
+                and all(ref() is value for ref, value in zip(cached[0], values))):
+            return cached[2]
+        verdict = self._scan_raw_pair_coverage(real, imag, source)
+        entry = (tuple(weakref.ref(value) for value in values), key, verdict)
+        if sealed:
+            self._raw_coverage_cache = entry
+        elif scope is not None:
+            scope[(id(self), key)] = entry
+        return verdict
 
     @staticmethod
     def _scan_raw_pair_coverage(real, imag, source):
@@ -534,12 +569,12 @@ class RcsGrid(
 
         real, imag = pair
         quantity = self.linear_quantity()
+        if quantity not in {"sigma_2d", "sigma_3d"}:
+            return None
         if selection is None:
             real_values, imag_values = real, imag
         else:
             real_values, imag_values = real[selection], imag[selection]
-        raw = np.empty(np.shape(real_values), dtype=np.complex128)
-        raw.real, raw.imag = real_values, imag_values
         if quantity == "sigma_2d":
             freq_hz = self._frequency_value_to_hz(self.frequencies)
             k0 = (2.0 * np.pi * np.asarray(freq_hz, dtype=float)) / C0
@@ -552,21 +587,35 @@ class RcsGrid(
 
 
                 scale = np.broadcast_to(
-                    scale[None, None, :, None], self.power.shape
+                    scale[None, None, :, None], self.shape
                 )[selection]
+        else:
+            scale = np.sqrt(4.0 * np.pi)
+        shape = np.shape(real_values)
+        # The field keeps the pair's precision. Normalize in complex128 and
+        # round once, so each value is the float64 result at stored precision.
+        dtype = np.result_type(np.asarray(real).dtype, np.asarray(imag).dtype, np.complex64)
+        if dtype == np.complex128:
+            raw = np.empty(shape, dtype=np.complex128)
+            raw.real, raw.imag = real_values, imag_values
             raw *= scale
             return raw
-        if quantity == "sigma_3d":
-            raw *= np.sqrt(4.0 * np.pi)
-            return raw
-        return None
+        real_values, imag_values = np.asarray(real_values), np.asarray(imag_values)
+        scale = np.broadcast_to(scale, shape) if np.ndim(scale) else scale
+        raw = np.empty(shape, dtype=dtype)
+        for block in result_blocks(shape):
+            tile = np.empty(np.shape(raw[block]), dtype=np.complex128)
+            tile.real, tile.imag = real_values[block], imag_values[block]
+            tile *= scale[block] if np.ndim(scale) else scale
+            raw[block] = tile
+        return raw
 
-    def _authoritative_raw_amplitude(self, selection=None):
+    def _authoritative_raw_amplitude(self, selection=None, *, _source_checked=False):
         """Return a solver-provided raw field when its normalization is known."""
 
         if not self._raw_normalization_defined():
             return None
-        pair = self._complete_authoritative_raw_arrays()
+        pair = self._complete_authoritative_raw_arrays(_source_checked=_source_checked)
         if pair is None:
             return None
         return self._authoritative_raw_amplitude_from_pair(pair, selection)
@@ -591,14 +640,15 @@ class RcsGrid(
                 and self._raw_normalization_defined()):
             pair = self._complete_authoritative_raw_arrays()
             if pair is not None:
-                result = (lambda selection: self._authoritative_raw_amplitude_from_pair(pair, selection), np.dtype(np.float64))
+                result = (lambda selection: self._authoritative_raw_amplitude_from_pair(pair, selection),
+                          _raw_pair_real_dtype(pair))
                 return (*result, True) if include_authority else result
         if self._complex is not None:
             # The legacy-array check above already ran; repeating its
             # whole-grid hash for every block made bounded loops quadratic.
             def read(selection):
                 return self._complex_samples(selection, owned=True, _source_checked=True)
-            result = (read, np.dtype(np.float64) if self._storage_domain == "raw_field" else self._complex.real.dtype)
+            result = (read, self._complex.real.dtype)
             return (*result, self._storage_domain == "raw_field") if include_authority else result
         pair = (
             self._complete_authoritative_raw_arrays()
@@ -609,7 +659,7 @@ class RcsGrid(
                 lambda selection: self._authoritative_raw_amplitude_from_pair(
                     pair, selection
                 ),
-                np.dtype(np.float64),
+                _raw_pair_real_dtype(pair),
             )
             return (*result, True) if include_authority else result
         real_dtype = np.dtype(
@@ -660,19 +710,19 @@ class RcsGrid(
         one grid-sized copy per read.
         """
         if not _source_checked:
-            self._ensure_legacy_source_current()
+            self._ensure_legacy_source_current(selection)
         if self._complex is not None:
             if self._storage_domain == "raw_field":
                 return self._authoritative_raw_amplitude_from_pair((self._complex.real, self._complex.imag), selection)
             if "rcs_amp_real" in self.extra or "rcs_amp_imag" in self.extra:
-                authoritative = self._authoritative_raw_amplitude(selection)
+                authoritative = self._authoritative_raw_amplitude(selection, _source_checked=True)
                 if authoritative is not None:
                     return authoritative
             result = self._complex[selection]
             if owned and (not isinstance(result, np.ndarray) or not result.flags.owndata):
                 result = np.array(result, copy=True)
             return result
-        authoritative = self._authoritative_raw_amplitude(selection)
+        authoritative = self._authoritative_raw_amplitude(selection, _source_checked=True)
         if authoritative is not None:
             return authoritative
         return self._complex_from_power_phase(

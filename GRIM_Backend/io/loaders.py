@@ -11,7 +11,7 @@ from GRIM_Backend.datasets.constants import C0
 from GRIM_Backend.datasets.coordinates import canonical_angular_coordinate_system
 from GRIM_Backend.datasets.grid import RcsGrid
 from GRIM_Backend.datasets.work_control import checkpoint, WorkCancelled
-from GRIM_Backend.io.csv import has_flat_csv_signature, load_flat_csv as _load_flat_csv_schema
+from GRIM_Backend.io.csv import TextEncodingError, has_flat_csv_signature, load_flat_csv as _load_flat_csv_schema
 
 
 SUPPORTED_EXTENSIONS = (
@@ -156,7 +156,9 @@ def _load_dataset_dispatch(path: str, *, allow_legacy_pickle=False, declared_uni
     for loader in loaders:
         try:
             return loader(path)
-        except (MemoryError, WorkCancelled):
+        except (MemoryError, WorkCancelled, TextEncodingError):
+            # Undecodable text is a file problem, not an unrecognized layout
+            # for the next reader (or the GUI column mapper) to try.
             raise
         except Exception as exc:
             errors.append(f"{loader.__name__}: {exc}")

@@ -532,6 +532,11 @@ def coherent_divide(
         coherent_metadata_attested=metadata_attested,
         _scan_phase_samples=False,
     )
+    numerator._assert_coherent_time_conventions_agree(
+        denominator,
+        operation="coherent division",
+        labels=("numerator", "denominator"),
+    )
     shape = tuple(int(value) for value in numerator.power.shape)
     raw_response = (
         numerator._complete_authoritative_raw_arrays() is not None
