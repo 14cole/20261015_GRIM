@@ -190,7 +190,9 @@ completed complex field sums, tail history and linear diagnostics are retained;
 only new modes are solved. Operator preparation uses the enlarged cap so new
 angular coefficients have the proper quadrature. The chosen extensions are
 recorded in `automatic_mode_cap_extensions`. Explicit
-`n_modes` values are honored. Every path still rejects an unconverged tail.
+`n_modes` values are an upper cap: the `mode_tol` test (two quiet modes)
+still ends the modal sum early, so a high-mode reference also needs a tiny
+`mode_tol`. Every path still rejects an unconverged tail.
 
 Streamed EFIE storage contracts the nine quadrature terms into four final
 nodal blocks per nonnegative mode. MFIE/IBC far tables and streamed blocks

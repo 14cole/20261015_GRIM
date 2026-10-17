@@ -2,8 +2,18 @@
 
 Each regional field uses S*phi + gamma*D*phi. gamma changes sign with the
 region side so the auxiliary impedance condition has consistent orientation.
-Open material junctions retain the existing regional representation: their
-hypersingular endpoint terms need a separate derivation.
+
+The exterior (illuminated) region may also close as a union of open arcs that
+meet at split junction nodes (partial coatings: TYPE 2+3+4 junctions). Its D/W
+density is then continuous: at each junction the slave end's D/W columns route
+to the master end's coefficient, while S/K' keep both values. The element-wise
+Maue form of W is exact for that continuous density except on the two
+half-hat test rows of each junction, which receive the endpoint term
+``-eps*F(p)`` (``_junction_flux_entries``). Bounded regions bounded by open
+interfaces keep the single-layer representation: their unbounded complement
+has no interior eigenvalues, and combining them raised the condition estimate
+without an accuracy gain. Polynomial (degree > 1) meshes keep the former
+representation on such regions.
 
 A closed one-sided (PEC/impedance) contour may carry a spatially varying Robin
 law, including PEC zones, several impedance zones and tapers. The boundary
@@ -16,6 +26,65 @@ S/K' assembly routes them.
 """
 import numpy as np
 from ghost_backend.twod.constants import EPS
+
+
+def _union_junctions(mesh, interfaces, rid, indices):
+    """Junctions of a region whose interfaces close as a union of open arcs.
+
+    Junction nodes are split per interface signature, so the region's arcs meet
+    at coincident but distinct mesh nodes. Returns ``None`` unless every
+    geometric endpoint cluster (mesh snap tolerance) holds exactly two element
+    ends with one arc ending and the other starting in the region's orientation
+    (element tangent times the side sign), and every element is linear.
+    Otherwise the region keeps the former single-layer representation (open
+    strips, cracks, touching loops, polynomial bases).
+    """
+    from scipy.spatial import cKDTree
+    from ghost_backend.twod.operators import NODE_SNAP_TOLERANCE
+    ends = []
+    for mi in indices:
+        sign = 1 if interfaces[mi]['r_m'] == rid else -1
+        for ei in interfaces[mi]['eids']:
+            element = mesh.elements[ei]
+            if len(element.node_ids) != 2:
+                return None
+            for position in (0, 1):
+                # +1 where the region's oriented contour arrives at this end;
+                # last: +1 where the element's own direction arrives.
+                ends.append((mi, int(element.node_ids[position]), int(ei),
+                             1 if (sign > 0) == (position == 1) else -1,
+                             1 if position == 1 else -1))
+    if not ends:
+        return None
+    points = np.array([mesh.nodes[end[1]].xy for end in ends], float)
+    parent = list(range(len(ends)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for i, j in sorted(cKDTree(points).query_pairs(4.0*NODE_SNAP_TOLERANCE)):
+        parent[root(i)] = root(j)
+    clusters = {}
+    for i in range(len(ends)):
+        clusters.setdefault(root(i), []).append(ends[i])
+    junctions = []
+    for members in clusters.values():
+        if len(members) != 2 or members[0][3] + members[1][3] != 0:
+            return None
+        a, b = sorted(members)
+        if (a[0], a[1]) == (b[0], b[1]):
+            continue
+        junctions.append(dict(point=np.array(mesh.nodes[a[1]].xy, float), ends=(a, b),
+                              master=(a[0], a[1]), slave=(b[0], b[1])))
+    return sorted(junctions, key=lambda j: (j['master'], j['slave']))
+
+
+def _node_dof(layout, mi, rid, node):
+    interface = layout['ifaces'][mi]
+    offset, _ = layout['dof_map'][mi, 'minus' if interface['r_m'] == rid else 'plus']
+    return offset + int(np.searchsorted(interface['nodes'], node))
 
 
 def couplings(mesh, layout):
@@ -32,12 +101,117 @@ def couplings(mesh, layout):
     result = {}
     for rid, indices in layout['region_ifaces'].items():
         if not all(closed[mi] for mi in indices):
-            continue
+            # Only the unbounded (illuminated) region is combined here: its
+            # complement is the bounded outline whose Dirichlet eigenvalues
+            # were the observed resonances. A simply connected bounded region
+            # has an unbounded complement and no such eigenvalues; bounded
+            # regions with holes formed by open arcs remain unprotected, as
+            # before. Combined on the bounded coating of the partial-coating
+            # case, the condition estimate reached 1.5e6 at ka=40 with no
+            # accuracy gain.
+            if not layout['region_props'][rid]['has_incident']:
+                continue
+            junctions = _union_junctions(mesh, interfaces, rid, indices)
+            if not junctions:
+                continue
+            layout.setdefault('combined_junctions', {})[rid] = junctions
         k = layout['region_props'][rid]['k']
         for mi in indices:
             result[mi, rid] = (1 if interfaces[mi]['r_m'] == rid else -1)/(1j*k)
     layout['combined_couplings'] = result
     return result
+
+
+def _source_columns(layout, mi, rid, col_map, n):
+    """Mesh source node -> system column of the region's D/W density.
+
+    On a union-closed region the D/W density is continuous: the slave end of
+    each junction carries its master's coefficient. The single-layer density
+    keeps both junction values.
+    """
+    interface = layout['ifaces'][mi]
+    offset, count = layout['dof_map'][mi, 'minus' if interface['r_m'] == rid else 'plus']
+    cc = np.full(n, -1, int)
+    cc[interface['nodes']] = col_map[offset:offset+count]
+    for junction in layout.get('combined_junctions', {}).get(rid, ()):
+        slave_interface, slave_node = junction['slave']
+        if slave_interface == mi:
+            cc[slave_node] = col_map[_node_dof(layout, junction['master'][0], rid, junction['master'][1])]
+    return cc
+
+
+_JUNCTION_GAUSS = np.polynomial.legendre.leggauss(32)
+
+
+def _segment_green(p0, p1, point, k):
+    """int_e G_k(point, y) ds_y on a straight panel.
+
+    A log singularity at a panel end is removed by t = u**4; other panels use
+    composite 32-point rules subdivided by their distance to the point."""
+    from ghost_backend.twod.operators import _green_2d_array, NODE_SNAP_TOLERANCE
+    x, w = (_JUNCTION_GAUSS[0] + 1)/2, _JUNCTION_GAUSS[1]/2
+    p0, p1, point = np.asarray(p0, float), np.asarray(p1, float), np.asarray(point, float)
+    length = float(np.linalg.norm(p1 - p0))
+    at_start = np.linalg.norm(p0 - point) <= 4*NODE_SNAP_TOLERANCE
+    at_end = np.linalg.norm(p1 - point) <= 4*NODE_SNAP_TOLERANCE
+    if at_start or at_end:
+        t = x**4 if at_start else 1 - x**4
+        weights = w*4*x**3
+    else:
+        d = p1 - p0
+        s = np.clip(np.dot(point - p0, d)/max(float(np.dot(d, d)), 1e-300), 0, 1)
+        distance = float(np.linalg.norm(p0 + s*d - point))
+        pieces = int(np.clip(np.ceil(2*length/max(distance, 1e-300)), 1, 64))
+        t = ((np.arange(pieces)[:, None] + x[None, :])/pieces).ravel()
+        weights = np.tile(w/pieces, pieces)
+    y = p0[None, :] + t[:, None]*(p1 - p0)[None, :]
+    return complex(np.sum(weights*_green_2d_array(k, np.linalg.norm(y - point[None, :], axis=1)))*length)
+
+
+def _junction_flux_entries(mesh, layout, mi, rid, cc, flux_map, flux_weight):
+    """Endpoint terms of hypersingular rows tested by half-hats at junctions.
+
+    The element-wise Maue form of W is exact for a continuous density and a
+    continuous test function on a closed contour. A junction row is tested by
+    a half-hat that ends (eps=+1) or starts (eps=-1) at the junction point p in
+    its element's direction; integrating its tangential derivative by parts
+    leaves ``W = W_Maue - eps*F(p)``, ``F(p) = int G(p,y) dpsi/ds dy``. Each
+    source panel enters in its own direction and normal, exactly as its Maue
+    block does: the side sign is part of gamma in the row weight, so the sum
+    over the region's arcs is the closed-contour term. Returns (rows, columns,
+    values) of source interface ``mi``; the continuous density psi already
+    routes through ``cc``.
+    """
+    junctions = layout.get('combined_junctions', {}).get(rid)
+    if not junctions:
+        return None
+    interface = layout['ifaces'][mi]
+    k = layout['region_props'][rid]['k']
+    cache = layout.setdefault('combined_junction_green', {})
+    elements = [mesh.elements[ei] for ei in interface['eids']]
+    n0 = np.array([e.node_ids[0] for e in elements], int)
+    n1 = np.array([e.node_ids[1] for e in elements], int)
+    rows, columns, values = [], [], []
+    for index, junction in enumerate(junctions):
+        tests = [(end[1], end[4]) for end in junction['ends'] if flux_map[end[1]] >= 0]
+        if not tests:
+            continue
+        key = rid, mi, index
+        if key not in cache:
+            cache[key] = np.array([_segment_green(e.p0, e.p1, junction['point'], k)/e.length
+                                        for e in elements])
+        coefficient = cache[key]
+        for node, eps in tests:
+            scale = -eps*flux_weight[node]
+            for nodes, factor in ((n1, 1.), (n0, -1.)):
+                rows.append(np.full(len(nodes), flux_map[node]))
+                columns.append(cc[nodes])
+                values.append(factor*scale*coefficient)
+    if not rows:
+        return None
+    rows, columns, values = np.concatenate(rows), np.concatenate(columns), np.concatenate(values)
+    keep = columns >= 0
+    return rows[keep], columns[keep], values[keep]
 
 
 def _route_conductor_rows(layout, target, dest, gamma, trace_map, trace_weight, flux_map, flux_weight):
@@ -98,9 +272,7 @@ def add_corrections(matrix, mesh, layout, obs_order=8, src_order=8, rows=None, c
     for (mi, rid), gamma in couplings(mesh, layout).items():
         interface = interfaces[mi]
         side = 'minus' if interface['r_m'] == rid else 'plus'
-        offset, count = dofs[mi,side]
-        cc = np.full(n,-1,int)
-        cc[interface['nodes']] = col_map[offset:offset+count]
+        cc = _source_columns(layout, mi, rid, col_map, n)
         source_nodes = np.flatnonzero(cc >= 0)
         if not len(source_nodes):
             continue
@@ -123,6 +295,9 @@ def add_corrections(matrix, mesh, layout, obs_order=8, src_order=8, rows=None, c
                 trace_weight[nodes] = gamma * (1 if rid == rm else -1)
                 flux_weight[nodes] = -gamma * (1 if rid == rm else -_inverse_beta(layout,target,layout['polarization']))
         k = layout['region_props'][rid]['k']
+        endpoint = _junction_flux_entries(mesh, layout, mi, rid, cc, flux_map, flux_weight)
+        if endpoint is not None:
+            np.add.at(matrix, (endpoint[0], endpoint[1]), endpoint[2])
         mass = _trace_jump_mass(mesh, interface, *own_robin)
         for kind, mapping, weight in (('D', trace_map, trace_weight), ('W', flux_map, flux_weight)):
             active_rows = np.flatnonzero(mapping >= 0)
@@ -165,9 +340,7 @@ def fused_outputs(matrix, mesh, layout, rows=None, columns=None):
     for (mi, rid), gamma in couplings(mesh, layout).items():
         interface = interfaces[mi]
         side = 'minus' if interface['r_m'] == rid else 'plus'
-        offset, count = dofs[mi, side]
-        cc = np.full(n, -1, int)
-        cc[interface['nodes']] = col_map[offset:offset+count]
+        cc = _source_columns(layout, mi, rid, col_map, n)
         source_nodes = np.flatnonzero(cc >= 0)
         if not len(source_nodes):
             continue
@@ -190,6 +363,9 @@ def fused_outputs(matrix, mesh, layout, rows=None, columns=None):
                 trace_weight[nodes] = gamma*(1 if rid == rm else -1)
                 flux_weight[nodes] = -gamma*(1 if rid == rm else -_inverse_beta(layout, target, layout['polarization']))
         k = layout['region_props'][rid]['k']
+        endpoint = _junction_flux_entries(mesh, layout, mi, rid, cc, flux_map, flux_weight)
+        if endpoint is not None:
+            np.add.at(matrix, (endpoint[0], endpoint[1]), endpoint[2])
         routes = grouped.setdefault((k, mi), [[], []])
         for index, (mapping, weight) in enumerate(((trace_map, trace_weight), (flux_map, flux_weight))):
             if np.any(mapping >= 0):
@@ -218,11 +394,108 @@ def exterior_double_density(mesh, layout):
                     if layout['region_props'][key[1]]['has_incident']}
     if not coefficients:
         return None
+    junctions = layout.get('combined_junctions', {})
     def density(solution):
         result = np.zeros((len(mesh.nodes),solution.shape[1]),complex)
         for (mi,rid), gamma in coefficients.items():
             interface = layout['ifaces'][mi]
             offset,count = layout['dof_map'][mi,'minus' if interface['r_m']==rid else 'plus']
             result[interface['nodes']] += gamma*solution[offset:offset+count]
+            for junction in junctions.get(rid, ()):
+                if junction['slave'][0] == mi:
+                    # The continuous D density carries the master value.
+                    node = junction['slave'][1]
+                    master = _node_dof(layout, junction['master'][0], rid, junction['master'][1])
+                    result[node] += gamma*(solution[master] - solution[offset + int(
+                        np.searchsorted(interface['nodes'], node))])
         return result
     return density
+
+
+# Union-closed exterior systems mix the exterior's W rows (~gamma/h) with the
+# single-layer densities of the bounded regions (S, K' and the beta-weighted
+# flux jump). The single-pass row/column max equilibration of the condition
+# estimate leaves those density blocks two to three orders under-scaled: on the
+# 3 GHz airfoil (8608 unknowns) it reported 1.5e6 against 2.8e4 for the former
+# equation although the fields agree to 2e-5. A Sinkhorn balance of the
+# equilibrated matrix's block sums (one scalar per DOF block, i.e. per
+# interface side) removes that artificial imbalance: 0.5 GHz airfoil 1-norm
+# condition 2.8e3 (former equation 3.4e3 with the same balance, 5.6e3 without).
+# A diagonal scaling cannot remove a genuine near-null vector; the former
+# equation at the partial coating's resonance keeps its large estimate.
+CONDITION_BALANCE_ITERATIONS = 50
+
+
+def condition_balance_blocks(layout):
+    """Contiguous DOF block starts for the balanced condition estimate, or None."""
+    if not layout.get('combined_junctions'):
+        return None
+    return np.asarray(sorted(offset for offset, _ in layout['dof_map'].values()), int)
+
+
+def _balance(partial, starts, row_scale, col_scale):
+    """Block Sinkhorn scalars from per-column, per-row-block equilibrated sums."""
+    n = partial.shape[1]
+    sizes = np.diff(np.append(starts, n))
+    labels = np.repeat(np.arange(len(starts)), sizes)
+    sums = np.stack([np.add.reduceat(row, starts) for row in partial])
+    rows, columns = np.ones(len(starts)), np.ones(len(starts))
+    for _ in range(CONDITION_BALANCE_ITERATIONS):
+        rows /= np.sqrt((sums*columns[None, :]).sum(1)*rows/sizes)
+        columns /= np.sqrt((rows[:, None]*sums).sum(0)*columns/sizes)
+    rows, columns = rows/np.max(rows), columns/np.max(columns)
+    column_sums = columns[labels]*(rows[:, None]*partial).sum(0)
+    return row_scale/rows[labels], col_scale/columns[labels], float(np.max(column_sums))
+
+
+def balanced_condition_scaling(a_mat, scaling, starts, max_block_bytes=16*1024*1024):
+    """Refine (row_scale, col_scale, norm_1) by a block Sinkhorn balance.
+
+    ``scaling`` is the max equilibration (the equilibrated matrix is
+    ``A / row_scale[:, None] / col_scale[None, :]``). One column-blocked pass
+    accumulates, for every column, the sums of its equilibrated magnitudes per
+    row block; block scalars R, C then balance the block sums per entry, and the
+    returned scales and 1-norm describe ``R*A_eq*C`` exactly.
+    """
+    row_scale, col_scale, _ = scaling
+    a = np.asarray(a_mat)
+    n = a.shape[0]
+    starts = np.asarray(starts, int)
+    partial = np.zeros((len(starts), n))
+    width = max(1, min(n, int(max_block_bytes) // (8*n)))
+    for start in range(0, n, width):
+        stop = min(n, start + width)
+        block = np.abs(a[:, start:stop])
+        block /= row_scale[:, None]
+        block /= col_scale[None, start:stop]
+        partial[:, start:stop] = np.add.reduceat(block, starts, axis=0)
+    return _balance(partial, starts, row_scale, col_scale)
+
+
+def balanced_streamed_scaling(operator, row_scale, col_scale, starts):
+    """``balanced_condition_scaling`` for a compressed tile operator (one tile pass).
+
+    Column groups run on threads as in ``StreamedOperator.equilibrate``."""
+    from ghost_backend.compressed.operator import _run_groups, MATMUL_WORKERS
+    starts = np.asarray(starts, int)
+    n = operator.n
+    labels = np.repeat(np.arange(len(starts)), np.diff(np.append(starts, n)))
+    partial = np.zeros((len(starts), n))
+    by_column = {}
+    for i, j in operator.tiles:
+        by_column.setdefault(j, []).append(i)
+
+    def group(j):
+        cols = np.asarray(operator.groups[j])
+        total = np.zeros((len(starts), len(cols)))
+        for i in by_column[j]:
+            operator.checkpoint()
+            left, right = operator.tiles[i, j]
+            rows = np.asarray(operator.groups[i])
+            magnitude = np.abs(left if right is None else left@right)
+            weights = np.zeros((len(starts), len(rows)))
+            weights[labels[rows], np.arange(len(rows))] = 1./row_scale[rows]
+            total += weights@magnitude
+        partial[:, cols] = total/col_scale[None, cols]
+    _run_groups(by_column, group, MATMUL_WORKERS)
+    return _balance(partial, starts, row_scale, col_scale)

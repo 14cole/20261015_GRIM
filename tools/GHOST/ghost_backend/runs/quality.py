@@ -35,6 +35,43 @@ PRODUCTION_MESH_CONVERGENCE_DEFAULTS = {
 }
 
 
+# Certification publishes the fine result but measures the base-vs-fine change.
+# With a refinement ratio r and an observed order p, the fine result's own
+# error is about delta/(r**p - 1). Edged bodies converge at p ~ 1.0-1.5 (the
+# audit measured published errors of 1.05-2x the delta at r = 1.5), so the
+# estimate assumes p = 1: twice the delta at r = 1.5. Pass/fail limits still
+# apply to the measured delta; the estimate is reported, not gated.
+PUBLISHED_ERROR_ASSUMED_ORDER = 1.0
+PUBLISHED_ERROR_METRICS = ("complex_max_normalized", "complex_rms_normalized",
+                           "max_abs_db", "rms_db", "phase_max_deg", "phase_rms_deg")
+
+
+def estimated_published_error(mesh_gate, refinement_ratio, order=PUBLISHED_ERROR_ASSUMED_ORDER):
+    """Richardson-style bound on the published (fine) result's discretization error.
+
+    Returns ``{metric: delta/(r**order - 1)}`` for the base-vs-fine changes in
+    ``mesh_gate`` plus the assumptions, or an ``available: False`` record when
+    the refinement ratio is not a finite value above one. dB and phase deltas
+    are scaled the same way (a first-order approximation for small changes).
+    """
+    try:
+        ratio = float(refinement_ratio)
+    except (TypeError, ValueError):
+        ratio = float('nan')
+    record = dict(assumed_order=float(order), refinement_ratio=ratio,
+                  basis="delta/(r**p - 1) with conservative p = 1; reported, not gated")
+    if not math.isfinite(ratio) or ratio <= 1.0 + 1e-9:
+        record.update(available=False, reason="refinement ratio must exceed 1")
+        return record
+    factor = 1.0/(ratio**float(order) - 1.0)
+    record.update(available=True, factor=factor)
+    for metric in PUBLISHED_ERROR_METRICS:
+        value = mesh_gate.get(metric)
+        if isinstance(value, (int, float)) and math.isfinite(float(value)):
+            record[metric] = float(value)*factor
+    return record
+
+
 def accuracy_target_policy(target="standard"):
     """Concrete mesh tolerances; no claim about model-approximation error.
 
@@ -64,7 +101,7 @@ def solver_report_text(metadata):
             return []
         found = [float(value[key])] if key in value and isinstance(value[key], (float, int)) and math.isfinite(value[key]) else []
         for name, child in value.items():
-            if name not in {"limits", "thresholds", "policy"} and isinstance(child, dict):
+            if name not in {"limits", "thresholds", "policy", "estimated_published_error"} and isinstance(child, dict):
                 found.extend(measurements(child, key))
         return found
     for title, key, scale, unit in (("Largest normalized complex-field mesh change", "complex_max_normalized", 100., "%"),
@@ -72,6 +109,10 @@ def solver_report_text(metadata):
         values = measurements(mesh, key)
         if values:
             lines.append(f"{title}: {max(values)*scale:.4g}{unit}")
+    estimates = measurements(mesh, "estimated_published_complex_max_normalized")
+    if estimates:
+        lines.append("Estimated error of the published (fine) result, delta/(r^p-1) with p=1: "
+                     f"{max(estimates)*100.:.4g}%")
     for title, key in (("Maximum linear residual", "residual_norm_max"),
                        ("Maximum backward error", "backward_error_max"),
                        ("Condition estimate", "condition_est_max")):

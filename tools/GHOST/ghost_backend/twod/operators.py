@@ -256,7 +256,8 @@ def _integrate_linear_pairs_box_sk_batched(
         # the cubic accuracy candidate of a certified solve reuses the
         # quadratic candidate's samples (the same panels and wavenumber).
         return _box_blocks_polynomial(elements, obs_ids, src_ids, k0, obs_normal_deriv, order,
-                                      bool(compute_single_layer), bool(compute_double_layer))
+                                      bool(compute_single_layer), bool(compute_double_layer),
+                                      prepared_geometry=prepared_geometry)
     qt, qw = _get_quadrature(max(2, int(order)))
     q = np.asarray(qt, dtype=float)
     weights = np.asarray(qw, dtype=float)
@@ -328,12 +329,28 @@ def _integrate_linear_pairs_box_sk_batched(
     scales = pair_scales[:, None, None]
     return s_blocks * scales, k_blocks * scales
 
-def _box_monomial_moments(obs_elems, src_elems, k0, obs_normal_deriv, order, want_s, want_k):
+def _box_pair_arrays(obs_elems, src_elems, obs_normal_deriv):
+    """(obs p0, src p0, obs p1 - p0, src p1 - p0, normals, obs length, src length) of element pairs."""
+    return (np.asarray([elem.p0 for elem in obs_elems], dtype=float).reshape(-1, 2),
+            np.asarray([elem.p0 for elem in src_elems], dtype=float).reshape(-1, 2),
+            np.asarray([elem.p1 - elem.p0 for elem in obs_elems], dtype=float).reshape(-1, 2),
+            np.asarray([elem.p1 - elem.p0 for elem in src_elems], dtype=float).reshape(-1, 2),
+            np.asarray([elem.normal for elem in (obs_elems if obs_normal_deriv else src_elems)],
+                       dtype=float).reshape(-1, 2),
+            np.asarray([elem.length for elem in obs_elems], dtype=float),
+            np.asarray([elem.length for elem in src_elems], dtype=float))
+
+
+def _box_monomial_moments(obs_elems, src_elems, k0, obs_normal_deriv, order, want_s, want_k, arrays=None):
     """Scaled monomial S and K moments, shape (T, 2, D+1, D+1), of full-interval
     pairs by the tensor-Gauss rule of ``order`` points per axis (the same
-    kernels as the nodal box rule; D = polynomial_quadrature._MOMENT_DEGREE)."""
+    kernels as the nodal box rule; D = polynomial_quadrature._MOMENT_DEGREE).
+    ``arrays`` (``_box_pair_arrays`` values) replaces the element lists."""
     from ghost_backend.twod.polynomial_quadrature import _kernels, _table_for_ends, _MOMENT_DEGREE
-    count = len(obs_elems)
+    if arrays is None:
+        arrays = _box_pair_arrays(obs_elems, src_elems, obs_normal_deriv)
+    obs_p0, src_p0, obs_seg, src_seg, normals, obs_len, src_len = arrays
+    count = len(obs_p0)
     moments = np.zeros((count, 2, _MOMENT_DEGREE + 1, _MOMENT_DEGREE + 1), dtype=np.complex128)
     if not count:
         return moments
@@ -341,10 +358,6 @@ def _box_monomial_moments(obs_elems, src_elems, k0, obs_normal_deriv, order, wan
     q = np.asarray(qt, dtype=float)
     weights = np.asarray(qw, dtype=float)
     monomials = np.vander(q, _MOMENT_DEGREE + 1, increasing=True)
-    obs_p0 = np.asarray([elem.p0 for elem in obs_elems], dtype=float)
-    src_p0 = np.asarray([elem.p0 for elem in src_elems], dtype=float)
-    obs_seg = np.asarray([elem.p1 - elem.p0 for elem in obs_elems], dtype=float)
-    src_seg = np.asarray([elem.p1 - elem.p0 for elem in src_elems], dtype=float)
     obs_pts = obs_p0[:, None, :] + q[None, :, None] * obs_seg[:, None, :]
     src_pts = src_p0[:, None, :] + q[None, :, None] * src_seg[:, None, :]
     diff = obs_pts[:, :, None, :] - src_pts[:, None, :, :]
@@ -366,17 +379,17 @@ def _box_monomial_moments(obs_elems, src_elems, k0, obs_normal_deriv, order, wan
     if want_k:
         if derivative is None:
             derivative = (0.25j * complex(k0)) * _hankel2_1_array(kr.reshape(-1)).reshape(dist.shape)
-        normals = np.asarray([elem.normal for elem in (obs_elems if obs_normal_deriv else src_elems)], dtype=float)
         proj = np.sum(diff * normals[:, None, None, :], axis=3) / dist_safe
         dk_vals = (-derivative if obs_normal_deriv else derivative) * proj
         dk_vals[dist <= EPS] = 0.0
         moments[:, 1] = monomials.T @ (w_outer[None, :, :] * dk_vals) @ monomials
-    scales = np.asarray([obs.length * src.length for obs, src in zip(obs_elems, src_elems)], dtype=float)
+    scales = obs_len * src_len
     moments *= scales[:, None, None, None]
     return moments
 
 
-def _box_blocks_polynomial(elements, obs_ids, src_ids, k0, obs_normal_deriv, order, want_s, want_k):
+def _box_blocks_polynomial(elements, obs_ids, src_ids, k0, obs_normal_deriv, order, want_s, want_k,
+                           prepared_geometry=None):
     """Nodal S and K blocks of polynomial fixed-order pairs through their monomial moments.
 
     The moments depend on the pair geometry, the wavenumber and the rule, not
@@ -385,23 +398,35 @@ def _box_blocks_polynomial(elements, obs_ids, src_ids, k0, obs_normal_deriv, ord
     samples instead of integrating them again (the nodal projection is the
     same linear map as the direct nodal rule, to rounding).
     """
-    from ghost_backend.twod.polynomial_quadrature import _MOMENT_CACHE, box_moment_keys
+    from ghost_backend.twod.polynomial_quadrature import _MOMENT_CACHE, box_moment_keys, box_moment_key_rows
     from ghost_backend.twod.basis import coefficients
-    obs_elems = [elements[int(index)] for index in obs_ids]
-    src_elems = [elements[int(index)] for index in src_ids]
-    npairs = len(obs_elems)
     width = len(elements[0].node_ids)
     degree = width - 1
+    if prepared_geometry is not None:
+        # Element arrays as the elements hold them: p0, p1, p1 - p0, lengths, normals.
+        p0, p1, segments, lengths, normal_array = prepared_geometry
+        arrays = (p0[obs_ids], p0[src_ids], segments[obs_ids], segments[src_ids],
+                  normal_array[obs_ids if obs_normal_deriv else src_ids], lengths[obs_ids], lengths[src_ids])
+        npairs = len(obs_ids)
+        key_source = (p0[obs_ids], p1[obs_ids], normal_array[obs_ids], p0[src_ids], p1[src_ids], normal_array[src_ids])
+    else:
+        obs_elems = [elements[int(index)] for index in obs_ids]
+        src_elems = [elements[int(index)] for index in src_ids]
+        npairs = len(obs_elems)
+        arrays = _box_pair_arrays(obs_elems, src_elems, obs_normal_deriv)
+        key_source = None
     cache = _MOMENT_CACHE.get()
     if cache is None:
-        moments = _box_monomial_moments(obs_elems, src_elems, k0, obs_normal_deriv, order, want_s, want_k)
+        moments = _box_monomial_moments(None, None, k0, obs_normal_deriv, order, want_s, want_k, arrays=arrays)
     else:
-        keys = box_moment_keys(k0, obs_normal_deriv, order, want_s, want_k, obs_elems, src_elems)
+        keys = (box_moment_key_rows(k0, obs_normal_deriv, order, want_s, want_k, *key_source)
+                if key_source is not None else
+                box_moment_keys(k0, obs_normal_deriv, order, want_s, want_k, obs_elems, src_elems))
         found = [cache.get(key) for key in keys]
         todo = [index for index, value in enumerate(found) if value is None]
         if todo:
-            fresh = _box_monomial_moments([obs_elems[i] for i in todo], [src_elems[i] for i in todo],
-                                          k0, obs_normal_deriv, order, want_s, want_k)
+            fresh = _box_monomial_moments(None, None, k0, obs_normal_deriv, order, want_s, want_k,
+                                          arrays=tuple(a[todo] for a in arrays))
             for position, value in zip(todo, fresh):
                 found[position] = value
                 cache.put(keys[position], value)
@@ -499,6 +524,116 @@ def _single_layer_self_block_exact(
 
     t_mat = np.array([[1.0 - a, 1.0 - b], [a, b]], dtype=np.complex128)
     return t_mat @ block_local @ t_mat.T
+
+
+_SELF_C_DIAG = (2.0 / 3.0, -1.0, 0.0, 1.0 / 3.0)
+_SELF_C_OFF = (1.0 / 3.0, 0.0, 0.0, -1.0 / 3.0)
+
+
+def _self_series_moments(m):
+    """(moment, log_moment) of the diagonal and off-diagonal weights at p = 2 m, as the scalar series forms them."""
+    p = 2 * m
+    return tuple(value for coeffs in (_SELF_C_DIAG, _SELF_C_OFF) for value in (
+        sum(c / (p + q + 1) for q, c in enumerate(coeffs)),
+        -sum(c / (p + q + 1) ** 2 for q, c in enumerate(coeffs))))
+
+
+_SELF_SERIES_TERMS = [_self_series_moments(m) for m in range(62)]
+
+
+def _single_layer_self_blocks_exact_many(lengths, k0):
+    """``_single_layer_self_block_exact(elem, k0)`` on (0, 1) for many element lengths.
+
+    The series runs over arrays of the real and imaginary parts, repeating
+    every floating-point operation of CPython's complex arithmetic in the
+    scalar routine (products ``ac - bd`` / ``ad + bc``, a real operand
+    promoted to ``x + 0j``, Smith's quotient for the division by ``m * m``),
+    so each element's sums, its stopping iteration and its block are bitwise
+    the scalar ones. Elements the scalar routine rejects (``None``: series
+    out of range or unconverged) are returned as None; zero-length elements
+    give zero blocks.
+    """
+    k = complex(k0)
+    count = len(lengths)
+    blocks = [None] * count
+    two_over_pi = 2.0 / math.pi
+    c1 = 1j * two_over_pi
+    c1r, c1i = c1.real, c1.imag
+    ell_values, live_ids, lr, li, zr, zi = [], [], [], [], [], []
+    for index, length in enumerate(lengths):
+        ell = float(length) * 1.0
+        if ell <= 0.0:
+            blocks[index] = np.zeros((2, 2), dtype=np.complex128)
+            continue
+        z = k * ell
+        if abs(z) > 8.0 or abs(z) <= 1e-30:
+            continue
+        log_term = cmath.log(z / 2.0) + EULER_GAMMA
+        z_quarter_sq = (z / 2.0) ** 2
+        live_ids.append(index)
+        ell_values.append(ell)
+        lr.append(log_term.real)
+        li.append(log_term.imag)
+        zr.append(z_quarter_sq.real)
+        zi.append(z_quarter_sq.imag)
+    if not live_ids:
+        return blocks
+    n = len(live_ids)
+    lr, li, zr, zi = (np.array(v, dtype=float) for v in (lr, li, zr, zi))
+    # -z_quarter_sq, as a complex negation.
+    nzr, nzi = -zr, -zi
+    ar, ai = np.ones(n), np.zeros(n)
+    dr, di, orr, oi = np.zeros(n), np.zeros(n), np.zeros(n), np.zeros(n)
+    final = np.zeros((n, 4))
+    pending = np.arange(n)
+    failed = np.zeros(n, dtype=bool)
+    harmonic = 0.0
+    m = 0
+    while pending.size:
+        moment_d, log_d, moment_o, log_o = _SELF_SERIES_TERMS[m]
+        # a_m = alpha * (1.0 - (1j * two_over_pi) * (log_term - harmonic))
+        ir, ii = lr[pending] - harmonic, li[pending] - 0.0
+        c2r, c2i = c1r * ir - c1i * ii, c1r * ii + c1i * ir
+        c3r, c3i = 1.0 - c2r, 0.0 - c2i
+        par, pai = ar[pending], ai[pending]
+        amr, ami = par * c3r - pai * c3i, par * c3i + pai * c3r
+        # (1j * two_over_pi) * alpha
+        xr, xi = c1r * par - c1i * pai, c1r * pai + c1i * par
+        for (sr, si, moment, log_moment) in ((dr, di, moment_d, log_d), (orr, oi, moment_o, log_o)):
+            t1r, t1i = amr * moment - ami * 0.0, amr * 0.0 + ami * moment
+            t2r, t2i = xr * log_moment - xi * 0.0, xr * 0.0 + xi * log_moment
+            sr[pending] = sr[pending] + (t1r - t2r)
+            si[pending] = si[pending] + (t1i - t2i)
+        m += 1
+        mm = float(m * m)
+        # alpha *= -z_quarter_sq / (m * m): Smith's quotient by mm + 0j.
+        ratio = 0.0 / mm
+        denom = mm + 0.0 * ratio
+        qr = (nzr[pending] + nzi[pending] * ratio) / denom
+        qi = (nzi[pending] - nzr[pending] * ratio) / denom
+        ar[pending], ai[pending] = par * qr - pai * qi, par * qi + pai * qr
+        harmonic += 1.0 / m
+        if m > 60:
+            failed[pending] = True
+            break
+        size_alpha = np.hypot(ar[pending], ai[pending])
+        bound = 1e-18 * np.maximum(1.0, np.hypot(dr[pending], di[pending]))
+        stop = size_alpha < bound
+        # A size within rounding of the bound decides with the scalar abs().
+        for position in np.flatnonzero(np.abs(size_alpha - bound) <= 1e-12 * bound):
+            e = pending[position]
+            stop[position] = abs(complex(ar[e], ai[e])) < 1e-18 * max(1.0, abs(complex(dr[e], di[e])))
+        pending = pending[~stop]
+    for position, index in enumerate(live_ids):
+        if failed[position]:
+            continue
+        ell = ell_values[position]
+        b_diag = complex(dr[position], di[position])
+        b_off = complex(orr[position], oi[position])
+        blocks[index] = (0.25j * ell * ell) * np.array(
+            [[b_diag, b_off], [b_off, b_diag]], dtype=np.complex128,
+        )
+    return blocks
 
 
 def _integrate_linear_self_duffy(
@@ -710,21 +845,34 @@ def _near_kernel_values(k0, distance, with_green, with_derivative, table=None):
     return green, derivative
 
 
+def _touching_geometry_arrays(prepared_geometry, obs_ids, src_ids, obs_normal_deriv):
+    """Arrays of ``_integrate_linear_touching_pairs_sk_batched`` from prepared element arrays."""
+    p0, p1, _, lengths, normals = prepared_geometry
+    return (p0[obs_ids], p1[obs_ids], p0[src_ids], p1[src_ids], lengths[obs_ids], lengths[src_ids],
+            normals[obs_ids if obs_normal_deriv else src_ids])
+
+
 def _integrate_linear_touching_pairs_sk_batched(pairs, shared, k0,
-        obs_normal_deriv, order, compute_single_layer=True, compute_double_layer=True, table=None):
+        obs_normal_deriv, order, compute_single_layer=True, compute_double_layer=True, table=None,
+        geometry=None):
     """The graded-corner touching rule with a bounded leading pair dimension.
 
     Full elements only; each pair equals `_integrate_linear_touching_duffy_sk_vectorized`
     on (0, 1) x (0, 1) to rounding, or to the table's 2e-13 when ``table`` (a
-    validated kernel table) evaluates the kernels.
+    validated kernel table) evaluates the kernels. ``geometry``
+    (``_touching_geometry_arrays``) replaces ``pairs`` with the same element
+    values as arrays.
     """
     x0, y0, weights = _touching_rule(order)
     shared = np.asarray(shared, dtype=bool).reshape(-1, 2)
-    obs, src = zip(*pairs)
-    obs_p0 = np.asarray([e.p0 for e in obs], dtype=float)
-    obs_p1 = np.asarray([e.p1 for e in obs], dtype=float)
-    src_p0 = np.asarray([e.p0 for e in src], dtype=float)
-    src_p1 = np.asarray([e.p1 for e in src], dtype=float)
+    if geometry is None:
+        obs, src = zip(*pairs)
+        geometry = (np.asarray([e.p0 for e in obs], dtype=float), np.asarray([e.p1 for e in obs], dtype=float),
+                    np.asarray([e.p0 for e in src], dtype=float), np.asarray([e.p1 for e in src], dtype=float),
+                    np.asarray([e.length for e in obs], float), np.asarray([e.length for e in src], float),
+                    np.asarray([e.normal for e in (obs if obs_normal_deriv else src)]))
+    obs_p0, obs_p1, src_p0, src_p1, obs_len, src_len, normals = geometry
+    npairs = len(obs_p0)
     obs_start, src_start = shared[:, :1], shared[:, 1:]
     corner_o = np.where(obs_start, obs_p0, obs_p1)
     corner_s = np.where(src_start, src_p0, src_p1)
@@ -732,8 +880,7 @@ def _integrate_linear_touching_pairs_sk_batched(pairs, shared, k0,
     d_s = np.where(src_start, 1.0, -1.0) * (src_p1 - src_p0)
     origin = corner_o - corner_s
     roundoff = 64.0 * np.finfo(float).eps * np.maximum.reduce([
-        np.linalg.norm(corner_o, axis=1), np.linalg.norm(corner_s, axis=1),
-        np.asarray([e.length for e in obs], float), np.asarray([e.length for e in src], float)])
+        np.linalg.norm(corner_o, axis=1), np.linalg.norm(corner_s, axis=1), obs_len, src_len])
     origin[np.linalg.norm(origin, axis=1) <= roundoff] = 0.0
     diff = (origin[:, None, :] + x0[None, :, None] * d_o[:, None, :]
             - y0[None, :, None] * d_s[:, None, :])
@@ -742,18 +889,17 @@ def _integrate_linear_touching_pairs_sk_batched(pairs, shared, k0,
     po, ps = np.stack((1-x, x), axis=-1), np.stack((1-y, y), axis=-1)
     dist = np.linalg.norm(diff, axis=-1)
     safe = np.maximum(dist, EPS)
-    s = k = np.zeros((len(pairs), 2, 2), complex)
+    s = k = np.zeros((npairs, 2, 2), complex)
     green, deriv = _near_kernel_values(k0, safe, compute_single_layer, compute_double_layer, table)
     if compute_single_layer:
         s = po.swapaxes(1, 2) @ ((weights[None, :] * green)[:, :, None] * ps)
     if compute_double_layer:
-        normals = np.asarray([e.normal for e in (obs if obs_normal_deriv else src)])
         deriv *= np.sum(diff * normals[:, None, :], axis=-1) / safe
         if obs_normal_deriv:
             deriv = -deriv
         deriv[dist <= EPS] = 0
         k = po.swapaxes(1, 2) @ ((weights[None, :] * deriv)[:, :, None] * ps)
-    scale = np.asarray([a.length*b.length for a, b in pairs])[:, None, None]
+    scale = (obs_len * src_len)[:, None, None]
     return s * scale, k * scale
 
 
@@ -1656,7 +1802,104 @@ def _run_tiled_obs_blocks(
         list(pool.map(run, starts))
 
 
-def _run_ordered_tiles(count: 'int', compute: 'Callable[[int], Optional[Callable[[], None]]]') -> 'None':
+class FarTileConflicts:
+    """Which far tiles may write a common destination entry.
+
+    A tile writes the rectangle (observation-block nodes) x (source-block
+    nodes) and, when mirrored, its transpose. When every destination row and
+    column of the commit targets belongs to one mesh node
+    (``independent_commit_targets``), two tiles can touch a common entry only
+    if one rectangle of each overlaps in both its row and column node sets.
+    Block node sets overlap through shared boundary nodes, so the test is
+    conservative and exact entry order never depends on it being tight.
+    """
+
+    def __init__(self, tiles, tile, obs_sel, src_sel, node_ids, symmetric, node_count):
+        from scipy.sparse import csr_matrix
+        obs_starts = sorted({i0 for i0, _ in tiles})
+        src_starts = sorted({j0 for _, j0 in tiles})
+        sets = ([node_ids[obs_sel[i0:i0 + tile]].ravel() for i0 in obs_starts]
+                + [node_ids[src_sel[j0:j0 + tile]].ravel() for j0 in src_starts])
+        family = np.concatenate([np.full(len(v), f, dtype=np.int64) for f, v in enumerate(sets)])
+        nodes = np.concatenate(sets).astype(np.int64)
+        incidence = csr_matrix((np.ones(len(nodes)), (family, nodes)), shape=(len(sets), int(node_count)))
+        self.overlap = np.asarray((incidence @ incidence.T).toarray() > 0)
+        obs_block = {i0: index for index, i0 in enumerate(obs_starts)}
+        src_block = {j0: len(obs_starts) + index for index, j0 in enumerate(src_starts)}
+        self.rows = np.array([obs_block[i0] for i0, _ in tiles], dtype=np.int64)
+        self.columns = np.array([src_block[j0] for _, j0 in tiles], dtype=np.int64)
+        self.mirrored = np.array([bool(symmetric and j0 > i0) for i0, j0 in tiles], dtype=bool)
+
+    def rectangles(self, index):
+        r, c = self.rows[index], self.columns[index]
+        return ((r, c), (c, r)) if self.mirrored[index] else ((r, c),)
+
+    def conflicting(self, index, candidates):
+        """The candidates (earlier tile indices) whose writes may meet tile ``index``'s."""
+        candidates = np.asarray(candidates, dtype=np.int64)
+        if not candidates.size:
+            return candidates
+        ov = self.overlap
+        rows, columns, mirrored = self.rows[candidates], self.columns[candidates], self.mirrored[candidates]
+        hit = np.zeros(candidates.size, dtype=bool)
+        for r, c in self.rectangles(index):
+            hit |= ov[r, rows] & ov[c, columns]
+            hit |= mirrored & ov[r, columns] & ov[c, rows]
+        return candidates[hit]
+
+
+def independent_commit_targets(targets):
+    """True when concurrent commits of non-overlapping node rectangles touch distinct entries.
+
+    Requires plain ``SystemScatter`` routes (no overridden scatter methods) into
+    destination arrays that do not overlap one another, and that every
+    destination row (column) of an array is reached from a single mesh node
+    across all routes into that array.
+    """
+    from ghost_backend.twod.assembly.scatter import SystemScatter
+    arrays = {}
+    for target in targets:
+        if (not isinstance(target, SystemScatter) or type(target).scatter_add is not SystemScatter.scatter_add
+                or type(target).scatter_tile is not SystemScatter.scatter_tile
+                or not isinstance(target.matrix, np.ndarray) or target.matrix.ndim != 2):
+            return False
+        arrays.setdefault(id(target.matrix), (target.matrix, []))[1].extend(target.routes)
+    matrices = [value[0] for value in arrays.values()]
+    for a in range(len(matrices)):
+        for b in range(a + 1, len(matrices)):
+            # Disjoint blocks of one system matrix are independent; an
+            # undecided overlap test counts as shared.
+            if not np.may_share_memory(matrices[a], matrices[b]):
+                continue
+            try:
+                if np.shares_memory(matrices[a], matrices[b], max_work=1 << 20):
+                    return False
+            except Exception:
+                return False
+    for matrix, routes in arrays.values():
+        for axis in (0, 1):
+            owner = np.full(matrix.shape[axis], -1, dtype=np.int64)
+            seen = set()
+            for route in routes:
+                node_map = route[axis]
+                if id(node_map) in seen:
+                    continue
+                seen.add(id(node_map))
+                node_map = np.asarray(node_map)
+                nodes = np.flatnonzero(node_map >= 0)
+                destination = node_map[nodes]
+                if len(destination) and (destination.max() >= matrix.shape[axis]
+                                         or len(np.unique(destination)) != len(destination)):
+                    return False
+                previous = owner[destination]
+                if np.any((previous >= 0) & (previous != nodes)):
+                    return False
+                owner[destination] = nodes
+    return True
+
+
+def _run_ordered_tiles(count: 'int', compute: 'Callable[[int], Optional[Callable[[], None]]]',
+                       conflicts: 'Optional[FarTileConflicts]' = None) -> 'None':
     """Run ``compute(i)`` for every tile, committing its result in tile order.
 
     ``compute`` integrates one tile and returns a ``commit`` callable (or None)
@@ -1665,6 +1908,12 @@ def _run_ordered_tiles(count: 'int', compute: 'Callable[[int], Optional[Callable
     destination entry receives its far contributions in the serial order and a
     threaded assembly reproduces the serial one bit for bit. At most twice the
     worker count of finished tiles wait for their commit.
+
+    With ``conflicts`` (a :class:`FarTileConflicts` for targets that pass
+    ``independent_commit_targets``) the worker that finishes a tile commits
+    it as soon as every earlier tile whose writes may meet it has committed,
+    and tiles with disjoint writes commit concurrently: each destination entry
+    still receives its contributions in tile order, so the sums are unchanged.
     """
 
     workers = min(get_assembly_threads(), count)
@@ -1681,6 +1930,9 @@ def _run_ordered_tiles(count: 'int', compute: 'Callable[[int], Optional[Callable
                 return compute(index)
         return compute(index)
 
+    if workers > 1 and conflicts is not None:
+        _run_dependent_tiles(count, run, conflicts, workers, owner)
+        return
     if workers <= 1:
         for index in range(count):
             commit = run(index)
@@ -1709,6 +1961,77 @@ def _run_ordered_tiles(count: 'int', compute: 'Callable[[int], Optional[Callable
                 owner.checkpoint()
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
+
+
+# Far tiles commit on their workers, ordered per conflicting pair (False: on
+# the calling thread in tile order). Both give bitwise the same matrices.
+CONCURRENT_FAR_COMMITS = True
+
+
+def _run_dependent_tiles(count, run, conflicts, workers, owner):
+    """``_run_ordered_tiles`` with commits on the workers, ordered per conflicting tile pair."""
+    from collections import deque
+    from concurrent.futures import ThreadPoolExecutor
+    lock = threading.Lock()
+    committed = np.zeros(count, dtype=bool)
+    depends = [None] * count
+    parked = {}
+    inflight = []
+    state = {'committed': 0}
+
+    def drain():
+        # Commit every parked tile whose earlier conflicting tiles are done,
+        # smallest index first; conflicting tiles never commit together.
+        while True:
+            with lock:
+                chosen = None
+                for index in sorted(parked):
+                    if committed[depends[index]].all():
+                        chosen = index
+                        break
+                if chosen is None:
+                    return
+                commit = parked.pop(chosen)
+            commit()
+            with lock:
+                committed[chosen] = True
+                state['committed'] += 1
+
+    def task(index):
+        commit = run(index)
+        with lock:
+            if commit is None:
+                committed[index] = True
+                state['committed'] += 1
+            else:
+                parked[index] = commit
+        drain()
+
+    window = 3 * workers
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        pending = deque()
+        submitted = 0
+        while submitted < count or pending:
+            while submitted < count:
+                with lock:
+                    if submitted - state['committed'] >= window:
+                        break
+                    inflight[:] = [i for i in inflight if not committed[i]]
+                    candidates = list(inflight)
+                depends[submitted] = conflicts.conflicting(submitted, candidates)
+                with lock:
+                    inflight.append(submitted)
+                pending.append(pool.submit(task, submitted))
+                submitted += 1
+            if pending:
+                pending.popleft().result()
+                if owner is not None:
+                    owner.checkpoint()
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+    if not committed.all():
+        raise RuntimeError('Far-tile commits did not complete.')
 
 
 _NEAR_CLASSIFY_CHUNK = 1 << 19
@@ -1971,10 +2294,16 @@ def _maue_blocks(s_blocks, k0, obs_normals, src_normals, obs_lengths, src_length
 @assembly_component('near_integration')
 def _near_pair_blocks(elements, obs_idx, src_idx, k0, obs_normal_deriv, obs_order, src_order,
                       integrate_s, want_k, p0_arr, seg_arr, centers, lengths, node_ids, far_table,
-                      single_layer_blocks=None, double_layer_blocks=None, prepared_geometry=None):
-    """Integrate one bounded set of pairs, using the unchanged quadrature rules."""
+                      single_layer_blocks=None, double_layer_blocks=None, prepared_geometry=None,
+                      panel_index=None):
+    """Integrate one bounded set of pairs, using the unchanged quadrature rules.
+
+    ``prepared_geometry`` (linear meshes: p0, p1, segments, lengths, normals
+    of every element, as the elements hold them) and ``panel_index`` replace
+    per-batch gathers from the element objects with array indexing."""
     npairs, width = len(obs_idx), node_ids.shape[1]
-    panel_index = np.asarray([e.panel_index for e in elements], dtype=np.int64)
+    if panel_index is None:
+        panel_index = np.asarray([e.panel_index for e in elements], dtype=np.int64)
     s_near, k_near = single_layer_blocks, double_layer_blocks
     if integrate_s and s_near is None:
         s_near = np.zeros((npairs, width, width), dtype=np.complex128)
@@ -2037,6 +2366,11 @@ def _near_pair_blocks(elements, obs_idx, src_idx, k0, obs_normal_deriv, obs_orde
                 for start in range(0, len(touching_pos), per_batch)]
         def integrate_touching(job):
             positions, shared = job
+            if prepared_geometry is not None:
+                return _integrate_linear_touching_pairs_sk_batched(None, shared, k0,
+                    obs_normal_deriv, order, integrate_s, want_k, table=far_table,
+                    geometry=_touching_geometry_arrays(prepared_geometry, obs_idx[positions],
+                                                       src_idx[positions], obs_normal_deriv))
             pairs = [(elements[int(obs_idx[p])], elements[int(src_idx[p])]) for p in positions]
             return _integrate_linear_touching_pairs_sk_batched(pairs, shared, k0,
                 obs_normal_deriv, order, integrate_s, want_k, table=far_table)
@@ -2065,8 +2399,25 @@ def _near_pair_blocks(elements, obs_idx, src_idx, k0, obs_normal_deriv, obs_orde
         done[remaining] = True
         blocks = None
 
-    # Self and adaptive linear pairs, one at a time (O(N) self terms plus the
-    # few close pairs whose rule adapts).
+    # Linear self pairs: the closed-form series over all of them at once
+    # (bitwise the per-element routine; the elements it rejects keep it).
+    if width == 2:
+        self_pos = np.flatnonzero(~done & (panel_index[obs_idx] == panel_index[src_idx]))
+        if len(self_pos):
+            zero = np.zeros((2, 2), dtype=np.complex128)
+            exact = (_single_layer_self_blocks_exact_many(lengths[obs_idx[self_pos]], k0)
+                     if integrate_s else [zero] * len(self_pos))
+            for pos, s_blk in zip(self_pos, exact):
+                if s_blk is None:
+                    continue
+                if s_near is not None:
+                    s_near[pos] = s_blk
+                if k_near is not None:
+                    k_near[pos] = zero
+                done[pos] = True
+
+    # Remaining self and adaptive linear pairs, one at a time (the few close
+    # pairs whose rule adapts, and self terms outside the series' range).
     for pos in np.flatnonzero(~done):
         s_blk, k_blk = _sk_blocks_near_linear(
             obs_elem=elements[int(obs_idx[pos])],
@@ -2332,6 +2683,13 @@ def _assemble_multi(
              for j0 in range(i0 if symmetric else 0, n_src, tile)]
     near_records: 'List[Optional[List[Tuple[np.ndarray, np.ndarray, int, np.ndarray, bool]]]]' = [None] * len(tiles)
 
+    # Defined here, where the solve's assembly profile is bound: commits may
+    # run on the tile workers.
+    @assembly_component('far_scatter')
+    def _commit_far(scatters):
+        for target, rows, columns, values, factor in scatters:
+            target.scatter_tile(rows, columns, values, factor)
+
     @assembly_component('far_integration')
     def _far_tile(index: 'int'):
         i0, j0 = tiles[index]
@@ -2356,7 +2714,8 @@ def _assemble_multi(
         mdy = obs_ctr[:, 1][:, None] - src_centers[src_slice, 1][None, :]
         centre_dist = np.sqrt(mdx * mdx + mdy * mdy)
         scale = np.maximum(np.maximum(obs_len[:, None], src_len[None, :]), EPS)
-        far_sym = (centre_dist / scale) >= float(far_ratio)
+        ratio = centre_dist / scale
+        far_sym = ratio >= float(far_ratio)
         far_sym &= ~(
             (obs_nid[:, 0][:, None] == src_nid[None, :, 0])
             | (obs_nid[:, 0][:, None] == src_nid[None, :, 1])
@@ -2419,7 +2778,7 @@ def _assemble_multi(
 
         any_far = far_sym & (eligible_ij | eligible_ji)
         ratio_min = float(np.min(
-            np.where(any_far, centre_dist / scale, np.inf)
+            np.where(any_far, ratio, np.inf)
         )) if any_far.any() else float("inf")
         if far_eval is not far_sym:
             any_far = far_eval & (eligible_ij | eligible_ji)
@@ -2508,14 +2867,14 @@ def _assemble_multi(
                                          acc_w[a::width].transpose(0, 2, 1), mask_ji.T))
         if not scatters:
             return None
+        return lambda: _commit_far(scatters)
 
-        @assembly_component('far_scatter')
-        def commit():
-            for target, rows, columns, values, factor in scatters:
-                target.scatter_tile(rows, columns, values, factor)
-        return commit
-
-    _run_ordered_tiles(len(tiles), _far_tile)
+    tile_conflicts = None
+    if len(tiles) > 1 and min(get_assembly_threads(), len(tiles)) > 1 and CONCURRENT_FAR_COMMITS:
+        targets = [t for t in s_out + k_out + d_out + w_out if t is not None]
+        if independent_commit_targets(targets):
+            tile_conflicts = FarTileConflicts(tiles, tile, obs_sel, src_sel, node_ids, symmetric, nnodes)
+    _run_ordered_tiles(len(tiles), _far_tile, tile_conflicts)
 
 
     obs_idx, src_idx = _expand_near_chunks(
@@ -2527,8 +2886,10 @@ def _assemble_multi(
     from ghost_backend.twod.assembly.near_store import NearStore, NEAR_INTEGRATION_PAIRS
     from ghost_backend.twod.polynomial_quadrature import solve_checkpoint
     kinds = (['S'] if integrate_s else []) + (['K'] if want_k else []) + (['D'] if want_d else [])
+    # Element arrays of the near batches (p1 and normals as the elements hold them).
     near_geometry = (p0_arr, np.asarray([e.p1 for e in elements], float), seg_arr, lengths,
-                     np.asarray([e.normal for e in elements], float)) if width == 2 else None
+                     np.asarray([e.normal for e in elements], float))
+    panel_index = np.asarray([e.panel_index for e in elements], dtype=np.int64)
     with NearStore(npairs, width, kinds, solve_checkpoint()) as near:
         for start in range(0, npairs, NEAR_INTEGRATION_PAIRS):
             stop = min(start + NEAR_INTEGRATION_PAIRS, npairs)
@@ -2537,7 +2898,7 @@ def _assemble_multi(
                 p0_arr, seg_arr, centers, lengths, node_ids, far_table,
                 single_layer_blocks=near.arrays['S'][start:stop] if 'S' in near.arrays else None,
                 double_layer_blocks=near.arrays['K'][start:stop] if 'K' in near.arrays else None,
-                prepared_geometry=near_geometry)
+                prepared_geometry=near_geometry, panel_index=panel_index)
             if sb is not None:
                 near.write('S', start, sb)
             if kb is not None:

@@ -319,6 +319,52 @@ void near_mfie(int npair, int nxi,
  * [npair, nxi].  R is floored at NEAR_R_MIN like the near samplers; the
  * caller never sends coincident points here.
  */
+/*
+ * Vectorizable sine and cosine of x >= 0 for the far pair samplers (A-BF-1,
+ * 16 Oct 2026): Cephes sin.c/cos.c three-part Cody-Waite reduction by pi/4
+ * and their degree-6 minimax polynomials on |z| <= pi/4, with a branch-free
+ * quadrant selection, so GCC vectorizes the sample loops (libm sincos is a
+ * scalar call).  Within 1-2 ulp of libm (measured 2-6e-16 relative over the
+ * far-sample range kR < 1e4); sqrt and division stay IEEE and the build keeps
+ * -ffp-contract=off (no FMA).  The near samplers keep libm.  Building with
+ * -DGHOST_LIBM_SINCOS restores libm here (the pre-October reference).
+ */
+static inline void ghost_sincos(double x, double *GHOST_RESTRICT s_out,
+                                double *GHOST_RESTRICT c_out)
+{
+#ifdef GHOST_LIBM_SINCOS
+    *s_out = sin(x);
+    *c_out = cos(x);
+#else
+    const double FOPI = 1.27323954473516268615;      /* 4/pi */
+    const double DP1 = 7.85398125648498535156E-1;
+    const double DP2 = 3.77489470793079817668E-8;
+    const double DP3 = 2.69515142907905952645E-15;
+    double y = floor(x * FOPI);
+    double odd = y - 2.0 * floor(0.5 * y);            /* y mod 2 */
+    y += odd;                                          /* even multiple of pi/4 */
+    double q = 0.5 * y;
+    q -= 4.0 * floor(0.25 * q);                        /* quadrant 0..3 */
+    double z = ((x - y * DP1) - y * DP2) - y * DP3;
+    double zz = z * z;
+    double sp = z + z * zz * (((((1.58962301576546568060E-10 * zz
+        - 2.50507477628578072866E-8) * zz + 2.75573136213857245213E-6) * zz
+        - 1.98412698295895385996E-4) * zz + 8.33333333332211858878E-3) * zz
+        - 1.66666666666666307295E-1);
+    double cp = 1.0 - 0.5 * zz + zz * zz * (((((-1.13585365213876817300E-11 * zz
+        + 2.08757008419747316778E-9) * zz - 2.75573141792967388112E-7) * zz
+        + 2.48015872888517045348E-5) * zz - 1.38888888888730564116E-3) * zz
+        + 4.16666666666665929218E-2);
+    int swap = (q == 1.0) | (q == 3.0);
+    double s1 = swap ? cp : sp;
+    double c1 = swap ? sp : cp;
+    double ssign = (q >= 2.0) ? -1.0 : 1.0;
+    double csign = ((q == 1.0) | (q == 2.0)) ? -1.0 : 1.0;
+    *s_out = ssign * s1;
+    *c_out = csign * c1;
+#endif
+}
+
 static inline int team_size(int nthreads)
 {
 #ifdef _OPENMP
@@ -327,6 +373,165 @@ static inline int team_size(int nthreads)
     (void)nthreads;
     return 1;
 #endif
+}
+
+/* One pair row of each far sampler, inlined into the ISA-specific team loops
+ * below. */
+static inline __attribute__((always_inline)) void g_pair_row(
+    int i, int nxi,
+    const double *GHOST_RESTRICT rho_p, const double *GHOST_RESTRICT z_p,
+    const double *GHOST_RESTRICT rho_q, const double *GHOST_RESTRICT z_q,
+    double kr, double ki, const double *GHOST_RESTRICT sin2_tab,
+    double *GHOST_RESTRICT out)
+{
+    double dr = rho_p[i] - rho_q[i];
+    double dz = z_p[i] - z_q[i];
+    double d2 = dr * dr + dz * dz;
+    double rr4 = 4.0 * rho_p[i] * rho_q[i];
+    double *o = out + 2 * (size_t)nxi * (size_t)i;
+    for (int l = 0; l < nxi; l++) {
+        double R = sqrt(d2 + rr4 * sin2_tab[l]);
+        R = R < NEAR_R_MIN ? NEAR_R_MIN : R;
+        double a = GHOST_DECAY(ki, ki * R) / (4.0 * M_PI * R);
+        double kR = kr * R, cs, sn;
+        ghost_sincos(kR, &sn, &cs);
+        o[2 * l] = a * cs;
+        o[2 * l + 1] = -a * sn;
+    }
+}
+
+#define GHOST_BRACKET_LOOP(FAMILY_IS_MFIE, REAL_K)                                        \
+    for (int l = 0; l < nxi; l++) {                                                       \
+        double cx = cx_tab[l], sx = sx_tab[l];                                            \
+        double rx = rp - rq * cx, ry = rq * sx;                                           \
+        double r = sqrt(rx * rx + ry * ry + rz * rz);                                     \
+        r = r < NEAR_R_MIN ? NEAR_R_MIN : r;                                              \
+        double a = kr * r, b = (REAL_K) ? 0.0 : ki * r, c, s;                             \
+        ghost_sincos(a, &s, &c);                                                          \
+        double scale = ((REAL_K) ? 1.0 : exp(b)) / (4.0 * M_PI * r * r * r);              \
+        double pre = ((1.0 - b) * c + a * s) * scale;                                     \
+        double pim = (a * c - (1.0 - b) * s) * scale;                                     \
+        double wt_tq = tp * tq * cx + zp * zq, wt_fq = tp * sx;                           \
+        double wf_tq = -tq * sx, wf_fq = cx;                                              \
+        double vtt, vtf, vft, vff;                                                        \
+        if (FAMILY_IS_MFIE) {                                                             \
+            double wtr = tp * rx + zp * rz, nr = -zp * rx + tp * rz;                      \
+            double ntq = -zp * tq * cx + tp * zq, nfq = -zp * sx;                         \
+            vtt = -(wtr * ntq - wt_tq * nr);                                              \
+            vtf = -(wtr * nfq - wt_fq * nr);                                              \
+            vft = -(ry * ntq - wf_tq * nr);                                               \
+            vff = -(ry * nfq - wf_fq * nr);                                               \
+        } else {                                                                          \
+            double wtnq = -tp * zq * cx + zp * tq, wfnq = zq * sx;                        \
+            double d = rp * cx - rq;                                                      \
+            double rtq = tq * d + zq * rz, rfq = rp * sx, rnq = -zq * d + tq * rz;        \
+            vtt = wtnq * rtq - wt_tq * rnq;                                               \
+            vtf = wtnq * rfq - wt_fq * rnq;                                               \
+            vft = wfnq * rtq - wf_tq * rnq;                                               \
+            vff = wfnq * rfq - wf_fq * rnq;                                               \
+        }                                                                                 \
+        tt[2 * l] = vtt * pre; tt[2 * l + 1] = vtt * pim;                                 \
+        tf[2 * l] = vtf * pre; tf[2 * l + 1] = vtf * pim;                                 \
+        ft[2 * l] = vft * pre; ft[2 * l + 1] = vft * pim;                                 \
+        ff[2 * l] = vff * pre; ff[2 * l + 1] = vff * pim;                                 \
+    }
+
+static inline __attribute__((always_inline)) void brackets_pair_row(
+    int family, int real_k, int i, int nxi,
+    const double *GHOST_RESTRICT rho_p, const double *GHOST_RESTRICT z_p,
+    const double *GHOST_RESTRICT tr_p, const double *GHOST_RESTRICT tz_p,
+    const double *GHOST_RESTRICT rho_q, const double *GHOST_RESTRICT z_q,
+    const double *GHOST_RESTRICT tr_q, const double *GHOST_RESTRICT tz_q,
+    double kr, double ki,
+    const double *GHOST_RESTRICT cx_tab, const double *GHOST_RESTRICT sx_tab,
+    double *GHOST_RESTRICT o_tt, double *GHOST_RESTRICT o_tf,
+    double *GHOST_RESTRICT o_ft, double *GHOST_RESTRICT o_ff)
+{
+    double rp = rho_p[i], rq = rho_q[i], rz = z_p[i] - z_q[i];
+    double tp = tr_p[i], zp = tz_p[i], tq = tr_q[i], zq = tz_q[i];
+    size_t base = 2 * (size_t)nxi * (size_t)i;
+    double *GHOST_RESTRICT tt = o_tt + base, *GHOST_RESTRICT tf = o_tf + base;
+    double *GHOST_RESTRICT ft = o_ft + base, *GHOST_RESTRICT ff = o_ff + base;
+    /* Unswitched on the family and on a real k, so each inner loop is
+     * branch-free and vectorizes; the arithmetic is the loop it replaced. */
+    if (family == 0) {
+        if (real_k) { GHOST_BRACKET_LOOP(1, 1) } else { GHOST_BRACKET_LOOP(1, 0) }
+    } else {
+        if (real_k) { GHOST_BRACKET_LOOP(0, 1) } else { GHOST_BRACKET_LOOP(0, 0) }
+    }
+}
+#undef GHOST_BRACKET_LOOP
+
+/* The team loops, once per instruction set.  The vector sincos needs a
+ * vector floor (SSE4.1 roundpd), so the portable SSE2 build stays scalar; an
+ * AVX2 copy is selected at run time when the CPU and OS support it.  Both
+ * copies perform the same IEEE operations in the same order (no FMA:
+ * -ffp-contract=off; no reassociation), so their results are bitwise equal
+ * (ghost_set_pair_sampler_isa lets the tests compare them). */
+#define GHOST_PAIR_SAMPLERS(SUFFIX, ATTRIBUTE)                                            \
+ATTRIBUTE static void sample_g_pairs_##SUFFIX(                                            \
+    int npair, int nxi,                                                                   \
+    const double *GHOST_RESTRICT rho_p, const double *GHOST_RESTRICT z_p,                 \
+    const double *GHOST_RESTRICT rho_q, const double *GHOST_RESTRICT z_q,                 \
+    double kr, double ki, const double *GHOST_RESTRICT sin2_tab,                          \
+    double *GHOST_RESTRICT out, int team)                                                 \
+{                                                                                         \
+    _Pragma("omp parallel for schedule(static) num_threads(team)")                        \
+    for (int i = 0; i < npair; i++)                                                       \
+        g_pair_row(i, nxi, rho_p, z_p, rho_q, z_q, kr, ki, sin2_tab, out);                \
+}                                                                                         \
+ATTRIBUTE static void sample_brackets_pairs_##SUFFIX(                                     \
+    int family, int npair, int nxi,                                                       \
+    const double *GHOST_RESTRICT rho_p, const double *GHOST_RESTRICT z_p,                 \
+    const double *GHOST_RESTRICT tr_p, const double *GHOST_RESTRICT tz_p,                 \
+    const double *GHOST_RESTRICT rho_q, const double *GHOST_RESTRICT z_q,                 \
+    const double *GHOST_RESTRICT tr_q, const double *GHOST_RESTRICT tz_q,                 \
+    double kr, double ki,                                                                 \
+    const double *GHOST_RESTRICT cx_tab, const double *GHOST_RESTRICT sx_tab,             \
+    double *GHOST_RESTRICT o_tt, double *GHOST_RESTRICT o_tf,                             \
+    double *GHOST_RESTRICT o_ft, double *GHOST_RESTRICT o_ff, int team)                   \
+{                                                                                         \
+    const int real_k = (ki == 0.0);                                                       \
+    _Pragma("omp parallel for schedule(static) num_threads(team)")                        \
+    for (int i = 0; i < npair; i++)                                                       \
+        brackets_pair_row(family, real_k, i, nxi, rho_p, z_p, tr_p, tz_p, rho_q, z_q,     \
+                          tr_q, tz_q, kr, ki, cx_tab, sx_tab, o_tt, o_tf, o_ft, o_ff);    \
+}
+
+GHOST_PAIR_SAMPLERS(portable, )
+#if defined(__GNUC__) && (defined(__x86_64__) || defined(__i386__)) && !defined(GHOST_NO_AVX2)
+#define GHOST_HAVE_AVX2_SAMPLERS 1
+GHOST_PAIR_SAMPLERS(avx2, __attribute__((target("avx2"))))
+#endif
+#undef GHOST_PAIR_SAMPLERS
+
+/* -1 until first use; then 1 (AVX2 copies) or 0 (portable copies). */
+static int ghost_pair_isa = -1;
+
+static int pair_sampler_isa(void)
+{
+    int isa = ghost_pair_isa;
+    if (isa < 0) {
+#ifdef GHOST_HAVE_AVX2_SAMPLERS
+        __builtin_cpu_init();
+        isa = __builtin_cpu_supports("avx2") ? 1 : 0;
+#else
+        isa = 0;
+#endif
+        ghost_pair_isa = isa;
+    }
+    return isa;
+}
+
+/* mode < 0: query; 0: portable copies; 1: automatic (AVX2 when supported).
+ * Returns the copy now in use (1 = AVX2). */
+int ghost_set_pair_sampler_isa(int mode)
+{
+    if (mode == 0)
+        ghost_pair_isa = 0;
+    else if (mode > 0)
+        ghost_pair_isa = -1;
+    return pair_sampler_isa();
 }
 
 void sample_g_pairs(int npair, int nxi,
@@ -339,22 +544,13 @@ void sample_g_pairs(int npair, int nxi,
                     double *GHOST_RESTRICT out, int nthreads)
 {
     const int team = team_size(nthreads);
-    #pragma omp parallel for schedule(static) num_threads(team)
-    for (int i = 0; i < npair; i++) {
-        double dr = rho_p[i] - rho_q[i];
-        double dz = z_p[i] - z_q[i];
-        double d2 = dr * dr + dz * dz;
-        double rr4 = 4.0 * rho_p[i] * rho_q[i];
-        double *o = out + 2 * (size_t)nxi * (size_t)i;
-        for (int l = 0; l < nxi; l++) {
-            double R = sqrt(d2 + rr4 * sin2_tab[l]);
-            if (R < NEAR_R_MIN) R = NEAR_R_MIN;
-            double a = GHOST_DECAY(ki, ki * R) / (4.0 * M_PI * R);
-            double kR = kr * R;
-            o[2 * l] = a * cos(kR);
-            o[2 * l + 1] = -a * sin(kR);
-        }
+#ifdef GHOST_HAVE_AVX2_SAMPLERS
+    if (pair_sampler_isa()) {
+        sample_g_pairs_avx2(npair, nxi, rho_p, z_p, rho_q, z_q, kr, ki, sin2_tab, out, team);
+        return;
     }
+#endif
+    sample_g_pairs_portable(npair, nxi, rho_p, z_p, rho_q, z_q, kr, ki, sin2_tab, out, team);
 }
 
 void sample_brackets_pairs(int family, int npair, int nxi,
@@ -374,47 +570,15 @@ void sample_brackets_pairs(int family, int npair, int nxi,
                            int nthreads)
 {
     const int team = team_size(nthreads);
-    #pragma omp parallel for schedule(static) num_threads(team)
-    for (int i = 0; i < npair; i++) {
-        double rp = rho_p[i], rq = rho_q[i], rz = z_p[i] - z_q[i];
-        double tp = tr_p[i], zp = tz_p[i], tq = tr_q[i], zq = tz_q[i];
-        size_t base = 2 * (size_t)nxi * (size_t)i;
-        double *tt = o_tt + base, *tf = o_tf + base;
-        double *ft = o_ft + base, *ff = o_ff + base;
-        for (int l = 0; l < nxi; l++) {
-            double cx = cx_tab[l], sx = sx_tab[l];
-            double rx = rp - rq * cx, ry = rq * sx;
-            double r = sqrt(rx * rx + ry * ry + rz * rz);
-            if (r < NEAR_R_MIN) r = NEAR_R_MIN;
-            double a = kr * r, b = ki * r, c = cos(a), s = sin(a);
-            double scale = GHOST_DECAY(ki, b) / (4.0 * M_PI * r * r * r);
-            double pre = ((1.0 - b) * c + a * s) * scale;
-            double pim = (a * c - (1.0 - b) * s) * scale;
-            double wt_tq = tp * tq * cx + zp * zq, wt_fq = tp * sx;
-            double wf_tq = -tq * sx, wf_fq = cx;
-            double vtt, vtf, vft, vff;
-            if (family == 0) {
-                double wtr = tp * rx + zp * rz, nr = -zp * rx + tp * rz;
-                double ntq = -zp * tq * cx + tp * zq, nfq = -zp * sx;
-                vtt = -(wtr * ntq - wt_tq * nr);
-                vtf = -(wtr * nfq - wt_fq * nr);
-                vft = -(ry * ntq - wf_tq * nr);
-                vff = -(ry * nfq - wf_fq * nr);
-            } else {
-                double wtnq = -tp * zq * cx + zp * tq, wfnq = zq * sx;
-                double d = rp * cx - rq;
-                double rtq = tq * d + zq * rz, rfq = rp * sx, rnq = -zq * d + tq * rz;
-                vtt = wtnq * rtq - wt_tq * rnq;
-                vtf = wtnq * rfq - wt_fq * rnq;
-                vft = wfnq * rtq - wf_tq * rnq;
-                vff = wfnq * rfq - wf_fq * rnq;
-            }
-            tt[2 * l] = vtt * pre; tt[2 * l + 1] = vtt * pim;
-            tf[2 * l] = vtf * pre; tf[2 * l + 1] = vtf * pim;
-            ft[2 * l] = vft * pre; ft[2 * l + 1] = vft * pim;
-            ff[2 * l] = vff * pre; ff[2 * l + 1] = vff * pim;
-        }
+#ifdef GHOST_HAVE_AVX2_SAMPLERS
+    if (pair_sampler_isa()) {
+        sample_brackets_pairs_avx2(family, npair, nxi, rho_p, z_p, tr_p, tz_p, rho_q, z_q,
+                                   tr_q, tz_q, kr, ki, cx_tab, sx_tab, o_tt, o_tf, o_ft, o_ff, team);
+        return;
     }
+#endif
+    sample_brackets_pairs_portable(family, npair, nxi, rho_p, z_p, tr_p, tz_p, rho_q, z_q,
+                                   tr_q, tz_q, kr, ki, cx_tab, sx_tab, o_tt, o_tf, o_ft, o_ff, team);
 }
 
 /*

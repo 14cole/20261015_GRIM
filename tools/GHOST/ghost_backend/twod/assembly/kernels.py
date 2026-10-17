@@ -1,6 +1,7 @@
 """Screened CPU kernels and exact straight-element plane-wave moments."""
 import hashlib
 import threading
+from functools import lru_cache
 import time
 import numpy as np
 from numpy.polynomial import Polynomial, Chebyshev
@@ -334,6 +335,21 @@ def table_reach(k, intervals=TABLE_INTERVALS):
     return bound
 
 
+@lru_cache(maxsize=8)
+def _chebyshev_to_power(n):
+    """Power-basis coefficients (rows) of the Chebyshev basis on [0, 1] (columns), degree n - 1.
+
+    The same matrix every table of this degree formed for itself (a quarter of
+    a table build); read-only because it is shared.
+    """
+    conversion=np.zeros((n,n))
+    for j in range(n):
+        co=Chebyshev.basis(j,domain=[0,1]).convert(kind=Polynomial).coef
+        conversion[:len(co),j]=co
+    conversion.flags.writeable=False
+    return conversion
+
+
 class KernelTable:
     def __init__(self,k,upper,degree=12,tolerance=2e-13):
         start=time.perf_counter();k=complex(k)
@@ -347,10 +363,7 @@ class KernelTable:
         n=degree+1;x=np.cos(np.pi*(np.arange(n)+.5)/n)
         cheb=dct(values(k,lo+(x+1)*.5*width),type=2,axis=1)/n;cheb[:,0]*=.5
 
-        conversion=np.zeros((n,n))
-        for j in range(n):
-            co=Chebyshev.basis(j,domain=[0,1]).convert(kind=Polynomial).coef
-            conversion[:len(co),j]=co
+        conversion=_chebyshev_to_power(n)
         power=np.einsum("pj,bjc->bpc",conversion,cheb)
         self.normalized_power=np.ascontiguousarray(power)
         power=power/width[:,:,None]**np.arange(n)[None,:,None]

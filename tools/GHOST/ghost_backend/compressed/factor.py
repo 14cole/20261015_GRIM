@@ -267,6 +267,11 @@ class CompressedFactor:
     @timed_stage('condition_estimation')
     def _condition(self):
         rows,columns,norm=self.a.equilibrate()
+        blocks=self.diagnostics.pop('condition_balance_blocks',None)
+        if blocks is not None:
+            # Union-closed combined exteriors only (formulations.combined_regions).
+            from ghost_backend.twod.formulations.combined_regions import balanced_streamed_scaling
+            rows,columns,norm=balanced_streamed_scaling(self.a,rows,columns,blocks)
         probe=CONDITION_PROBE_BACKWARD_ERROR_LIMIT
         # onenormest applies both probe columns at once; one checked solve serves them.
         inverse=LinearOperator(self.a.shape,
@@ -281,7 +286,8 @@ class CompressedFactor:
             probe=SOLVE_BACKWARD_ERROR_LIMIT
             estimate=norm*float(onenormest(inverse))
             if not np.isfinite(estimate):raise HierarchicalRejected('Nonfinite compressed condition estimate.')
-        self.diagnostics.update(condition_est=estimate,condition_method='equilibrated_1norm_compressed_refined_inverse',condition_label=self.label)
+        self.diagnostics.update(condition_est=estimate,condition_label=self.label,
+            condition_method='equilibrated_1norm_compressed_refined_inverse'+('_block_balanced' if blocks is not None else ''))
 
     @timed_stage('linear_solve')
     def solve(self,rhs):

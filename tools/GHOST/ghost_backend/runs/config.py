@@ -135,8 +135,19 @@ def write_configuration(path, payload):
 
 
 def driver_contract(driver):
-    """Read literal declarations without executing or rewriting driver source."""
+    """Read literal declarations without executing or rewriting driver source.
+
+    A user-facing parameter script holds only parameters and launches a
+    ``ghost_backend.hpc.<name>`` or ``ghost_backend.runs.<name>`` driver module;
+    the contract is declared there.
+    """
     tree = ast.parse(Path(driver).read_text(encoding='utf-8-sig'))
+    if not _declares_contract(tree):
+        module = _launched_driver_module(tree)
+        if module is not None:
+            from ghost_backend.execution.paths import backend_root
+            package, name = module
+            tree = ast.parse((backend_root() / package / f'{name}.py').read_text(encoding='utf-8-sig'))
     values = {}
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -146,6 +157,22 @@ def driver_contract(driver):
     if set(values) != {'_CONFIG_KEYS', '_CONFIG_KIND'}:
         raise ValueError('Driver does not declare a supported configuration contract.')
     return values['_CONFIG_KIND'], values['_CONFIG_KEYS']
+
+
+def _declares_contract(tree):
+    return any(isinstance(node, ast.Assign) and len(node.targets) == 1
+               and isinstance(node.targets[0], ast.Name) and node.targets[0].id == '_CONFIG_KEYS'
+               for node in tree.body)
+
+
+def _launched_driver_module(tree):
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            parts = node.module.split('.')
+            if (len(parts) == 3 and parts[0] == 'ghost_backend' and parts[1] in ('hpc', 'runs')
+                    and parts[2].endswith('_driver') and parts[2].isidentifier()):
+                return parts[1], parts[2]
+    return None
 
 
 def load_driver_configuration(namespace, script, kind, allowed_keys):

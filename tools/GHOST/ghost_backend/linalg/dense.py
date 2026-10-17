@@ -3,8 +3,10 @@ import numpy as np
 import time
 from functools import wraps
 from ghost_backend.execution.metrics import timed_stage
-from ghost_backend.linalg.workspace import matrix_inf_norm, first_nonfinite, checked_row_norms
+from ghost_backend.linalg.workspace import (matrix_inf_norm, first_nonfinite, checked_row_norms,
+                                            equilibrated_scaling_and_norm_1)
 from ghost_backend.linalg.refined_lu import requested_precision
+from ghost_backend.linalg.sweep import LU_DIRECT_MIN_UNKNOWNS_DENSE_2D
 
 
 def _timed_factor_work(function):
@@ -21,6 +23,10 @@ def _timed_factor_work(function):
 
 
 class DenseFactor:
+    # 'auto' RHS compression solves LU-backed batches directly from this size
+    # (linalg.sweep; the QR basis does not pay for 2-D plane-wave sweeps).
+    lu_direct_min_unknowns = LU_DIRECT_MIN_UNKNOWNS_DENSE_2D
+
     def __init__(self, matrix, diagnostics=None, label='dense system', evidence=None,
                  checkpoint=None, force_double=False, coordinates=None, owned_matrix=False):
         started=time.perf_counter()
@@ -42,9 +48,16 @@ class DenseFactor:
         self.lu = self.piv = self.mixed = None
         self._residual_spool = None
         self._spooled_buffer = None
-        # Certification: the equilibration's column pass, before any in-place LU.
-        self._condition_scaling = (rcs._equilibrated_scaling_and_norm_1(self.a, row_max=row_max)
+        # Certification: the equilibration's column pass, before any in-place LU
+        # (threaded column blocks; bitwise rcs._equilibrated_scaling_and_norm_1).
+        self._condition_scaling = (equilibrated_scaling_and_norm_1(self.a, row_max=row_max)
                                    if diagnostics is not None and row_max is not None else None)
+        blocks = diagnostics.pop('condition_balance_blocks', None) if diagnostics is not None else None
+        if blocks is not None and self._condition_scaling is not None:
+            # Union-closed combined exteriors only (formulations.combined_regions).
+            from ghost_backend.twod.formulations.combined_regions import balanced_condition_scaling
+            self._condition_scaling = balanced_condition_scaling(self.a, self._condition_scaling, blocks)
+            diagnostics['condition_scaling'] = 'row_column_max_then_block_sinkhorn'
         self._owned_matrix = owned_matrix
         self.hierarchical = None
         self.fallback_reason = ''
@@ -124,7 +137,7 @@ class DenseFactor:
                 from ghost_backend.execution.options import temporary_directory, option
                 scaling = self._condition_scaling
                 if scaling is None and self.diagnostics is not None:
-                    scaling = rcs._equilibrated_scaling_and_norm_1(self.a)
+                    scaling = equilibrated_scaling_and_norm_1(self.a)
                 try:
                     spool = ResidualSpool(self.a, temporary_directory(), self.checkpoint)
                 except OSError:
@@ -193,6 +206,8 @@ class DenseFactor:
             self._factor_double()
             return self._condition()
         self._sync_hierarchical_builds()
+        if self.diagnostics.get('condition_scaling') == 'row_column_max_then_block_sinkhorn':
+            method += '_block_balanced'
         self.diagnostics.update(condition_est=estimate, condition_method=method,
                                 condition_label=self.label)
 

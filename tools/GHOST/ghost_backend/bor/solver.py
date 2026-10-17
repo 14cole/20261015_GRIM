@@ -448,13 +448,16 @@ def _guard_bor_dense_memory(
     preparation_peak_gb: 'Optional[float]' = None,
     hierarchical: 'bool' = False,
     mirrored: 'bool' = False,
+    resident_pool_gb: 'float' = 0.0,
 ) -> 'float':
     """Gate a BoR solve before operator preparation and return required GB.
 
     ``preparation_peak_gb`` is the retained storage plus the near-integration
-    scratch of the preparation phase.  That phase ends (its process pool is
-    shut down) before any mode system is factored, so the requirement is the
-    larger of the two phases, not their sum.
+    scratch of the preparation phase.  That phase ends (its scratch is
+    released) before any mode system is factored, so the requirement is the
+    larger of the two phases, not their sum.  ``resident_pool_gb`` is the
+    idle persistent near-preparation pool that stays resident through the
+    mode phase.
 
     A rejection is a ``BorAdmissionError`` (a ``MemoryError``) recording whether
     the rejected plan already streams, so an automatic call can tell it from an
@@ -478,7 +481,10 @@ def _guard_bor_dense_memory(
         mode_tasks=mode_tasks,
         **_factor_pricing(hierarchical, mirrored),
     )
-    required = max(estimate_bor_total_peak_gb(assembly_peak, dense),
+    resident_pool = float(resident_pool_gb)
+    if not math.isfinite(resident_pool) or resident_pool < 0.0:
+        raise ValueError("BoR resident pool memory must be finite and non-negative.")
+    required = max(estimate_bor_total_peak_gb(assembly_peak + resident_pool, dense),
                    estimate_bor_total_peak_gb(preparation_peak, 0.0))
     memory_limit_gb = _solve_memory_limit_gb()
     if required > memory_limit_gb:
@@ -516,6 +522,19 @@ def _guard_bor_dense_memory(
 # Unplanned private preparation retains the historical conservative cap.
 # Public solves reserve concurrent scratch against their actual RAM allocation.
 NEAR_PREPARATION_SCRATCH_BYTES = 1 << 30
+# Scratch of one running near task (a NEAR_PROCESS_BATCH / NEAR_LOCAL_BATCH
+# batch of pairs, on a thread or a process): its point kernels are bounded by
+# NEAR_BATCH_KERNEL_BYTES and the native rules' work by NEAR_KERNEL_WORK_BYTES
+# (128 MB together). Measured 16 Oct 2026: the resident-set growth of process
+# workers (psutil, 20 ms samples) was at most 110 MB (PEC sphere 800 elements
+# at 30 GHz, 83 modes; 64 MB at 400 elements / 12 GHz; 32-42 MB on the coated
+# and dielectric spheres and the 6 GHz cylinder); the exact allocator peak of
+# one 32-pair batch (tracemalloc, the first 384 touching, disjoint and mixed
+# pairs, EFIE+MFIE) was 115 MiB at 400 elements, 133 MiB at 800 and 137 MiB
+# (144 MB) at 1,600 elements / 40 GHz (105 modes), bounded by the two kernel
+# budgets as the mode count grows. The reservation stays 3 x
+# NEAR_KERNEL_WORK_BYTES = 192 MB: 1.75x the measured RSS growth and 1.33x
+# the exact allocation peak.
 _NEAR_TASK_SCRATCH_BYTES = 3 * NEAR_KERNEL_WORK_BYTES
 _NEAR_WORKER_LIMIT = ScopedValue('ghost_bor_near_workers', default=None)
 
@@ -536,10 +555,12 @@ def plan_near_preparation(workers, assembly_peak_gb, dense_peak_gb, memory_limit
         raise ValueError('BoR near-preparation memory limit must be positive and finite.')
     # Validate the other components through the same estimator as admission.
     estimate_bor_total_peak_gb(assembly_peak_gb, dense_peak_gb)
-    # Near preparation completes, and its process pool is shut down, before
-    # any mode system is factored, so its scratch shares the limit with the
+    # Near preparation completes, and its scratch is released, before any
+    # mode system is factored, so its scratch shares the limit with the
     # retained operators alone: the mode workers' linear workspaces never
-    # coexist with it and must not be charged against it.
+    # coexist with it and must not be charged against it. The persistent
+    # process pool's idle workers do stay; they are returned here as
+    # ``persistent_pool_idle_gb`` and charged to the mode phase.
     base = estimate_bor_total_peak_gb(assembly_peak_gb, 0.0)
     headroom = max(0.0, (limit - base) / BOR_PEAK_SAFETY_FACTOR)
     from ghost_backend.bor.near_parallel import (PROCESS_OVERHEAD_BYTES,
@@ -557,13 +578,18 @@ def plan_near_preparation(workers, assembly_peak_gb, dense_peak_gb, memory_limit
         process_workers = fit(_NEAR_TASK_SCRATCH_BYTES + PROCESS_OVERHEAD_BYTES)
         if process_workers <= 1:
             process_workers = 0  # Serial preparation runs in the owning interpreter.
+    idle_gb = 0.0
     if process_workers and processes_selected(near_pairs, mode_tasks, process_workers):
         process_bytes = PROCESS_OVERHEAD_BYTES
         count, worker_bytes = process_workers, _NEAR_TASK_SCRATCH_BYTES + PROCESS_OVERHEAD_BYTES
+        # The persistent pool stays resident through the mode phase.
+        from ghost_backend.bor.near_parallel import persistent_pool_idle_bytes
+        idle_gb = persistent_pool_idle_bytes(process_workers) / 1.e9
     return dict(workers=count, scratch_gb=count * worker_bytes / 1.e9,
                 scratch_bytes_per_worker=worker_bytes,
                 process_overhead_bytes_per_worker=process_bytes,
                 process_workers=process_workers,
+                persistent_pool_idle_gb=idle_gb,
                 memory_limit_gb=limit)
 
 
@@ -608,8 +634,18 @@ def plan_bor_mode_workers(n_dofs, n_rhs, workers, mode_tasks, assembly_peak_gb,
         # The preparation phase (retained operators plus near scratch) and the
         # mode phase (retained operators plus linear workspaces) are
         # sequential: the peak is the larger of the two, as the gate prices it.
-        peak = max(estimate_bor_total_peak_gb(assembly_peak_gb + near['scratch_gb'], 0.0),
-                   estimate_bor_total_peak_gb(assembly_peak_gb, linear_peak))
+        # The idle persistent near pool stays resident in the mode phase when
+        # that fits; otherwise it is released after the preparation (as every
+        # pool was before October 2026) and the plan does not charge it.
+        preparation = estimate_bor_total_peak_gb(assembly_peak_gb + near['scratch_gb'], 0.0)
+        peak = max(preparation, estimate_bor_total_peak_gb(
+            assembly_peak_gb + near['persistent_pool_idle_gb'], linear_peak))
+        near['persistent_pool_kept'] = near['persistent_pool_idle_gb'] > 0.0
+        if peak > limit and near['persistent_pool_idle_gb'] > 0.0:
+            released = max(preparation, estimate_bor_total_peak_gb(assembly_peak_gb, linear_peak))
+            if released <= limit:
+                peak = released
+                near['persistent_pool_idle_gb'], near['persistent_pool_kept'] = 0.0, False
         if peak <= limit:
             break
     return dict(requested_workers=requested, workers=count, cpu_budget=cpu_budget,
@@ -1311,6 +1347,15 @@ def _effectively_reactive_surface_impedance(values, weights=None) -> 'bool':
     return float(np.sum(w[reactive])) >= EFFECTIVELY_REACTIVE_AREA_FRACTION * total
 
 
+# Internal switch for verification tests: the per-order test accumulation of
+# column blocks (bitwise equal to the np.sum reduction it replaces).
+_TEST_ACCUMULATE_ORDER_LOOP = True
+# Internal switch for verification tests: monostatic far fields by
+# reciprocity from the retained excitation (BorPecSolver.farfield_vv_hh_batch);
+# False restores the point-wise projection.
+_FARFIELD_RECIPROCITY = True
+
+
 class BorPecSolver:
     """Single-surface BoR operator factory + PEC/IBC solver.
 
@@ -1483,9 +1528,29 @@ class BorPecSolver:
         # Gauss points are stored element by element, so the scatter is a
         # per-element reduction (np.add.at was 2.2x slower on 12,480 points).
         grouped = values.reshape((ne, order) + trailing)
-        weights_shape = (ne, order) + (1,) * len(trailing)
-        first = np.sum(self.g.T0.reshape(weights_shape) * grouped, axis=1)
-        second = np.sum(self.g.T1.reshape(weights_shape) * grouped, axis=1)
+        if (_TEST_ACCUMULATE_ORDER_LOOP and len(trailing) == 1 and trailing[0] > 1
+                and (values.strides[1] <= values.strides[0] or order <= 3)):
+            # A column block (the batched excitation): accumulate one Gauss
+            # order at a time.  np.sum over axis 1 of the (ne, order, C)
+            # product adds the order slices in sequence when its inner loop
+            # runs over the column axis (row-major blocks; and the transposed
+            # point-major blocks of rhs_vv_hh_batch at up to 3 Gauss points,
+            # the production FAR_GAUSS_ORDER); this loop performs the same
+            # products and additions in the same order (bitwise equal,
+            # pinned by test_bor_speedups_2026_10_16) without the two
+            # (ne, order, C) temporaries: 1.5-2.7x faster per call.  Other
+            # layouts reduce pairwise along the points and keep np.sum.
+            t0 = self.g.T0.reshape(ne, order, 1)
+            t1 = self.g.T1.reshape(ne, order, 1)
+            first = t0[:, 0] * grouped[:, 0]
+            second = t1[:, 0] * grouped[:, 0]
+            for q in range(1, order):
+                first += t0[:, q] * grouped[:, q]
+                second += t1[:, q] * grouped[:, q]
+        else:
+            weights_shape = (ne, order) + (1,) * len(trailing)
+            first = np.sum(self.g.T0.reshape(weights_shape) * grouped, axis=1)
+            second = np.sum(self.g.T1.reshape(weights_shape) * grouped, axis=1)
         out = np.zeros((self.Nn,) + trailing,
                        dtype=np.result_type(values.dtype, np.float64))
         out[:-1] += first
@@ -2592,6 +2657,11 @@ class BorPecSolver:
             b = self._test_accumulate((common * (-ct * Is)).T)
             c = self._test_accumulate((common * (g.trho[None, :] * Is)).T)
             d = self._test_accumulate((common * Ic).T)
+            if _FARFIELD_RECIPROCITY:
+                # The tested incident fields are the monostatic radiation
+                # vectors of the same aspects (reciprocity): the far field of
+                # this batch is their product with the solution coefficients.
+                self._angular_local.batches[('radiation', int(m), thetas[i0:i1].tobytes())] = (a, b, c, d)
             if efie_scale != 0.0:
                 out[:self.Nn, vv] += efie_scale * a
                 out[self.Nn:, vv] += efie_scale * b
@@ -2628,8 +2698,54 @@ class BorPecSolver:
         pref_j = -1j * k * ETA0 / (4.0 * math.pi)
         pref_m = 1j * k / (4.0 * math.pi)
         chunk_size = max(1, int(angle_chunk))
+        # Reciprocity: the projection of a Gauss-point current onto the
+        # monostatic far-field pattern equals the test-basis accumulation of
+        # that pattern (the EFIE excitation of the same aspect, retained by
+        # rhs_vv_hh_batch) dotted with the nodal coefficients.  With
+        # theta/phi radiation patterns (a, -b) and (-c, d) of the tangential
+        # and azimuthal components, F_vv = pref_j (a.x_t - b.x_f) and
+        # F_hh = pref_j (d.x_f - c.x_t); a radiating M uses the same vectors.
+        # Equal to the point-wise projection to rounding (1e-15 of the peak).
+        # A spatially varying Z_s would need impedance-weighted vectors and
+        # keeps the point-wise projection.
+        zs_scalar = None
+        if zs_pt is not None:
+            zs_values = np.asarray(zs_pt)
+            if zs_values.size and np.all(zs_values == zs_values.flat[0]):
+                zs_scalar = complex(zs_values.flat[0])
+        reciprocal = _FARFIELD_RECIPROCITY and (zs_pt is None or zs_scalar is not None)
+        cache = getattr(self._angular_local, "batches", None)
+        N = self.Nn
+
+        def dot(u, v):
+            return np.einsum('ij,ij->j', u, v)
+
         for i0 in range(0, len(thetas), chunk_size):
             i1 = min(i0 + chunk_size, len(thetas))
+            key = thetas[i0:i1].tobytes()
+            radiation = (cache.pop(('radiation', int(m), key), None)
+                         if cache is not None else None)
+            if reciprocal and radiation is not None:
+                cache.pop((int(m), key), None)
+                a, b, c, d = radiation
+                X = solutions[:, 2 * i0:2 * i1]
+                xt_v, xt_h, xf_v, xf_h = X[:N, 0::2], X[:N, 1::2], X[N:, 0::2], X[N:, 1::2]
+                out[0, i0:i1] = pref_j * (dot(a, xt_v) - dot(b, xf_v))
+                out[1, i0:i1] = pref_j * (dot(d, xf_h) - dot(c, xt_h))
+                if zs_scalar is not None:
+                    # M_t = Z_s J_phi, M_phi = -Z_s J_t.
+                    vv_phi_m = zs_scalar * (-dot(c, xf_v) - dot(d, xt_v))
+                    hh_theta_m = zs_scalar * (dot(a, xf_h) + dot(b, xt_h))
+                elif msolutions is not None:
+                    M = msolutions[:, 2 * i0:2 * i1]
+                    mt_v, mt_h, mf_v, mf_h = M[:N, 0::2], M[:N, 1::2], M[N:, 0::2], M[N:, 1::2]
+                    vv_phi_m = dot(d, mf_v) - dot(c, mt_v)
+                    hh_theta_m = dot(a, mt_h) - dot(b, mf_h)
+                else:
+                    continue
+                out[0, i0:i1] -= pref_m * vv_phi_m
+                out[1, i0:i1] += pref_m * hh_theta_m
+                continue
             st, ct, phase, Icos, Is_rhs, I1 = self._angular_batch(
                 m, thetas[i0:i1], consume=True)
             Isin = -Is_rhs
@@ -2842,9 +2958,14 @@ def _mode_sweep_impl(n_dofs: 'int', thetas, pols, m_max: 'int', mode_tol: 'float
                      hierarchical_pricing: 'bool' = True,
                      axial_mode_only: 'bool' = False,
                      exact_far_cache: 'Optional[Callable]' = None,
-                     preparation_workers: 'Optional[int]' = None):
+                     preparation_workers: 'Optional[int]' = None,
+                     near_pairs: 'Optional[int]' = None):
     """
     Shared adaptive azimuthal-mode loop for every BoR formulation.
+
+    ``near_pairs`` (the largest near-pair count of one preparation call), when
+    known, lets the near-preparation process pool start before the far blocks
+    are built; it changes no plan and no result.
 
     ``coordinates(m)``, when given, returns the meridian position of every
     reduced unknown of mode ``m``: large mode systems are then factored
@@ -2913,10 +3034,19 @@ def _mode_sweep_impl(n_dofs: 'int', thetas, pols, m_max: 'int', mode_tol: 'float
         preparation_peak_gb=assembly_peak_gb + near_plan['scratch_gb'],
         hierarchical=coordinates is not None and hierarchical_pricing,
         mirrored=mirror is not None,
+        resident_pool_gb=near_plan['persistent_pool_idle_gb'],
     )
     if prepare is not None:
-        from ghost_backend.bor.near_parallel import process_scope
-        with _NEAR_WORKER_LIMIT.override(near_plan['workers']), _bounded_blas_threads(near_plan['workers']), process_scope(near_plan['workers'], near_plan['process_workers']) as process_state:
+        from ghost_backend.bor.near_parallel import (process_scope, processes_selected,
+            close_near_process_pool, persistent_pool_idle_bytes)
+        # Start the persistent pool before the far blocks are built when the
+        # largest near call will select it (the executor's own policy), so its
+        # spawn and imports overlap that work. Not for a compressed far store,
+        # which may run its own process pool first.
+        prewarm = bool(near_pairs is not None and near_plan['process_workers'] > 1
+                       and not compressed_requested()
+                       and processes_selected(int(near_pairs), int(m_max) + 1))
+        with _NEAR_WORKER_LIMIT.override(near_plan['workers']), _bounded_blas_threads(near_plan['workers']), process_scope(near_plan['workers'], near_plan['process_workers'], prewarm=prewarm) as process_state:
             prepare(m_max)
         near_plan['backend'] = 'processes' if process_state['executor'] is not None else 'threads'
         near_plan['process_pair_jobs'] = process_state['jobs']
@@ -2927,6 +3057,18 @@ def _mode_sweep_impl(n_dofs: 'int', thetas, pols, m_max: 'int', mode_tol: 'float
             near_plan['process_overhead_bytes_per_worker'] = PROCESS_OVERHEAD_BYTES
             near_plan['scratch_gb'] = max(near_plan['scratch_gb'], near_plan['process_workers']
                 * (_NEAR_TASK_SCRATCH_BYTES + PROCESS_OVERHEAD_BYTES) / 1.e9)
+        if process_state['executor'] is not None:
+            # The pool stays for the next preparation only if the mode phase
+            # admits its idle workers next to the retained operators and the
+            # linear workspaces; otherwise it is released now, as before.
+            idle_gb = persistent_pool_idle_bytes() / 1.e9
+            kept = (estimate_bor_total_peak_gb(assembly_peak_gb + idle_gb, worker_plan['linear_peak_gb'])
+                    <= worker_plan['memory_limit_gb'])
+            if not kept:
+                close_near_process_pool()
+            near_plan['persistent_pool'] = dict(reused=bool(process_state['reused']),
+                prewarmed=bool(process_state['prewarmed']), kept=bool(kept),
+                idle_gb=idle_gb if kept else 0.0)
     from ghost_backend.bor.options import current_mode_resume
     resume = current_mode_resume()
     F = (resume['fields'] if resume and 'fields' in resume else
@@ -4421,6 +4563,7 @@ def solve_bor(points, freq_hz: 'float', thetas_deg, formulation: 'str' = "auto",
         F, modes_used, stats = _mode_sweep(n_dofs, thetas, ("VV", "HH"), m_max,
                                            mode_tol, assemble, rhs, farfield,
                                            prepare=prepare, workers=solve_workers, preparation_workers=workers,
+                                           near_pairs=solver._near_pair_count,
                                            progress=progress,
                                            check_abort=check_abort,
                                            monitor_cond=True,
@@ -4538,9 +4681,10 @@ def solve_bor_dielectric(points, freq_hz: 'float', thetas_deg, eps_r: 'complex',
     table_double = 2.0 * estimate_bor_table_gb(
         se.gen.n_elems, m_max, "efie", True, gauss_order, False
     )
-    use_streaming = (
-        asm == "streaming" or (asm == "auto" and table_double > 2.0)
-    )
+    # Streams under 'auto' as solve_bor does (A-BF-9, 16 Oct 2026): the
+    # [P, P, M] tables are contracted per mode at many times the cost of the
+    # streamed read; the two assemblies agree to 3e-15. 'tables' is explicit.
+    use_streaming = asm in ("streaming", "auto")
     full_double = (
         2.0 * estimate_streaming_gb(
             se.gen.n_elems, m_max, "efie", True, False
@@ -4679,6 +4823,7 @@ def solve_bor_dielectric(points, freq_hz: 'float', thetas_deg, eps_r: 'complex',
         F, modes_used, stats = _mode_sweep(4 * Nn, thetas, ("VV", "HH"), m_max,
                                            mode_tol, assemble, rhs, farfield,
                                            prepare=prepare, workers=solve_workers, preparation_workers=workers,
+                                           near_pairs=se._near_pair_count,
                                            progress=progress,
                                            check_abort=check_abort,
                                            monitor_cond=True,
@@ -5630,10 +5775,10 @@ def solve_bor_coated_pec(points_outer, points_core, freq_hz: 'float', thetas_deg
             ne_core, ne_outer, m_max, gauss_order, gauss_order, False
         ))
     )
-    use_streaming = (
-        asm == "streaming"
-        or (asm == "auto" and table_far_double > 2.0)
-    )
+    # Streams under 'auto' (A-BF-9, 16 Oct 2026): the per-mode table
+    # contractions cost several times the streamed read (coated sphere 200
+    # elements, 6 GHz: -28% wall, -68% RSS); 'tables' remains explicit.
+    use_streaming = asm in ("streaming", "auto")
     stream_specs_double = (
         (ne_outer, ne_outer, True, False),
         (ne_outer, ne_outer, True, False),
@@ -5822,6 +5967,7 @@ def solve_bor_coated_pec(points_outer, points_core, freq_hz: 'float', thetas_deg
         F, modes_used, stats = _mode_sweep(ntot, thetas, ("VV", "HH"), m_max,
                                            mode_tol, assemble, rhs, farfield,
                                            prepare=prepare, workers=solve_workers, preparation_workers=workers,
+                                           near_pairs=max(se._near_pair_count, sLc._near_pair_count),
                                            progress=progress,
                                            check_abort=check_abort,
                                            monitor_cond=True,

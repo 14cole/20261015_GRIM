@@ -777,6 +777,8 @@ def _consume_condition_estimate(
     values: 'List[float]',
     diagnostics: 'Optional[Dict[str, Any]]',
     label: 'str',
+    scaled_values: 'Optional[List[float]]' = None,
+    scale: 'float' = 1.0,
 ) -> 'None':
     """Append a requested estimate, refusing a silently unimplemented path."""
 
@@ -788,6 +790,38 @@ def _consume_condition_estimate(
             "diagnostic; no field is returned."
         )
     values.append(float(diagnostics["condition_est"]))
+    if scaled_values is not None:
+        # A formulation can veto the structural low-frequency scaling (for
+        # instance a multi-region system without any combined coupling).
+        if not diagnostics.get("structural_low_frequency", True):
+            scale = 1.0
+        scaled_values.append(float(diagnostics["condition_est"]) * float(scale))
+
+
+# Combined couplings (gamma = 1/(i*k), eta = i*k) make the equilibrated
+# condition number grow like 1/(k0*L) below k0*L ~ 1: cond*ka stayed constant
+# from ka = 0.1 to 1e-5 (dielectric 300-840, coated PEC 34-95, PEC/IBC 13.5)
+# while the error stayed at the mesh level (4e-4 to 7e-4 down to ka = 1e-4).
+# The gate therefore compares cond*min(1, k_max*L) for those formulations,
+# with L the half-diagonal of the mesh bounding box and k_max the largest
+# wavenumber of any region (so a fictitious resonance of a high-index region,
+# which needs k_region*L of order 2, is never relaxed); the relaxation is
+# capped at LOW_FREQUENCY_CONDITION_SCALE_FLOOR (an allowed raw condition of
+# 1e12 with the default 1e6 limit).
+LOW_FREQUENCY_CONDITION_SCALE_FLOOR = 1.0e-6
+
+
+def _low_frequency_condition_scale(mesh, k0, infos=()):
+    """min(1, k_max*L) for the frequency-aware condition gate (see above)."""
+    points = np.array([element.p0 for element in mesh.elements] +
+                      [element.p1 for element in mesh.elements], float)
+    if not len(points):
+        return 1.0
+    half_diagonal = 0.5 * float(np.linalg.norm(points.max(axis=0) - points.min(axis=0)))
+    k_max = max([abs(complex(k0))] + [abs(complex(k)) for info in infos
+                 for region, k in ((info.minus_region, info.k_minus), (info.plus_region, info.k_plus))
+                 if region >= 0])
+    return float(min(1.0, max(k_max * half_diagonal, LOW_FREQUENCY_CONDITION_SCALE_FLOOR)))
 
 def _normalize_rcs_normalization_mode(mode: 'Optional[str]') -> 'str':
     """Accept only physical sigma_2d normalization aliases."""
@@ -1023,6 +1057,13 @@ def evaluate_quality_gate(
         condition_value = float(condition_raw) if condition_raw is not None else float("nan")
     except (TypeError, ValueError):
         condition_value = float("nan")
+    # Frequency-aware value (see _low_frequency_condition_scale) where present.
+    scaled_raw = metadata.get("condition_est_frequency_scaled_max")
+    try:
+        scaled_value = float(scaled_raw) if scaled_raw is not None else float("nan")
+    except (TypeError, ValueError):
+        scaled_value = float("nan")
+    gate_condition = scaled_value if math.isfinite(scaled_value) else condition_value
     if "condition_est_computed" in metadata:
         condition_computed = bool(metadata.get("condition_est_computed"))
     else:
@@ -1051,9 +1092,12 @@ def evaluate_quality_gate(
         violations.append(
             f"constraint_residual_norm_max={constraint_value:.6g} exceeds limit {constraint_limit:.6g}"
         )
-    if condition_computed and (not math.isfinite(condition_value) or condition_value > condition_limit):
+    if condition_computed and (not math.isfinite(gate_condition) or gate_condition > condition_limit):
         violations.append(
             f"condition_est_max={condition_value:.6g} exceeds limit {condition_limit:.6g}"
+            if gate_condition == condition_value else
+            f"frequency-scaled condition estimate {gate_condition:.6g} (raw condition_est_max="
+            f"{condition_value:.6g}) exceeds limit {condition_limit:.6g}"
         )
     if warnings_count > warnings_limit:
         violations.append(
@@ -1073,6 +1117,7 @@ def evaluate_quality_gate(
             "residual_nonfinite_count": residual_nonfinite_count,
             "constraint_residual_norm_max": constraint_value,
             "condition_est_max": condition_value,
+            "condition_est_gate_value": gate_condition,
             "condition_est_computed": condition_computed,
             "warnings_count": warnings_count,
         },
@@ -1779,12 +1824,16 @@ def _is_sheet_plus_pec(infos: 'List[PanelCoupledInfo]') -> 'bool':
 
 def _solve_mixed_sheet_pec(mesh, infos, pol, k0, elevations_deg, obs_order=8, src_order=8,
                            condition_diagnostics=None):
-    """Unified sheet/PEC equations with local impedance terms and edge pins."""
-    from ghost_backend.twod.formulations.sheet import assemble_system, rhs_many
+    """Unified sheet/PEC equations with local impedance terms and edge pins.
+
+    Closed conductor loops carry the combined second potential of
+    ``formulations.sheet`` (resonance protection); ``field_options`` projects it."""
+    from ghost_backend.twod.formulations.sheet import assemble_system, rhs_many, field_options
     matrix, endpoints = assemble_system(mesh, infos, pol, k0, obs_order, src_order)
     return _solve_fields(mesh, matrix, k0, elevations_deg,
         lambda angles: rhs_many(mesh, k0, angles, pol, endpoints), condition_diagnostics,
-        'sheet {} system'.format(pol), potential='SLP' if pol == 'TM' else 'DLP', order=obs_order)[:3]
+        'sheet {} system'.format(pol), potential='SLP' if pol == 'TM' else 'DLP', order=obs_order,
+        **field_options(mesh, infos, pol, k0))[:3]
 
 
 def _assemble_robin_bie_system(
@@ -1969,8 +2018,14 @@ def _solve_multi_region_indirect(mesh, infos, pol, k0, elevations_deg,
     )
     matrix, layout = assemble_system(mesh, infos, pol, obs_order, src_order)
     mask, density = exterior_projection(mesh, layout)
-    from ghost_backend.twod.formulations.combined_regions import exterior_double_density
+    from ghost_backend.twod.formulations.combined_regions import exterior_double_density, couplings
     double_density = exterior_double_density(mesh, layout)
+    if condition_diagnostics is not None:
+        condition_diagnostics["structural_low_frequency"] = bool(couplings(mesh, layout))
+        from ghost_backend.twod.formulations.combined_regions import condition_balance_blocks
+        blocks = condition_balance_blocks(layout)
+        if blocks is not None:
+            condition_diagnostics["condition_balance_blocks"] = blocks
     return _solve_fields(mesh, matrix, k0, elevations_deg,
         lambda angles: rhs_many(mesh, layout, k0, angles), condition_diagnostics,
         "multi-region indirect system", density_builder=density, element_mask=mask,
@@ -2099,6 +2154,7 @@ def solve_monostatic_rcs_2d_single_polarization(
     residual_values: 'List[float]' = []
     constraint_residual_values: 'List[float]' = []
     cond_values: 'List[float]' = []
+    cond_scaled_values: 'List[float]' = []
     mesh_reference_values: 'List[float]' = []
     mesh_wavelength_values: 'List[float]' = []
     mesh_max_index_values: 'List[float]' = []
@@ -2403,8 +2459,7 @@ def solve_monostatic_rcs_2d_single_polarization(
         junction_stats.update(linear_mesh_stats_local)
         junction_stats["linear_node_count"] = int(len(mesh.nodes))
         junction_stats["linear_element_count"] = int(len(mesh.elements))
-
-
+        low_frequency_scale = _low_frequency_condition_scale(mesh, k0, coupled_infos)
 
         if _is_all_sheet(coupled_infos):
             formulation_label = (
@@ -2430,7 +2485,8 @@ def solve_monostatic_rcs_2d_single_polarization(
             residual_vec = np.full(len(elevations), sheet_residual, dtype=float)
             constraint_residual_vec = np.zeros(len(elevations), dtype=float)
             _consume_condition_estimate(
-                cond_values, condition_diagnostics, formulation_label
+                cond_values, condition_diagnostics, formulation_label,
+                scaled_values=cond_scaled_values, scale=1.0,
             )
             reused_matrix_solve_count += len(elevations)
 
@@ -2439,11 +2495,25 @@ def solve_monostatic_rcs_2d_single_polarization(
 
 
         if _is_sheet_plus_pec(coupled_infos):
+            from ghost_backend.twod.formulations.sheet import pec_combination
+            protected = pec_combination(mesh, coupled_infos, pol) is not None
             formulation_label = (
-                "2D mixed sheet+PEC BIE (TM: unified SLP representation)"
+                ("2D mixed sheet+PEC BIE (TM: unified SLP representation; combined "
+                 "S+gamma*D on closed PEC loops)" if protected else
+                 "2D mixed sheet+PEC BIE (TM: unified SLP representation)")
                 if pol == "TM"
-                else "2D mixed sheet+PEC BIE (TE: unified DLP / hypersingular representation)"
+                else ("2D mixed sheet+PEC BIE (TE: unified DLP / hypersingular representation; "
+                      "combined D+eta*S on closed PEC loops)" if protected else
+                      "2D mixed sheet+PEC BIE (TE: unified DLP / hypersingular representation)")
             )
+            if not protected:
+                notices.warn_once(
+                    "Sheet+PEC scene: the conductor uses a single-potential representation "
+                    "(open TYPE 2 contour, polynomial basis or compressed factorization), "
+                    "which is not protected against fictitious interior resonances of "
+                    "closed conductors. Near such a frequency the condition estimate "
+                    "rises sharply; confirm with a neighbouring frequency."
+                )
             condition_diagnostics = {} if compute_condition_number else None
             rcs_lin_vec, amp_vec, mixed_residual = _solve_mixed_sheet_pec(
                 mesh=mesh, infos=coupled_infos, pol=pol,
@@ -2454,7 +2524,8 @@ def solve_monostatic_rcs_2d_single_polarization(
             residual_vec = np.full(len(elevations), mixed_residual, dtype=float)
             constraint_residual_vec = np.zeros(len(elevations), dtype=float)
             _consume_condition_estimate(
-                cond_values, condition_diagnostics, formulation_label
+                cond_values, condition_diagnostics, formulation_label,
+                scaled_values=cond_scaled_values, scale=low_frequency_scale if protected else 1.0,
             )
             reused_matrix_solve_count += len(elevations)
 
@@ -2515,7 +2586,11 @@ def solve_monostatic_rcs_2d_single_polarization(
         use_multi_region = _is_multi_region(coupled_infos)
 
         if use_multi_region:
-            formulation_label = "2D multi-region indirect SLP formulation (layered coating)"
+            formulation_label = (
+                "2D multi-region indirect formulation (layered coating; combined S+gamma*D "
+                "coupling on closed regions and on the exterior closed by open-junction "
+                "arcs, SLP on bounded regions bounded by open interfaces)"
+            )
             condition_diagnostics = {} if compute_condition_number else None
             rcs_lin_vec, amp_vec, multi_residual, _ = _solve_multi_region_indirect(
                 mesh=mesh,
@@ -2531,7 +2606,8 @@ def solve_monostatic_rcs_2d_single_polarization(
             residual_vec = np.full(len(elevations), multi_residual, dtype=float)
             constraint_residual_vec = np.zeros(len(elevations), dtype=float)
             _consume_condition_estimate(
-                cond_values, condition_diagnostics, formulation_label
+                cond_values, condition_diagnostics, formulation_label,
+                scaled_values=cond_scaled_values, scale=low_frequency_scale,
             )
             reused_matrix_solve_count += len(elevations)
 
@@ -2556,7 +2632,8 @@ def solve_monostatic_rcs_2d_single_polarization(
             residual_vec = np.full(len(elevations), diel_residual, dtype=float)
             constraint_residual_vec = np.zeros(len(elevations), dtype=float)
             _consume_condition_estimate(
-                cond_values, condition_diagnostics, formulation_label
+                cond_values, condition_diagnostics, formulation_label,
+                scaled_values=cond_scaled_values, scale=low_frequency_scale,
             )
             reused_matrix_solve_count += len(elevations)
 
@@ -2589,7 +2666,8 @@ def solve_monostatic_rcs_2d_single_polarization(
             residual_vec = np.full(len(elevations), robin_residual, dtype=float)
             constraint_residual_vec = np.zeros(len(elevations), dtype=float)
             _consume_condition_estimate(
-                cond_values, condition_diagnostics, formulation_label
+                cond_values, condition_diagnostics, formulation_label,
+                scaled_values=cond_scaled_values, scale=low_frequency_scale if combined_layout(mesh, coupled_infos, pol) is not None else 1.0,
             )
             reused_matrix_solve_count += len(elevations)
 
@@ -2644,6 +2722,8 @@ def solve_monostatic_rcs_2d_single_polarization(
         "constraint_residual_applicable": bool(junction_constraint_residual_applicable),
         "condition_est_max": float(np.max(cond_values)) if cond_values else float("nan"),
         "condition_est_mean": float(np.mean(cond_values)) if cond_values else float("nan"),
+        "condition_est_frequency_scaled_max": (
+            float(np.max(cond_scaled_values)) if cond_scaled_values else float("nan")),
         "condition_est_computed": bool(condition_est_computed),
         "condition_estimator": (
             (condition_diagnostics or {}).get('condition_method', 'equilibrated_1norm_lu_onenormest')
@@ -3072,6 +3152,9 @@ def _merge_co_polarized_2d_results(
             "rms_db", "max_abs_db", "complex_rms_normalized", "complex_max_normalized",
             "phase_rms_deg", "phase_max_deg", "base_panel_count",
             "fine_panel_count", "panel_refinement_ratio", "fine_factor",
+            "estimated_published_complex_max_normalized",
+            "estimated_published_complex_rms_normalized",
+            "estimated_published_max_abs_db", "estimated_published_rms_db",
         ):
             if any(metric in channel_mesh for channel_mesh in mesh_by_channel.values()):
                 aggregate_mesh[metric] = _finite_metadata_max(
@@ -3343,6 +3426,7 @@ def solve_bistatic_rcs_2d_single_polarization(
     samples = sample_buffer(len(frequencies) * len(inc_angles) * len(obs_angles))
     residual_values: 'List[float]' = []
     cond_values: 'List[float]' = []
+    cond_scaled_values: 'List[float]' = []
     total_steps = len(frequencies) * len(inc_angles)
     done_steps = 0
     obs_arr = np.asarray(obs_angles, dtype=float)
@@ -3480,9 +3564,11 @@ def solve_bistatic_rcs_2d_single_polarization(
                 condition_diagnostics=condition_diagnostics, return_density=False,
                 observation_angles_deg=obs_arr)
         else:
+            sheet_fields = {}
             if use_sheet or use_mixed_sheet:
-                from ghost_backend.twod.formulations.sheet import assemble_system, rhs_many
+                from ghost_backend.twod.formulations.sheet import assemble_system, rhs_many, field_options
                 matrix, endpoints = assemble_system(mesh, coupled_infos, pol, k0)
+                sheet_fields = field_options(mesh, coupled_infos, pol, k0)
                 potential = 'SLP' if pol == 'TM' else 'DLP'
                 rhs_builder = lambda angles: rhs_many(mesh, k0, angles, pol, endpoints)
             elif use_te_robin_mfie or use_tm_robin_bie:
@@ -3498,14 +3584,19 @@ def solve_bistatic_rcs_2d_single_polarization(
                 raise ValueError("Geometry did not match a supported bistatic formulation.")
             combined = (dict(second_potential='SLP',
                 second_density_builder=lambda solution: 1j*k0*solution[:len(mesh.nodes)])
-                if use_diel_indirect else {})
+                if use_diel_indirect else sheet_fields)
             _, batch_amp, residual, _ = _solve_fields(mesh, matrix, k0, inc_all_arr,
                 rhs_builder, condition_diagnostics, "bistatic " + pol + " system",
                 potential=potential, observation_angles=obs_arr, **combined)
             matrix = rhs_builder = None
         batch_residuals = np.full(inc_all_arr.size, residual)
         if condition_diagnostics is not None:
-            _consume_condition_estimate(cond_values, condition_diagnostics, "bistatic system")
+            from ghost_backend.twod.formulations.sheet import pec_combination
+            structural = (use_multi_region or use_diel_indirect or
+                          (use_mixed_sheet and pec_combination(mesh, coupled_infos, pol) is not None))
+            _consume_condition_estimate(cond_values, condition_diagnostics, "bistatic system",
+                scaled_values=cond_scaled_values,
+                scale=_low_frequency_condition_scale(mesh, k0, coupled_infos) if structural else 1.0)
             frequency_condition_recorded = True
         batch_rcs_lin = _rcs_sigma_from_amp(batch_amp, k0)
         batch_rcs_db = _rcs_db_from_sigma(batch_rcs_lin)
@@ -3563,6 +3654,8 @@ def solve_bistatic_rcs_2d_single_polarization(
         "constraint_residual_norm_mean": 0.0,
         "condition_est_max": float(np.max(cond_values)) if cond_values else float("nan"),
         "condition_est_mean": float(np.mean(cond_values)) if cond_values else float("nan"),
+        "condition_est_frequency_scaled_max": (
+            float(np.max(cond_scaled_values)) if cond_scaled_values else float("nan")),
         "condition_est_computed": bool(compute_condition_number),
         "condition_estimator": (
             (condition_diagnostics or {}).get('condition_method', 'equilibrated_1norm_lu_onenormest')
@@ -3849,6 +3942,17 @@ def _certify_2d_results(base_result, fine_result, policy):
         float(fine_panel_count) / float(base_panel_count)
         if base_panel_count > 0 else float("nan")
     )
+    # The fine result is published; its own error is estimated from the
+    # measured change (runs.quality.estimated_published_error, p = 1). A
+    # polynomial refinement uses the node ratio (conservative for p-refinement).
+    from ghost_backend.runs.quality import estimated_published_error
+    ratio = (mesh_gate["panel_refinement_ratio"] if mesh_gate["refinement_kind"] == "mesh"
+             else float(fine_nodes) / float(base_nodes) if base_nodes > 0 else float("nan"))
+    published = estimated_published_error(mesh_gate, ratio)
+    mesh_gate["estimated_published_error"] = published
+    for metric in ("complex_max_normalized", "complex_rms_normalized", "max_abs_db", "rms_db"):
+        if metric in published:
+            mesh_gate["estimated_published_" + metric] = published[metric]
 
     if not bool(mesh_gate.get("passed", False)):
         raise ValueError(

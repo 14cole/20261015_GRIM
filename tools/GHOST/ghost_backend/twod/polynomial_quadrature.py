@@ -384,6 +384,17 @@ def box_moment_keys(k, obs_derivative, order, want_s, want_k, obs_elems, src_ele
     return [b'box' + row.tobytes() for row in rows]
 
 
+def box_moment_key_rows(k, obs_derivative, order, want_s, want_k, obs_p0, obs_p1, obs_normal,
+                        src_p0, src_p1, src_normal):
+    """``box_moment_keys`` from (pairs, 2) arrays of the elements' p0, p1 and normals (the same bytes)."""
+    k = complex(k)
+    rows = np.empty((len(obs_p0), 18), dtype=float)
+    rows[:, 0:6] = (k.real, k.imag, float(bool(obs_derivative)), float(order), float(bool(want_s)), float(bool(want_k)))
+    for column, values in ((6, obs_p0), (8, obs_p1), (10, obs_normal), (12, src_p0), (14, src_p1), (16, src_normal)):
+        rows[:, column:column + 2] = values
+    return [b'box' + row.tobytes() for row in rows]
+
+
 def _build_kernel_table(k_real, k_imag, upper):
     from ghost_backend.twod.assembly.kernels import KernelTable, Rejected
     try:
@@ -491,17 +502,52 @@ def _kernels(k, distance, with_derivative, table):
     return green, derivative
 
 
-def _evaluate_chunk(tasks, pairs, k, obs_derivative, order, kind, shared, table=None):
-    """Scaled monomial S and K moments, shape (T, 2, 4, 4), for one node set."""
-    count = len(tasks)
-    obs = [pairs[t.pair][0] for t in tasks]
-    src = [pairs[t.pair][1] for t in tasks]
-    p0o = np.array([e.p0 for e in obs], float)
-    p0s = np.array([e.p0 for e in src], float)
-    seg_o = np.array([e.p1 - e.p0 for e in obs], float)
-    seg_s = np.array([e.p1 - e.p0 for e in src], float)
-    iv = np.array([(t.intervals[0][0], t.intervals[0][1], t.intervals[1][0], t.intervals[1][1])
-                   for t in tasks], float)
+class _PairGeometry:
+    """Element attributes of near_blocks' pairs, gathered once per call.
+
+    The per-chunk and per-task routines index these arrays instead of
+    rebuilding them from element objects (the same values: ``seg`` is the
+    elementwise ``p1 - p0`` each element would give).
+    """
+    __slots__ = ('obs_p0', 'obs_p1', 'obs_seg', 'obs_normal', 'obs_length', 'obs_panel', 'obs_ends',
+                 'obs_degree', 'src_p0', 'src_p1', 'src_seg', 'src_normal', 'src_length', 'src_panel',
+                 'src_ends', 'src_degree')
+
+    def __init__(self, pairs):
+        for side, members in (('obs', [o for o, _ in pairs]), ('src', [s for _, s in pairs])):
+            p0 = np.array([e.p0 for e in members], float).reshape(-1, 2)
+            p1 = np.array([e.p1 for e in members], float).reshape(-1, 2)
+            setattr(self, side + '_p0', p0)
+            setattr(self, side + '_p1', p1)
+            setattr(self, side + '_seg', p1 - p0)
+            setattr(self, side + '_normal', np.array([e.normal for e in members], float).reshape(-1, 2))
+            setattr(self, side + '_length', np.array([e.length for e in members], float))
+            setattr(self, side + '_panel', np.array([e.panel_index for e in members], dtype=np.int64))
+            # Mesh nodes at parameters 0 and 1 (endpoints precede interior nodes).
+            setattr(self, side + '_ends', np.array([(e.node_ids[0], e.node_ids[1]) for e in members],
+                                                   dtype=np.int64).reshape(-1, 2))
+            setattr(self, side + '_degree', np.array([len(e.node_ids) - 1 for e in members], dtype=np.int64))
+
+
+def _evaluate_chunk(tasks, pairs, k, obs_derivative, order, kind, shared, table=None,
+                    geometry=None, pair_ids=None, intervals=None):
+    """Scaled monomial S and K moments, shape (T, 2, 4, 4), for one node set.
+
+    ``geometry`` (a :class:`_PairGeometry`), ``pair_ids`` and ``intervals``
+    (T, 4) replace ``tasks``/``pairs`` with prepared arrays."""
+    if geometry is None:
+        geometry = _PairGeometry([pairs[t.pair] for t in tasks])
+        pair_ids = np.arange(len(tasks))
+        intervals = np.array([(t.intervals[0][0], t.intervals[0][1], t.intervals[1][0], t.intervals[1][1])
+                              for t in tasks], float).reshape(-1, 4)
+    count = len(pair_ids)
+    p0o = geometry.obs_p0[pair_ids]
+    p0s = geometry.src_p0[pair_ids]
+    seg_o = geometry.obs_seg[pair_ids]
+    seg_s = geometry.src_seg[pair_ids]
+    obs_length = geometry.obs_length[pair_ids]
+    src_length = geometry.src_length[pair_ids]
+    iv = np.asarray(intervals, float)
     oa, ob, sa, sb = iv[:, 0:1], iv[:, 1:2], iv[:, 2:3], iv[:, 3:4]
     x0, y0, weight = _nodes(order, kind != 'regular')
     if kind == 'same':
@@ -512,8 +558,7 @@ def _evaluate_chunk(tasks, pairs, k, obs_derivative, order, kind, shared, table=
         es = p0s + (sa if shared[1] else sb) * seg_s
         origin = eo - es
         roundoff = 64 * np.finfo(float).eps * np.maximum.reduce(
-            [np.linalg.norm(eo, axis=1), np.linalg.norm(es, axis=1),
-             np.array([e.length for e in obs]), np.array([e.length for e in src])])
+            [np.linalg.norm(eo, axis=1), np.linalg.norm(es, axis=1), obs_length, src_length])
         origin[np.linalg.norm(origin, axis=1) <= roundoff] = 0.
         do = (ob - oa) * seg_o * (1 if shared[0] else -1)
         ds = (sb - sa) * seg_s * (1 if shared[1] else -1)
@@ -538,7 +583,7 @@ def _evaluate_chunk(tasks, pairs, k, obs_derivative, order, kind, shared, table=
         green[exact] -= np.log(abs(x0 - y0))[None, :] / (2 * np.pi)
     kernels = [weight[None, :] * green]
     if with_derivative:
-        normal = np.array([(o if obs_derivative else s).normal for o, s in zip(obs, src)], float)
+        normal = (geometry.obs_normal if obs_derivative else geometry.src_normal)[pair_ids]
         projection = diff[:, :, 0] * normal[:, None, 0] + diff[:, :, 1] * normal[:, None, 1]
         if obs_derivative:
             np.negative(derivative, out=derivative)
@@ -554,8 +599,7 @@ def _evaluate_chunk(tasks, pairs, k, obs_derivative, order, kind, shared, table=
     kernels = None
     if np.any(exact):
         moments[exact, 0] += _log_monomials() / (2 * np.pi)
-    scale = (np.array([e.length for e in obs]) * np.array([e.length for e in src])
-             * (ob - oa)[:, 0] * (sb - sa)[:, 0])
+    scale = obs_length * src_length * (ob - oa)[:, 0] * (sb - sa)[:, 0]
     moments *= scale[:, None, None, None]
     if not np.all(np.isfinite(moments)):
         raise ValueError('Polynomial near quadrature did not converge: non-finite kernel block.')
@@ -621,37 +665,201 @@ def _monomial_moments(kernels, base_x, base_y, x_offset, x_scale, y_offset, y_sc
     return np.einsum('tai,tcij,tbj->tcab', transform_x, base, transform_y)
 
 
-def _moments(tasks, pairs, k, obs_derivative, order, cache, threads, checkpoint, table=None):
-    result = [None] * len(tasks)
-    groups = {}
-    for index, task in enumerate(tasks):
-        key = None
-        if cache is not None:
-            key = _moment_key(k, obs_derivative, *pairs[task.pair], task, order)
+# Rule classes of a task as one integer: 0 regular, 1 same panel and interval,
+# 2 + 2 obs_start + src_start for a shared corner (the former (kind, shared)).
+_KINDS = {0: ('regular', None), 1: ('same', None), 2: ('shared', (False, False)), 3: ('shared', (False, True)),
+          4: ('shared', (True, False)), 5: ('shared', (True, True))}
+_KIND_CODES = {value: code for code, value in _KINDS.items()}
+
+
+def _kind_code(kind, shared):
+    return _KIND_CODES[(kind, None if kind != 'shared' else (bool(shared[0]), bool(shared[1])))]
+
+
+class _TaskBatch:
+    """Pair indices, intervals, rule classes and moment-key rows of a task batch."""
+    __slots__ = ('geometry', 'pair_ids', 'intervals', 'codes', 'key_rows')
+
+    def __init__(self, geometry, pair_ids, intervals, codes, key_rows):
+        self.geometry, self.pair_ids, self.intervals = geometry, pair_ids, intervals
+        self.codes, self.key_rows = codes, key_rows
+
+    @classmethod
+    def build(cls, tasks, pairs, geometry, k, obs_derivative, codes=None):
+        pair_ids = np.fromiter((t.pair for t in tasks), dtype=np.int64, count=len(tasks))
+        intervals = np.array([(t.intervals[0][0], t.intervals[0][1], t.intervals[1][0], t.intervals[1][1])
+                              for t in tasks], float).reshape(-1, 4)
+        if codes is None:
+            codes = _classify_arrays(geometry, pair_ids, intervals, pairs)
+        return cls(geometry, pair_ids, intervals, codes,
+                   _key_rows(k, obs_derivative, geometry, pair_ids, intervals, codes))
+
+    def subset(self, positions):
+        positions = np.asarray(positions, dtype=np.int64)
+        return _TaskBatch(self.geometry, self.pair_ids[positions], self.intervals[positions],
+                          self.codes[positions], self.key_rows[positions])
+
+
+def _classify_arrays(geometry, pair_ids, intervals, pairs):
+    """``_classify`` of every task at once, as rule codes (see ``_KINDS``).
+
+    The corner tests repeat ``_shared_ends`` term for term (interval-end
+    points ``p0 + t (p1 - p0)``, the 1e-12 coincidence and the welded-node
+    tests, the last matching corner winning). A distance within 1e-9 relative
+    of either threshold is re-tested by ``_shared_ends`` itself, so a rounding
+    difference in the two-component norm cannot change a classification.
+    """
+    from ghost_backend.twod.operators import NODE_SNAP_TOLERANCE
+    g = geometry
+    count = len(pair_ids)
+    codes = np.zeros(count, dtype=np.int64)
+    if not count:
+        return codes
+    iv = intervals
+    same = (g.obs_panel[pair_ids] == g.src_panel[pair_ids]) & (iv[:, 0] == iv[:, 2]) & (iv[:, 1] == iv[:, 3])
+    codes[same] = 1
+    rest = np.flatnonzero(~same)
+    if not rest.size:
+        return codes
+    pid, ivr = pair_ids[rest], iv[rest]
+    p0o, sego, p0s, segs = g.obs_p0[pid], g.obs_seg[pid], g.src_p0[pid], g.src_seg[pid]
+    ends_o, ends_s = g.obs_ends[pid], g.src_ends[pid]
+    found = np.full(rest.size, -1, dtype=np.int64)
+    uncertain = np.zeros(rest.size, dtype=bool)
+    snap = 2.0 * NODE_SNAP_TOLERANCE
+    for a in (0, 1):
+        to = ivr[:, a]
+        po = p0o + to[:, None] * sego
+        node_o = np.where(to == 0.0, ends_o[:, 0], np.where(to == 1.0, ends_o[:, 1], -1))
+        for b in (0, 1):
+            ts = ivr[:, 2 + b]
+            difference = po - (p0s + ts[:, None] * segs)
+            distance = np.sqrt(difference[:, 0] * difference[:, 0] + difference[:, 1] * difference[:, 1])
+            node_s = np.where(ts == 0.0, ends_s[:, 0], np.where(ts == 1.0, ends_s[:, 1], -1))
+            welded = (node_o >= 0) & (node_o == node_s)
+            match = (distance <= 1e-12) | (welded & (distance <= snap))
+            found[match] = 2 + 2 * (a == 0) + (b == 0)
+            uncertain |= np.abs(distance - 1e-12) <= 1e-21
+            uncertain |= welded & (np.abs(distance - snap) <= 1e-9 * snap)
+    codes[rest] = np.where(found >= 0, found, 0)
+    for position in np.flatnonzero(uncertain):
+        obs, src = pairs[int(pid[position])]
+        row = ivr[position]
+        shared = _shared_ends(obs, src, ((float(row[0]), float(row[1])), (float(row[2]), float(row[3]))))
+        codes[rest[position]] = 0 if shared is None else _kind_code('shared', shared)
+    return codes
+
+
+def _key_rows(k, obs_derivative, geometry, pair_ids, intervals, codes):
+    """Float rows whose bytes are ``_moment_key`` of each task (column 8, the order, is set per call)."""
+    k = complex(k)
+    g = geometry
+    rows = np.empty((len(pair_ids), 24), dtype=float)
+    rows[:, 0], rows[:, 1], rows[:, 2] = k.real, k.imag, float(obs_derivative)
+    rows[:, 3] = g.obs_panel[pair_ids] == g.src_panel[pair_ids]
+    rows[:, 4:8] = intervals
+    rows[:, 8] = 0.
+    shared = codes >= 2
+    rows[:, 9] = np.where(shared, 2, codes)
+    rows[:, 10] = np.where(shared, (codes - 2) // 2, -1)
+    rows[:, 11] = np.where(shared, (codes - 2) % 2, -1)
+    for column, values in ((12, g.obs_p0), (14, g.obs_p1), (16, g.obs_normal),
+                           (18, g.src_p0), (20, g.src_p1), (22, g.src_normal)):
+        rows[:, column:column + 2] = values[pair_ids]
+    return rows
+
+
+def _moments(tasks, pairs, k, obs_derivative, order, cache, threads, checkpoint, table=None, batch=None):
+    """Scaled monomial moments (T, 2, 4, 4) of classified tasks at one rule order.
+
+    ``batch`` (a :class:`_TaskBatch` of ``tasks``) supplies the prepared
+    geometry, rule classes and key rows; without it they are built from the
+    tasks' own classification (``_classify``)."""
+    if batch is None:
+        geometry = _PairGeometry(pairs)
+        codes = np.array([_kind_code(t.kind, t.shared) for t in tasks], dtype=np.int64)
+        batch = _TaskBatch.build(tasks, pairs, geometry, k, obs_derivative, codes)
+    count = len(batch.pair_ids)
+    result = np.empty((count, 2, _MOMENT_DEGREE + 1, _MOMENT_DEGREE + 1), dtype=np.complex128)
+    todo = np.ones(count, dtype=bool)
+    keys = None
+    if cache is not None:
+        rows = batch.key_rows
+        rows[:, 8] = float(order)
+        keys = [row.tobytes() for row in rows]
+        for index, key in enumerate(keys):
             cached = cache.get(key)
             if cached is not None:
                 result[index] = cached
-                continue
-        groups.setdefault((task.kind, task.shared), []).append((index, key))
+                todo[index] = False
+    pending = np.flatnonzero(todo)
     jobs = []
-    for (kind, shared), members in groups.items():
-        samples = order * order * (1 if kind == 'regular' else 2)
-        per_chunk = max(1, _CHUNK_SAMPLES // samples)
-        for start in range(0, len(members), per_chunk):
-            jobs.append((kind, shared, members[start:start + per_chunk]))
+    if pending.size:
+        codes = batch.codes[pending]
+        unique, first = np.unique(codes, return_index=True)
+        # Rule classes in order of first appearance, members in task order.
+        for code in unique[np.argsort(first, kind='stable')]:
+            members = pending[codes == code]
+            kind, shared = _KINDS[int(code)]
+            samples = order * order * (1 if kind == 'regular' else 2)
+            per_chunk = max(1, _CHUNK_SAMPLES // samples)
+            for start in range(0, len(members), per_chunk):
+                jobs.append((kind, shared, members[start:start + per_chunk]))
 
     def run(job):
         kind, shared, members = job
-        return _evaluate_chunk([tasks[i] for i, _ in members], pairs, k, obs_derivative, order, kind, shared, table)
+        return _evaluate_chunk(None, None, k, obs_derivative, order, kind, shared, table,
+                               geometry=batch.geometry, pair_ids=batch.pair_ids[members],
+                               intervals=batch.intervals[members])
     from ghost_backend.twod.operators import _NEAR_BATCH_MAX_SAMPLES
     workers = min(threads, len(jobs), max(1, _NEAR_BATCH_MAX_SAMPLES // _CHUNK_SAMPLES))
     outputs = map_checked(run, jobs, workers, checkpoint)
     for (_, _, members), values in zip(jobs, outputs):
-        for (index, key), value in zip(members, values):
-            result[index] = value
-            if cache is not None:
-                cache.put(key, value)
+        result[members] = values
+        if cache is not None:
+            for index, value in zip(members, values):
+                cache.put(keys[index], value)
     return result
+
+
+@lru_cache(maxsize=8)
+def _coefficients(degree):
+    return coefficients(degree)
+
+
+def _projected(moments, batch):
+    """Nodal (S, K) blocks of every task: ``_project`` as one product per degree pair."""
+    g = batch.geometry
+    qo, qs = g.obs_degree[batch.pair_ids], g.src_degree[batch.pair_ids]
+    blocks = [None] * len(qo)
+    groups = []
+    for do in np.unique(qo):
+        for ds in np.unique(qs[qo == do]):
+            index = np.flatnonzero((qo == do) & (qs == ds))
+            co, cs = _coefficients(int(do)), _coefficients(int(ds))
+            values = co.T @ moments[index][:, :, :co.shape[0], :cs.shape[0]] @ cs
+            for position, i in enumerate(index):
+                blocks[i] = (values[position, 0], values[position, 1])
+            groups.append((index, values))
+    return blocks, groups
+
+
+def _checked_projection(lows, highs, batch):
+    """High-order blocks, the acceptance scale and the low/high change of every task.
+
+    The same quantities as the per-task test (``max |high|`` over both
+    channels against the length floor, ``max |low - high|``), reduced over the
+    stacked blocks of each degree pair."""
+    g = batch.geometry
+    count = len(batch.pair_ids)
+    floor = g.obs_length[batch.pair_ids] * g.src_length[batch.pair_ids] * 1e-10
+    blocks, groups = _projected(highs, batch)
+    _, low_groups = _projected(lows, batch)
+    scale, error = np.empty(count), np.empty(count)
+    for (index, high), (_, low) in zip(groups, low_groups):
+        scale[index] = np.maximum(np.max(np.abs(high).reshape(len(index), -1), axis=1), floor[index])
+        error[index] = np.max(np.abs(low - high).reshape(len(index), -1), axis=1)
+    return blocks, scale, error
 
 
 def _project(moment, obs, src):
@@ -662,7 +870,12 @@ def _project(moment, obs, src):
 
 
 def near_blocks(pairs, k, obs_derivative=True, threads=None):
-    """near_block for many (obs, src) element pairs: the same rule in batched stages."""
+    """near_block for many (obs, src) element pairs: the same rule in batched stages.
+
+    Classification, moment keys, nodal projection and the low/high acceptance
+    test run over each batch's arrays (per-task Python once held the main
+    thread while the chunk workers idled); every block and every decision is
+    the per-task routine's."""
     from ghost_backend.twod.operators import (NEAR_PAIR_QUADRATURE_RTOL,
                                               NEAR_PAIR_QUADRATURE_MAX_DEPTH, get_assembly_threads)
     pairs = list(pairs)
@@ -670,7 +883,8 @@ def near_blocks(pairs, k, obs_derivative=True, threads=None):
     checkpoint = solve_checkpoint()
     cache = _MOMENT_CACHE.get()
     rtol = NEAR_PAIR_QUADRATURE_RTOL
-    table = _table_for(k, pairs)
+    geometry = _PairGeometry(pairs)
+    table = _table_for_ends(k, geometry.obs_p0, geometry.obs_p1, geometry.src_p0, geometry.src_p1)
     values, parents = {}, {}
     pending = [_Task(i, i, 0, ((0., 1.), (0., 1.))) for i in range(len(pairs))]
     next_node = len(pairs)
@@ -695,20 +909,21 @@ def near_blocks(pairs, k, obs_derivative=True, threads=None):
         # retain exponentially many low/high moments for a difficult close pair.
         active = pending[-_ACTIVE_TASKS:]
         del pending[-len(active):]
-        for task in active:
-            _classify(task, *pairs[task.pair])
-        lows = _moments(active, pairs, k, obs_derivative, 20, cache, threads, checkpoint, table)
-        highs = _moments(active, pairs, k, obs_derivative, 36, cache, threads, checkpoint, table)
-        refine, following = [], []
-        for task, low_moment, high_moment in zip(active, lows, highs):
-            obs, src = pairs[task.pair]
-            low, high = _project(low_moment, obs, src), _project(high_moment, obs, src)
-            scale = max(np.max(abs(high[0])), np.max(abs(high[1])), obs.length * src.length * 1e-10)
-            error = max(np.max(abs(a-b)) for a, b in zip(low, high))
-            if error <= rtol * scale:
+        batch = _TaskBatch.build(active, pairs, geometry, k, obs_derivative)
+        lows = _moments(active, pairs, k, obs_derivative, 20, cache, threads, checkpoint, table, batch=batch)
+        highs = _moments(active, pairs, k, obs_derivative, 36, cache, threads, checkpoint, table, batch=batch)
+        high_blocks, scales, errors = _checked_projection(lows, highs, batch)
+        lows = highs = None
+        refine, refine_positions, following = [], [], []
+        for position, task in enumerate(active):
+            high, scale = high_blocks[position], scales[position]
+            if errors[position] <= rtol * scale:
                 accept(task.node, high)
-            elif obs.panel_index == src.panel_index or task.depth >= 2*NEAR_PAIR_QUADRATURE_MAX_DEPTH:
+                continue
+            obs, src = pairs[task.pair]
+            if obs.panel_index == src.panel_index or task.depth >= 2*NEAR_PAIR_QUADRATURE_MAX_DEPTH:
                 refine.append((task, high, scale))
+                refine_positions.append(position)
             else:
                 oi, si = task.intervals
                 if (oi[1]-oi[0])*obs.length >= (si[1]-si[0])*src.length:
@@ -721,23 +936,26 @@ def near_blocks(pairs, k, obs_derivative=True, threads=None):
                 following.extend(_Task(next_node + j, task.pair, task.depth + 1, interval)
                                  for j, interval in enumerate(split))
                 next_node += 2
+        high_blocks = None
         if refine:
+            refined = batch.subset(refine_positions)
             finest_moments = _moments([r[0] for r in refine], pairs, k, obs_derivative, 72,
-                                      cache, threads, checkpoint, table)
-            unresolved = []
-            for (task, high, scale), moment in zip(refine, finest_moments):
-                obs, src = pairs[task.pair]
-                finest = _project(moment, obs, src)
+                                      cache, threads, checkpoint, table, batch=refined)
+            finest_blocks, _ = _projected(finest_moments, refined)
+            unresolved, unresolved_positions = [], []
+            for position, ((task, high, scale), finest) in enumerate(zip(refine, finest_blocks)):
                 if max(np.max(abs(a-b)) for a, b in zip(high, finest)) > rtol * scale:
                     unresolved.append((task, finest, scale))
+                    unresolved_positions.append(position)
                 else:
                     accept(task.node, finest)
             if unresolved:
+                remaining = refined.subset(unresolved_positions)
                 extra_moments = _moments([u[0] for u in unresolved], pairs, k, obs_derivative, 144,
-                                         cache, threads, checkpoint, table)
-                for (task, finest, scale), moment in zip(unresolved, extra_moments):
+                                         cache, threads, checkpoint, table, batch=remaining)
+                extra_blocks, _ = _projected(extra_moments, remaining)
+                for (task, finest, scale), extra in zip(unresolved, extra_blocks):
                     obs, src = pairs[task.pair]
-                    extra = _project(moment, obs, src)
                     error = max(np.max(abs(a-b)) for a, b in zip(finest, extra))
                     if error > rtol * scale:
                         raise ValueError('Polynomial near quadrature did not converge; refine the mesh. '

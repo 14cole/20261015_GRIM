@@ -17,9 +17,66 @@ Closed Robin contours, including standalone PEC and IBC bodies in both
 polarizations, and closed continuous regional PEC/transmission contours use side-oriented
 `S + gamma*D` regional potentials, including the corresponding trace jumps,
 hypersingular flux terms, and exterior field projection. Dense and compressed
-coefficient queries implement the same equations. Regions with open material
-junctions retain the previous representation; they are not claimed to have the
-same resonance protection.
+coefficient queries implement the same equations.
+
+The exterior region of a body with open material junctions (a partial coating:
+TYPE 2 bare arc, TYPE 3 coating outline and caps, TYPE 4 coated core) is closed
+only as a union of open arcs that meet at split junction nodes. It now uses the
+same `S + gamma*D` potential. Its D/W density is continuous: at each junction
+the slave end's D/W columns carry the master end's coefficient, while S/K'
+keep both values. The element-wise Maue form of W is exact for a continuous
+density except on the two half-hat test rows of a junction; integrating the test
+function's tangential derivative by parts leaves `W = W_Maue - eps*F(p)`, with
+`F(p) = int G(p,y) dpsi/ds dy` and `eps = +1/-1` where the test panel's own
+direction ends/starts at p. Without that term the split-disk error below grew
+by about 30%; without the continuous D density (independent junction values)
+the fields were wrong at O(1). Bounded
+regions bounded by open interfaces keep the single-layer representation: a
+simply connected bounded region has an unbounded complement and no interior
+eigenvalues. Combined on the coating as well, the condition estimate reached
+1.5e6 at ka = 40 with no accuracy gain. A bounded region with holes formed by
+open arcs, and polynomial (degree > 1) meshes of such regions, remain
+unprotected.
+
+Partial coating (PEC core r = 0.07 m, lower half coated to 0.1 m, eps 3; ka
+for a = 0.1 m), against a 1824-panel solution of the new equation (agrees with
+912 panels to 0.001 dB):
+
+| ka | panels | former VV 0/90 deg error (dB) | new | former / new condition |
+|---|---|---|---|---|
+| 2.8688 | 114 | +0.90 / +0.79; HH 0 deg +3.97 | -0.003 / +0.03; HH +0.06 | 3.3e4 / 512 |
+| 2.869 | 186 | +0.175 / -0.455; HH -0.16 | +0.001 / +0.001 | 7.0e4, 2.1e5 / 1.2e3, 3.5e3 |
+| 4.536 | 186 | +0.12 | +0.003 | 5.6e4 / 1.5e3 |
+| 6.43 | 186 | -0.28 / +0.32 | +0.001 / 0.000 | 2.3e5 / 2.4e3 |
+| 2.0 | 120 | 0.000 / -0.003 | 0.000 / -0.002 | 318, 529 / 681, 2.1e3 |
+
+Fine sweeps (2.85-2.89 step 0.001, 4.50-4.58 step 0.002, 5.6-6.6 step 0.01)
+have a flat condition estimate (at most 3.5e3, 4.3e3 and 7.5e3) where the
+former equation peaked at 2.1e5, 5.6e4 and 2.3e5. With exact references, a
+dielectric disk and a coated PEC cylinder split into two half regions of the
+same material by a TYPE 5 diameter reproduce the former accuracy at 12
+frequencies (ka 0.5-6) and at the polygon's interior Dirichlet zeros. The
+condition estimate off resonance is 2-6x the former (as for closed combined
+regions) and grows faster than linearly under extreme refinement (2.7e4 at 912
+panels, 9.4e4 at 1824 panels at ka = 2). Closed-region systems are unchanged
+bit for bit.
+
+The single-pass row/column max equilibration of the condition estimate
+misjudges these systems: the exterior's W rows (about gamma/h) dominate the
+transmission flux rows, so the bounded regions' single-layer density blocks
+stay two to three orders under-scaled. On the 3 GHz airfoil survey (8608
+unknowns, lossy high-index coating) it reported 1.47e6 (TE) where the former
+equation gave 2.8e4, with fields that agree to 2e-5 of the peak. For systems
+with union junctions only, the dense and compressed estimators now refine the
+equilibration by a Sinkhorn balance of the equilibrated block sums (one scalar
+per interface side; `condition_method` ends in `_block_balanced`). The
+airfoil's TE/TM estimates become 1.1e4 / 3.3e4 at 3 GHz and 2.0e4 / 5.8e4 at
+6 GHz (former equation 2.8e4 / 7.5e3 and 3.1e4 / 1.1e4). A diagonal scaling
+cannot hide a genuine near-null vector: the former equation at the partial
+coating's resonance keeps 1.05e6 balanced (1.16e6 unbalanced). The gate limit
+is unchanged. Under extreme refinement of the partial coating, where the weak
+direction sits at the junctions, the balanced estimate still grows (6.8e5 HH
+at 3648 panels, ka = 2).
 
 The closed-contour law may vary along the contour: PEC plus impedance zones,
 several impedance zones, tapers, and separate bodies with different laws. The
@@ -325,6 +382,19 @@ is not implemented. Such a joint now raises a specific error instead of
 pinning both coincident nodes and returning a misleading certified field.
 Model a physical fin as a closed, finite-thickness PEC contour. Branching TE
 sheets are also rejected. Separated sheets and PEC bodies remain supported.
+
+On a separated sheet + PEC scene every closed, consistently oriented TYPE 2
+loop carries a second potential on its density: TM `S x + gamma*D x_pec`,
+`gamma = sigma/(i*k0)`, and TE `D x + eta*S x_pec`, `eta = sigma*i*k0`, where
+sigma is the panel side of the exterior; the sheet rows receive the conductor's
+second potential through regular kernels and the far field projects both
+potentials. For a PEC circle (a = 0.1 m) with a separated strip the condition
+peaks of the former equations (3.6e5 at ka = 2.4057 TM, 3.3e4 at 3.054 TE,
+9e4 at 3.833) fall to at most 121; fields agree with the former equations to
+1e-4 of the amplitude away from resonance, and the error against the exact
+cylinder (transparent strip) is unchanged. Open TYPE 2 strips, polynomial
+bases and the compressed engine keep the single-potential equations, and the
+solve then warns that the conductor is not resonance-protected.
 The desktop co-polarized workflow requires both VV (TE) and HH (TM), so the
 attached-sheet guard prevents that entire run, even though a standalone TM
 solve is supported. The solver selection tooltip explains this limitation.
@@ -337,6 +407,31 @@ and mesh evidence, not general correctness of every supported physical model.
 The default certification tolerances have not been tightened as a substitute
 for the formulation fixes. Informational mesh-cache/junction notices are
 separate from warnings counted by the quality gate.
+
+The certified result is the fine solve, but the comparison measures the
+base-vs-fine change. With refinement ratio r and order p the published error is
+about `delta/(r**p - 1)`. 2-D certificates now carry `estimated_published_error`
+(and flat `estimated_published_complex_max_normalized` etc.) with the
+conservative p = 1 (twice the change at r = 1.5); the limits still gate the
+measured change. On the audit's edged bodies the true published error was
+1.19-1.31x (square, p = 1.35) and 1.99x (strip, p = 1.0) the change; the
+estimate is 1.01-1.68x the true error. The equivalent BoR record belongs in
+`bor/dispatch.py` beside `realized_mesh_refinement`, with r the smallest
+realized surface ratio.
+
+The 2-D condition gate is frequency aware for the combined-coupling
+formulations (dielectric two-density, combined Robin and regional potentials,
+combined sheet + PEC). Their condition estimate grows like 1/(k L) below k L ~ 1
+(cond*ka constant from ka = 0.1 to 1e-5: dielectric 300-840, coated PEC
+34-95, PEC/IBC 13.5) while the error stays at the mesh level, so ka = 3e-4
+dielectric runs (condition 2.5e6) used to fail the 1e6 limit with a 4e-4
+error. The gate compares `cond*min(1, k_max*L)`, with L the half-diagonal of
+the mesh bounding box and k_max the largest region wavenumber (a fictitious
+resonance of a high-index region needs k_region*L of order 2, so it is never
+relaxed), floored at 1e-6. Single-layer formulations and every system with
+k_max*L >= 1 keep the raw limit. `condition_est_max` remains the raw estimate;
+`condition_est_frequency_scaled_max` and the gate's `condition_est_gate_value`
+report the compared value.
 
 A reference mesh frequency can only maintain or refine the discretization:
 the single-frequency path now includes both the solve and reference frequencies

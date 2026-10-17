@@ -497,6 +497,11 @@ class _Executor:
             from concurrent.futures import ProcessPoolExecutor
             import multiprocessing
             from ghost_backend.execution.runtime import pin_worker_environment
+            from ghost_backend.bor.near_parallel import close_near_process_pool
+            # The memory plan admits one pool of this size at a time: an idle
+            # persistent near-preparation pool is released before this one
+            # starts (the near phase starts it again).
+            close_near_process_pool()
             geometry.work_bytes = self.total_work_bytes / processes
             pin_worker_environment()
             self.pinned = True

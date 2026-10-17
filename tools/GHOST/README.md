@@ -199,11 +199,22 @@ the same workspace.
 Edit the configuration block in the relevant driver, then run:
 
 ```powershell
-py ghost_backend/run_local_monostatic.py
-py ghost_backend/run_local_bor.py
-py ghost_backend/run_hpc_monostatic.py
-py ghost_backend/run_hpc_bor_monostatic.py
+python ghost_backend/run_local_monostatic.py
+python ghost_backend/run_local_bor.py
+python ghost_backend/run_hpc_monostatic.py
+python ghost_backend/run_hpc_bor_monostatic.py
 ```
+
+Use `python`, not `py`: the scripts' `#!/usr/bin/env python3` line makes the
+Windows `py` launcher pick the Microsoft Store `python3` alias, which exits
+without running anything.
+
+These four scripts hold only user parameters. Their workflow, scheduling and
+worker code lives in `ghost_backend/hpc/bor_driver.py`, `hpc/twod_driver.py`,
+`runs/local_bor_driver.py` and `runs/local_twod_driver.py`. Like an HPC run,
+a local run freezes a copy of the backend and of its parameter script in
+`<run_dir>/runtime` and `<run_dir>/driver_configured.py`, so editing the
+checkout while a sweep runs does not affect it.
 
 The 2-D production path co-solves VV/TE and HH/TM and writes them into one
 GRIM artifact per geometry/frequency. The BoR path produces a combined

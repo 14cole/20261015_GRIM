@@ -42,7 +42,9 @@ def main():
                 psutil.__version__, psutil.Process().memory_info().rss))
         except ImportError:
             print('psutil: absent (optional memory sampling unavailable)')
-        for name in ('ghost_backend.run_hpc_monostatic', 'ghost_backend.run_hpc_bor_monostatic',
+        for name in ('ghost_backend.hpc.twod_driver', 'ghost_backend.hpc.bor_driver',
+                     'ghost_backend.runs.local_twod_driver', 'ghost_backend.runs.local_bor_driver',
+                     'ghost_backend.run_hpc_monostatic', 'ghost_backend.run_hpc_bor_monostatic',
                      'ghost_backend.twod.solver', 'ghost_backend.bor.dispatch', 'ghost_backend.hpc.bundle'):
             importlib.import_module(name)
         matrix = np.array([[3+1j, 1-2j], [2+0j, 5-1j]], dtype=np.complex128)

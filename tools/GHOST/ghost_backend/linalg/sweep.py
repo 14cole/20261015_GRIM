@@ -45,6 +45,31 @@ AUTO_MAX_RANK_FRACTION = 0.5
 # column count.
 LU_DIRECT_MIN_UNKNOWNS = 4096
 LU_DIRECT_RATIO = 60
+# The 2-D dense LU (linalg.dense.DenseFactor) applies the rule from this size
+# to batches of at least LU_DIRECT_MIN_COLUMNS that the cost model would still
+# try to compress: with the plane-wave RHS of a 2-D sweep (rank 38-39 of 181
+# columns) the QR path cost 0.078 / 0.130 s per batch against 0.045 / 0.094 s
+# direct at 2,646 / 3,964 unknowns. Narrower batches (not measured) keep the
+# QR attempt, and batches the model already solves directly keep their own
+# accounting; below 512 'auto' always solves directly. A factor class opts in
+# through its ``lu_direct_min_unknowns`` attribute (BoR mode factors do not);
+# others keep LU_DIRECT_MIN_UNKNOWNS.
+LU_DIRECT_MIN_UNKNOWNS_DENSE_2D = 512
+LU_DIRECT_MIN_COLUMNS = 128
+
+
+def _lu_direct_min_unknowns(factor):
+    return int(getattr(factor, 'lu_direct_min_unknowns', LU_DIRECT_MIN_UNKNOWNS))
+
+
+def _lu_direct(factor, n, count):
+    """True when 'auto' solves this LU-backed batch directly without a QR attempt."""
+    if not _lu_backed(factor) or n >= LU_DIRECT_RATIO * count:
+        return False
+    if n >= LU_DIRECT_MIN_UNKNOWNS:
+        return True
+    return (_lu_direct_min_unknowns(factor) <= n and count >= LU_DIRECT_MIN_COLUMNS
+            and not _auto_qr_cannot_pay(n, count))
 
 
 def _lu_backed(factor):
@@ -246,7 +271,7 @@ def solve(factor, rhs, basis_state=None, setting=None, hint=None):
             return _direct(factor, rhs, evidence, count, 'suspended_batches')
         retained = (basis_state is not None and basis_state.q is not None and basis_state.q.shape[1] > 0
                     and basis_state.owner is not None and basis_state.owner() is factor)
-        if not retained and LU_DIRECT_MIN_UNKNOWNS <= n < LU_DIRECT_RATIO * count and _lu_backed(factor):
+        if not retained and _lu_direct(factor, n, count):
             return _direct(factor, rhs, evidence, count, 'lu_direct_batches')
         if hint is not None and 'hint_probe' not in evidence:
             evidence['hint_probe'] = hint.begin_factor()

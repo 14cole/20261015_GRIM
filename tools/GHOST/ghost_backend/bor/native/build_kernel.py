@@ -118,7 +118,11 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     output = output_dir / f"bor_stream_kernel.{tag}{output_extension}"
     temporary = output.with_name(f".{output.name}.tmp.{os.getpid()}")
-    command = [compiler, "-O3", "-std=c99", "-ffp-contract=off", "-shared"]
+    # -fno-math-errno / -fno-trapping-math let GCC vectorize the far pair
+    # samplers (A-BF-1) and inline IEEE sqrt; no -ffast-math, no FMA
+    # (-ffp-contract=off) and no -march, so the binary stays portable (SSE2).
+    command = [compiler, "-O3", "-std=c99", "-ffp-contract=off",
+               "-fno-math-errno", "-fno-trapping-math", "-shared"]
     if system_name == "windows":
         # A release must load in a fresh Python process without the compiler's
         # bin directory. Link GCC/OpenMP/pthread runtime archives into the DLL;

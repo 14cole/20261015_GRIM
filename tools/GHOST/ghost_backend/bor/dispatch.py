@@ -45,6 +45,9 @@ BOR_POWER_CONSISTENCY_RTOL = 2.0e-8
 BOR_STREAM_BUDGET_GB_DEFAULT = 8.0
 
 
+# PMCHWT condition estimate above which low-frequency breakdown is reported.
+BOR_PMCHWT_LOW_FREQUENCY_CONDITION = 1.0e8
+
 def _unit_scale_to_meters(units: 'str') -> 'float':
     value = str(units or "").strip().lower()
     if value in {"inch", "inches", "in"}:
@@ -498,8 +501,8 @@ def resolve_automatic_plan(
 
     ``assembly`` is None unless the chooser replaces the caller's ``'auto'``:
     when the dense plan of the solvers' own assembly decision cannot fit
-    (conductors stream; the material solvers choose tables below a fixed 2 GB
-    whatever the limit is), dense streaming is priced next and compression is
+    (conductors and the coated/dielectric solvers stream; the junction solvers
+    choose tables below a fixed 2 GB whatever the limit is), dense streaming is priced next and compression is
     selected only when neither fits. Snapshot entries choose once for the whole sweep, so an imposed
     streamed assembly applies to every frequency; it costs about what tables
     cost, and compression several times more.
@@ -649,8 +652,8 @@ def _resolve_direct_plan(supplied):
     streamed assembly decision as the solver that receives the call, two
     unknown families on a conductor and four on an interface, and the shared
     mode-worker and near plan. When the caller left ``assembly='auto'`` and
-    that plan cannot fit, dense streaming is priced next (the solvers choose
-    tables below a fixed 2 GB whatever the limit is, and a streamed dense solve
+    that plan cannot fit, dense streaming is priced next (the junction solvers
+    choose tables below a fixed 2 GB whatever the limit is, and a streamed dense solve
     is several times faster than compression); compression is selected only
     when neither fits. The runtime admission of the solve remains the
     authority: a plan it rejects is replaced by the next smaller one (see
@@ -719,9 +722,9 @@ def _direct_dense_plan(supplied, layout, modes, order):
               and supplied.get('points_core') is not None and 'eps_r' in supplied)
     if len(layout) == 1:
         decision = sides * estimate_bor_table_gb(elements, modes, formulation, has_ibc, order, False)
-        # solve_bor streams every automatic conductor solve (October 2026); the
-        # dielectric solver keeps its 2 GB table threshold.
-        streaming = assembly == 'streaming' or (assembly == 'auto' and (conductor or decision > 2.0))
+        # solve_bor and solve_bor_dielectric stream every automatic solve
+        # (October 2026).
+        streaming = assembly in ('streaming', 'auto')
         if streaming:
             block, held, planned = plan_streaming_mode_block(elements, modes, formulation, has_ibc,
                                                              False, budget / sides, workers)
@@ -744,7 +747,9 @@ def _direct_dense_plan(supplied, layout, modes, order):
         else:
             # The junction planner adds its retained auxiliaries to the tables.
             decision = _estimate_multisurface_operator_gb(plain, modes, order) + auxiliary
-        streaming = assembly == 'streaming' or (assembly == 'auto' and decision > 2.0)
+        # solve_bor_coated_pec streams every automatic solve (October 2026);
+        # the junction solvers keep their 2 GB table threshold.
+        streaming = assembly == 'streaming' or (assembly == 'auto' and (coated or decision > 2.0))
         if streaming:
             specs = []
             for elements, conductor in plain:
@@ -1003,10 +1008,8 @@ def estimate_bor_resources(
         table_double = 2.0 * estimate_bor_table_gb(
             dielectric_elements, mode_cap, "efie", True, FAR_GAUSS_ORDER, False
         )
-        use_streaming = (
-            assembly_key == "streaming"
-            or (assembly_key == "auto" and table_double > 2.0)
-        )
+        # solve_bor_dielectric streams under 'auto' (October 2026).
+        use_streaming = assembly_key in ("streaming", "auto")
         if use_streaming:
             full_double = 2.0 * estimate_streaming_gb(
                 dielectric_elements, mode_cap, "efie", True, False
@@ -1062,10 +1065,8 @@ def estimate_bor_resources(
         table_double = _estimate_multisurface_operator_gb(
             surface_layout, mode_cap
         )
-        use_streaming = (
-            assembly_key == "streaming"
-            or (assembly_key == "auto" and table_double > 2.0)
-        )
+        # solve_bor_coated_pec streams under 'auto' (October 2026).
+        use_streaming = assembly_key in ("streaming", "auto")
         if use_streaming:
             # As solve_bor_coated_pec streams: the core-to-outer blocks are
             # derived from the outer-to-core ones, not streamed.
@@ -2556,6 +2557,16 @@ def solve_monostatic_rcs_bor(
         raise RuntimeError(
             "BoR quality gate failed: " + quality_gate["reason"]
         )
+    solver_warnings = list(materials.warnings)
+    if "PMCHWT" in formulation_label and condition_max > BOR_PMCHWT_LOW_FREQUENCY_CONDITION:
+        # PMCHWT conditioning grows as 1/(ka)^2; above ~1e8 the dielectric
+        # result loses accuracy (2.6 dB at ka=0.003) while still passing the
+        # 1e12 gate. Say so instead of publishing it silently.
+        solver_warnings.append(
+            f"PMCHWT condition estimate {condition_max:.3g} exceeds "
+            f"{BOR_PMCHWT_LOW_FREQUENCY_CONDITION:.0e}: low-frequency breakdown "
+            "can reduce dielectric/coating accuracy (about ka < 0.01)."
+        )
 
     return {
         "solver": "bor_mom_rcs",
@@ -2609,7 +2620,7 @@ def solve_monostatic_rcs_bor(
             "mesh_wavelength_m": float(mesh_wavelength_m),
             "mesh_max_refractive_index": float(mesh_max_refractive_index),
             "mesh_material_flags": list(mesh_material_flags),
-            "warnings": list(materials.warnings),
+            "warnings": solver_warnings,
             "preflight": preflight,
         },
     }
@@ -2780,6 +2791,20 @@ def solve_monostatic_rcs_bor_certified(
             "refinement_ratio_total": float(fine_total) / float(base_total),
         })
 
+    # The fine result is published; its own discretization error is estimated
+    # from the measured base-to-fine change (runs.quality.estimated_published_error,
+    # p = 1) with the smallest realized per-surface refinement ratio over all
+    # surfaces and frequencies (the most conservative r).
+    from ghost_backend.runs.quality import estimated_published_error
+    surface_ratios = [
+        float(fine_count) / float(base_count)
+        for record in mesh_refinement_records
+        for base_count, fine_count in zip(record["base_elements_by_surface"],
+                                          record["fine_elements_by_surface"])
+        if base_count > 0
+    ]
+    published_ratio = min(surface_ratios) if surface_ratios else float("nan")
+
     per_polarization = {}
     violations = []
     for channel in ("VV", "HH"):
@@ -2794,6 +2819,12 @@ def solve_monostatic_rcs_bor_certified(
             phase_max_limit_deg=policy["phase_max_limit_deg"],
             phase_floor_relative=policy["phase_floor_relative"],
         )
+        published = estimated_published_error(gate, published_ratio)
+        gate["estimated_published_error"] = published
+        for metric in ("complex_max_normalized", "complex_rms_normalized",
+                       "max_abs_db", "rms_db"):
+            if metric in published:
+                gate["estimated_published_" + metric] = published[metric]
         per_polarization[channel] = gate
         if not bool(gate.get("passed", False)):
             violations.append(
@@ -2812,6 +2843,7 @@ def solve_monostatic_rcs_bor_certified(
         "policy": policy,
         "polarizations": per_polarization,
         "realized_mesh_refinement": mesh_refinement_records,
+        "published_error_refinement_ratio": published_ratio,
         "violations": violations,
         "reason": (
             "; ".join(violations)
