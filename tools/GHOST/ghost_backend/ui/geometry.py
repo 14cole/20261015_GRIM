@@ -14,14 +14,14 @@ from ghost_backend.ui.table_editors import ScrollSafeComboBox
 from ghost_backend.ui.geometry_inspection import GeometryInspectionMixin
 
 try:
-    from PySide6.QtCore import Qt, Signal, QItemSelectionModel, QThread
+    from PySide6.QtCore import Qt, Signal, QItemSelectionModel, QThread, QTimer
     from PySide6.QtWidgets import (
         QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QHBoxLayout,
         QHeaderView, QLabel, QMessageBox, QPushButton, QSizePolicy, QSplitter,
         QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
     )
 except ImportError:
-    from PySide2.QtCore import Qt, Signal, QItemSelectionModel, QThread  # type: ignore
+    from PySide2.QtCore import Qt, Signal, QItemSelectionModel, QThread, QTimer  # type: ignore
     from PySide2.QtWidgets import (  # type: ignore
         QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QHBoxLayout,
         QHeaderView, QLabel, QMessageBox, QPushButton, QSizePolicy, QSplitter,
@@ -189,10 +189,13 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
         )
         self.chk_fill_materials = QCheckBox("Fill Materials")
         self.chk_fill_materials.setToolTip(
-            "Fill enclosed regions with their material color (gray = PEC, "
-            "colored tints = dielectrics, background = air) as implied by each "
-            "segment's winding. A region whose boundary segments disagree "
-            "about the enclosed material is hatched red."
+            "Shade every region by the medium its boundaries declare: air "
+            "unshaded, conductors gray, one color per dielectric flag (see the "
+            "legend). A region whose boundaries disagree is hatched red and "
+            "circled, and an open dielectric end is marked with a red x; hover "
+            "over either for the message. The Material filter shades only the "
+            "selected medium; conflicts stay visible. Uses the same region "
+            "check as Validate and the solver."
         )
         btn_row.addWidget(self.btn_load)
         btn_row.addWidget(self.btn_save)
@@ -363,7 +366,16 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
 
         self.impedance_artists: 'List[Any]' = []
 
-        self.fill_artists: 'List[Any]' = []
+        # Fill Materials (region preview): recomputed only when the geometry signature changes,
+        # and debounced so a burst of table edits costs one analysis.
+        self.region_artists: 'List[Any]' = []
+        self._region_key = None
+        self._region_report = None
+        self._region_hover: 'List[Tuple[Any, str]]' = []
+        self._region_timer = QTimer(self)
+        self._region_timer.setSingleShot(True)
+        self._region_timer.setInterval(150)
+        self._region_timer.timeout.connect(self._render_regions)
 
         self.table.itemChanged.connect(self._on_main_table_item_changed)
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
@@ -373,6 +385,7 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
 
         self.canvas.mpl_connect("button_press_event", self._on_plot_button_press)
         self.canvas.mpl_connect("scroll_event", self._on_plot_scroll)
+        self.canvas.mpl_connect("motion_notify_event", self._on_region_hover)
         self._normal_view = None
         self._axis_artist = None
         self.canvas.mpl_connect("draw_event", self._on_preview_draw)
@@ -399,7 +412,7 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
     def _on_geometry_mode_changed(self, *_):
         self._cancel_validation()
         self._update_geometry_axes()
-        self._render_fills()
+        self._schedule_regions()
         self._render_normals()
         self.lbl_status.setText("BoR profile: X is radius, Y is axial Z; validate against the axisymmetric solver rules."
                                 if self.geometry_mode() == "bor" else "2D geometry: validate planar boundaries and materials.")
@@ -514,7 +527,6 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
             "grid": str(grid),
         }
         self._apply_plot_theme_to_axes()
-        self._render_fills()
         self._detail_dirty = True
         self.canvas.draw_idle()
 
@@ -628,7 +640,7 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
         self._refresh_segment_styles()
         self._render_normals()
         self._render_impedance_overlay()
-        self._render_fills()
+        self._schedule_regions()
         self._update_status_label(-1)
         self.canvas.draw()
 
@@ -836,7 +848,7 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
             self.canvas.draw_idle()
         if prop_index in (0, 3, 4):
             self._render_normals()
-            self._render_fills()
+            self._schedule_regions()
             self.canvas.draw_idle()
 
         if row == self._selected_row:
@@ -1322,6 +1334,7 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
 
         if col == 0:
             seg.name = text
+            self._schedule_regions()
         elif col == 2:
             props = self._ensure_prop_len(seg.properties, 5)
             props[1] = text
@@ -1389,7 +1402,7 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
         self._refresh_segment_styles()
         self._render_normals()
         self._render_impedance_overlay()
-        self._render_fills()
+        self._schedule_regions()
         self.canvas.draw_idle()
         message = (
             f"Reversed {len(updates)} selected segment(s); normals now point the other way. "
@@ -1651,32 +1664,209 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
         self.canvas.draw_idle()
 
 
-    def _clear_fills(self):
-        for art in self.fill_artists:
+    # ------------------------------------------------------- region preview
+
+    def _schedule_regions(self):
+        # Every geometry, label, direction and mode change passes through here.
+        if self.chk_fill_materials.isChecked() or self.region_artists:
+            self._region_timer.start()
+
+    def _region_signature(self):
+        return (self.geometry_mode(), tuple(
+            (seg.name, tuple(self._ensure_prop_len(seg.properties, 5)), tuple(seg.x), tuple(seg.y))
+            for seg in self.segments))
+
+    def _current_region_report(self):
+        """The shared region analysis (geometry.regions), recomputed only on change."""
+        from ghost_backend.geometry.regions import analyze_regions, primitives_from_editor_segments
+        key = self._region_signature()
+        if key != self._region_key:
+            mode = self.geometry_mode()
+            self._region_report = analyze_regions(
+                primitives_from_editor_segments(self.segments, mode=mode), mode=mode)
+            self._region_key = key
+        return self._region_report
+
+    def _clear_regions(self):
+        for art in self.region_artists:
             try:
                 art.remove()
             except Exception:
                 pass
-        self.fill_artists = []
+        self.region_artists = []
+        self._region_hover = []
 
-    def _fill_loops(self) -> 'List[Dict[str, Any]]':
-        from ghost_backend.geometry.preview import build_material_faces
-        return build_material_faces(self.segments, self._segment_side_materials,
-                                    close_axis=self.geometry_mode() == "bor")
+    def _region_color(self, medium):
+        return self._PEC_COLOR if medium[0] == "conductor" else self._diel_color(medium[1])
 
-    def _render_fills(self):
-        self._clear_fills()
+    def _isolated_medium(self):
+        """The regions.py medium chosen in the Material filter, or None for all.
+
+        The filter lists side labels from _segment_side_materials ("air",
+        "PEC", "d<flag>"); a label with no medium (for example "?") is returned
+        as False, which matches no region.
+        """
+        from ghost_backend.geometry.regions import AIR, CONDUCTOR, dielectric
+        target = self.cmb_material_isolation.currentData() if hasattr(self, "cmb_material_isolation") else None
+        if target is None:
+            return None
+        if target == "air":
+            return AIR
+        if target == "PEC":
+            return CONDUCTOR
+        if target.startswith("d") and target[1:].isdigit():
+            return dielectric(int(target[1:]))
+        return False
+
+    def _draw_region_patches(self, ax, *, legend=False):
+        """Shade regions with compound paths (outline plus explicit holes).
+
+        Each region is one path whose holes are separate subpaths of opposite
+        winding, so a 25 um coating ring is filled as a ring and its core
+        stays visible. The Material filter shades only its medium (others are
+        faint with Faint context, else hidden); conflicts and open ends always
+        show. Returns (artists, [(artist, message)] for hover).
+        """
+        from matplotlib.legend import Legend
+        from matplotlib.lines import Line2D
+        from matplotlib.patches import Patch, PathPatch
+        from matplotlib.path import Path as MplPath
+        from ghost_backend.geometry.regions import medium_name
+        report = self._current_region_report()
+        isolated = self._isolated_medium()
+        context = isolated is not None and self.chk_isolation_context.isChecked()
+        artists, hover, legend_items = [], [], {}
+
+        def compound(rings):
+            vertices, codes = [], []
+            for ring in rings:
+                if len(ring) < 3:
+                    continue
+                vertices.extend(list(ring) + [ring[0]])
+                codes.extend([MplPath.MOVETO] + [MplPath.LINETO] * (len(ring) - 1) + [MplPath.CLOSEPOLY])
+            return MplPath(vertices, codes) if vertices else None
+
+        for region in report.regions:
+            conflict = report.conflicts[region.conflict] if region.conflict is not None else None
+            if conflict is None and (region.medium is None or region.medium[0] == "air"):
+                continue
+            matches = isolated is None or region.medium == isolated
+            if conflict is None and not matches and not context:
+                continue
+            if region.unbounded:
+                # The exterior cannot be hatched; outline the bodies it surrounds.
+                path = compound(region.holes)
+                style = dict(facecolor="none", edgecolor="red", linewidth=2.0)
+            elif conflict is not None:
+                path = compound([region.outer] + region.holes)
+                style = dict(facecolor=(1.0, 0.85, 0.85, 0.55), edgecolor="red",
+                             linewidth=1.5, hatch="////")
+            else:
+                path = compound([region.outer] + region.holes)
+                style = dict(facecolor=self._region_color(region.medium), edgecolor="none",
+                             alpha=0.45 if matches else 0.08, linewidth=0)
+                if matches:
+                    legend_items[medium_name(region.medium)] = (region.medium, style["facecolor"])
+            if path is None:
+                continue
+            patch = PathPatch(path, zorder=0.8, **style)
+            patch.set_gid("region-conflict" if conflict is not None
+                          else f"region-{medium_name(region.medium)}")
+            ax.add_patch(patch)
+            artists.append(patch)
+            if conflict is not None:
+                hover.append((patch, conflict.message))
+                legend_items["conflict"] = (None, "red")
+        # A conflict inside a thin layer (0.001 in) is narrower than a pixel at
+        # full view, and its hatch sits under the segment lines: mark each
+        # conflict location with a fixed-size marker so it is always visible.
+        conflicts = [c for c in report.conflicts if c.location is not None]
+        if conflicts:
+            spots = ax.scatter([c.location[0] for c in conflicts], [c.location[1] for c in conflicts],
+                               marker="o", s=140, facecolors="none", edgecolors="red",
+                               linewidths=2.0, zorder=13)
+            spots.set_gid("region-conflict-marker")
+            artists.append(spots)
+            hover.extend(((spots, index), c.message) for index, c in enumerate(conflicts))
+            legend_items["conflict"] = (None, "red")
+        failures = [f for f in report.closure_failures if f.explained_by is None]
+        if failures:
+            marks = ax.scatter([f.point[0] for f in failures], [f.point[1] for f in failures],
+                               marker="x", s=60, color="red", linewidths=2, zorder=13)
+            marks.set_gid("region-open-end")
+            artists.append(marks)
+            hover.extend(((marks, index), f.message) for index, f in enumerate(failures))
+            legend_items["open boundary"] = (None, "x")
+        if legend and legend_items:
+            def order(item):
+                medium = item[1][0]
+                if medium is None:
+                    return (2, item[0])
+                return (0, 0) if medium[0] == "conductor" else (1, medium[1])
+            handles, labels = [], []
+            for label, (_medium, color) in sorted(legend_items.items(), key=order):
+                if label == "conflict":
+                    handles.append(Patch(facecolor=(1.0, 0.85, 0.85), edgecolor="red", hatch="////"))
+                elif label == "open boundary":
+                    handles.append(Line2D([], [], marker="x", color="red", linestyle="none"))
+                else:
+                    handles.append(Patch(facecolor=color, alpha=0.45))
+                labels.append(label)
+            # A separate artist, so it never replaces another overlay's legend.
+            key = Legend(ax, handles, labels, loc="upper right", fontsize=7, framealpha=.9,
+                         title="Regions", title_fontsize=7)
+            key.set_zorder(14)
+            ax.add_artist(key)
+            artists.append(key)
+        return artists, hover
+
+    def _render_regions(self):
+        from ghost_backend.geometry.regions import medium_name
+        self._region_timer.stop()
+        self._clear_regions()
         self._detail_dirty = True
-        self._fill_loops_cache = []
         if not self.chk_fill_materials.isChecked() or not self.segments:
+            self.canvas.draw_idle()
             return
-        self._fill_loops_cache = self._fill_loops()
-        self.fill_artists = self._draw_fill_faces(self.canvas.ax, legend=True)
+        self.region_artists, self._region_hover = self._draw_region_patches(self.canvas.ax, legend=True)
+        problems = [item.message for item in self._region_report.error_items()]
+        if problems:
+            more = (f" ({len(problems) - 1} more: hover over the red marks or Validate.)"
+                    if len(problems) > 1 else "")
+            self.lbl_status.setText(f"Regions: {len(problems)} problem(s). {problems[0]}{more}")
+        else:
+            count = len({r.medium for r in self._region_report.regions
+                         if r.medium and r.medium[0] != "air"})
+            isolated = self._isolated_medium()
+            if isolated is None:
+                self.lbl_status.setText(f"Regions: consistent; {count} non-air medium/media shaded.")
+            else:
+                shown = medium_name(isolated) if isolated else "no medium"
+                self.lbl_status.setText(f"Regions: consistent; showing {shown} of {count} non-air medium/media.")
+        self.canvas.draw_idle()
 
     def _on_fill_materials_toggled(self, checked: 'bool'):
         _ = checked
-        self._render_fills()
-        self.canvas.draw_idle()
+        self._render_regions()
+
+    def _on_region_hover(self, event):
+        if not self._region_hover or event.inaxes is not self.canvas.ax:
+            if self.canvas.toolTip():
+                self.canvas.setToolTip("")
+            return
+        message = ""
+        for artist, text in self._region_hover:
+            if isinstance(artist, tuple):
+                marks, index = artist
+                px, py = self.canvas.ax.transData.transform(marks.get_offsets()[index])
+                if math.hypot(px - event.x, py - event.y) <= 8:
+                    message = text
+                    break
+            elif artist.contains_point((event.x, event.y)):
+                message = text
+                break
+        if message != self.canvas.toolTip():
+            self.canvas.setToolTip(message)
 
 
     def _ibcs_lookup(self) -> 'Dict[int, Dict[str, Any]]':
@@ -2033,7 +2223,7 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
         self.issue_rows = issue_rows
         self._refresh_segment_styles()
         self._render_normals()
-        self._render_fills()
+        self._schedule_regions()
         self.canvas.draw_idle()
 
         errors = [msg for level, _, msg in findings if level == "ERROR"]

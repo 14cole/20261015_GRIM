@@ -702,6 +702,101 @@ def _touching_rule(order: 'int') -> 'Tuple[np.ndarray, np.ndarray, np.ndarray]':
     return _nodes(_touching_order(order), True)
 
 
+# Acute touching pairs. On each triangle of the touching rule the angular
+# variable v (y = u v, or x = u v) sees the kernel's near singularity at the
+# complex point c = (d_o . d_s + i |d_o x d_s|) / |d|**2 (d: the triangle's
+# radial side), independent of u. Two panels meeting at a small angle put c
+# within sin(angle) of v = 1, where the fixed Gauss rule in v cannot resolve
+# it: against an adaptive reference, equal panels at 1 degree had K' errors of
+# 2e-3 per block, 0.1 degree 0.24 and 0.03 degree 0.73 (S 2.5e-6..2.4e-4); a
+# 2:1 length ratio already reached 2e-9 (K') at 30 degrees and 1.6e-3 at 10.
+# The error depends only on the angle and length ratio, not the panel size,
+# so mesh refinement never removed it. Where the Bernstein ellipse of c on
+# [0, 1] is thinner than _ACUTE_TOUCHING_RHO (20-point error above ~1e-12),
+# v takes a composite rule graded dyadically toward Re(c) down to |Im c|,
+# _ACUTE_TOUCHING_POINTS Gauss points per piece (each piece's ellipse then
+# exceeds 4.2). S, K and K' match the reference to 3e-14 from 30 degrees to
+# 0.001 degree and length ratios 0.5..3. Other pairs keep the fixed rule.
+_ACUTE_TOUCHING_RHO = 2.0
+_ACUTE_TOUCHING_POINTS = 12
+
+
+def _bernstein_rho(c):
+    """Bernstein-ellipse parameter of the point(s) ``c`` for the interval [0, 1]."""
+    z = 2.0 * np.asarray(c, dtype=complex) - 1.0
+    root = np.sqrt(z - 1.0) * np.sqrt(z + 1.0)
+    return np.maximum(np.abs(z + root), np.abs(z - root))
+
+
+def _touching_angular_poles(d_o, d_s):
+    """Near-singular points c of the two touching triangles, for (..., 2) frames."""
+    dot = np.sum(d_o * d_s, axis=-1)
+    cross = np.abs(d_o[..., 0] * d_s[..., 1] - d_o[..., 1] * d_s[..., 0])
+    pole = dot + 1j * cross
+    return pole / np.sum(d_s * d_s, axis=-1), pole / np.sum(d_o * d_o, axis=-1)
+
+
+def _touching_is_acute(d_o, d_s):
+    """Pairs whose touching rule needs the graded angular rule."""
+    c_x, c_y = _touching_angular_poles(np.asarray(d_o, float), np.asarray(d_s, float))
+    return np.minimum(_bernstein_rho(c_x), _bernstein_rho(c_y)) < _ACUTE_TOUCHING_RHO
+
+
+def _graded_angular_rule(c, points=_ACUTE_TOUCHING_POINTS):
+    """Composite Gauss rule on [0, 1] graded dyadically toward Re(c) down to |c - Re c|."""
+    a = min(max(float(c.real), 0.0), 1.0)
+    reach = max(abs(complex(c) - a), 1e-15)
+    edges = [0.0, a, 1.0]
+    for side, sign in ((a, -1.0), (1.0 - a, 1.0)):
+        step = side
+        while step > reach:
+            step *= 0.5
+            edges.append(a + sign * step)
+    edges = np.unique(np.clip(edges, 0.0, 1.0))
+    t, w = _get_quadrature(points)
+    width = np.diff(edges)
+    return ((edges[:-1, None] + width[:, None] * t[None, :]).ravel(),
+            (width[:, None] * w[None, :]).ravel())
+
+
+def _acute_touching_rule(order, d_o, d_s, points=_ACUTE_TOUCHING_POINTS):
+    """The touching rule (x, y, weights) with a graded angular variable (see above)."""
+    t, w = _get_quadrature(_touching_order(order))
+    u, wu = t**4, 4 * t**7 * w
+    parts = []
+    for first, pole in enumerate(_touching_angular_poles(np.asarray(d_o, float), np.asarray(d_s, float))):
+        v, wv = _graded_angular_rule(complex(pole), points)
+        radial, angular = np.repeat(u, v.size), np.tile(v, u.size)
+        parts.append((radial, radial * angular) if first == 0 else (radial * angular, radial))
+        parts[-1] += (np.outer(wu, wv).ravel(),)
+    return tuple(np.concatenate(values) for values in zip(*parts))
+
+
+def _touching_rule_for(order, d_o, d_s):
+    """The fixed touching rule, or the graded one for an acute pair."""
+    if bool(_touching_is_acute(d_o, d_s)):
+        return _acute_touching_rule(order, d_o, d_s)
+    return _touching_rule(order)
+
+
+def _acute_touching_derivative(k0, diff, normal, obs_normal_deriv):
+    """(j/4) k H1(k r) (n . d)/r (sign as K or K') without distance floors.
+
+    The fixed rule's kernels drop samples within EPS = 1e-12 m of the corner
+    and floor k r at 1e-12. Graded nodes lie much closer to the near-singular
+    line than that, where the integrand (n . d)/r**2 stays bounded, so the
+    floors cost 1e-9..1e-6 of the block; z H1(z) -> 2j/pi is evaluated instead.
+    """
+    distance = np.linalg.norm(diff, axis=-1)
+    z = np.asarray(complex(k0) * distance, dtype=np.complex128)
+    small = np.abs(z) < 1e-8
+    zh1 = np.full(z.shape, 2j / np.pi, dtype=np.complex128)
+    zh1[~small] = z[~small] * _hankel2_1_array(z[~small])
+    value = 0.25j * zh1 * (diff @ np.asarray(normal, dtype=float) if np.ndim(normal) == 1
+                           else np.sum(diff * normal, axis=-1)) / (distance * distance)
+    return -value if obs_normal_deriv else value
+
+
 def _touching_frame(elem, interval, start_is_shared):
     """Shared corner point, direction away from it, and parent coordinate map."""
     a, b = float(interval[0]), float(interval[1])
@@ -712,6 +807,13 @@ def _touching_frame(elem, interval, start_is_shared):
         return corner, h * seg, a, h
     corner = elem.p1 if b == 1.0 else elem.p0 + b * seg
     return corner, -h * seg, b, -h
+
+
+def _touching_directions(obs_elem, src_elem, obs_interval, src_interval,
+                         obs_start_is_shared, src_start_is_shared):
+    """Directions away from the shared corner (``_touching_frame``) of both intervals."""
+    return (_touching_frame(obs_elem, obs_interval, obs_start_is_shared)[1],
+            _touching_frame(src_elem, src_interval, src_start_is_shared)[1])
 
 
 def _touching_geometry(obs_elem, src_elem, obs_interval, src_interval,
@@ -750,7 +852,8 @@ def _integrate_linear_touching_duffy(
     block = np.zeros((2, 2), dtype=np.complex128)
     if obs_len <= 0.0 or src_len <= 0.0:
         return block
-    x, y, weights = _touching_rule(order)
+    x, y, weights = _touching_rule_for(order, *_touching_directions(
+        obs_elem, src_elem, obs_interval, src_interval, obs_start_is_shared, src_start_is_shared))
     xi_obs, xi_src, _ = _touching_geometry(
         obs_elem, src_elem, obs_interval, src_interval, obs_start_is_shared, src_start_is_shared, x, y)
     for weight, xo, xs in zip(weights, xi_obs, xi_src):
@@ -773,8 +876,12 @@ def _integrate_linear_touching_duffy_sk_vectorized(
     order: 'int' = 20,
     compute_single_layer: 'bool' = True,
     compute_double_layer: 'bool' = True,
+    angular_points: 'int' = _ACUTE_TOUCHING_POINTS,
 ) -> 'Tuple[np.ndarray, np.ndarray]':
-    """Vectorized graded-corner rule for endpoint-touching panels (see _touching_rule)."""
+    """Vectorized graded-corner rule for endpoint-touching panels (see _touching_rule).
+
+    ``angular_points`` sets the acute rule's points per angular piece (the
+    corner self-check, ``acute_touching_report``, raises it)."""
 
     if not bool(compute_single_layer) and not bool(compute_double_layer):
         raise ValueError("At least one touching-pair operator must be requested.")
@@ -786,7 +893,11 @@ def _integrate_linear_touching_duffy_sk_vectorized(
     if obs_len <= 0.0 or src_len <= 0.0:
         return s_block, k_block
 
-    x, y, weights = _touching_rule(order)
+    directions = _touching_directions(
+        obs_elem, src_elem, obs_interval, src_interval, obs_start_is_shared, src_start_is_shared)
+    acute = bool(_touching_is_acute(*directions))
+    x, y, weights = (_acute_touching_rule(order, *directions, angular_points) if acute
+                     else _touching_rule(order))
     xi_obs, xi_src, diff = _touching_geometry(
         obs_elem, src_elem, obs_interval, src_interval, obs_start_is_shared, src_start_is_shared, x, y)
     phi_obs = np.column_stack((1.0 - xi_obs, xi_obs))
@@ -799,7 +910,10 @@ def _integrate_linear_touching_duffy_sk_vectorized(
         )
 
     if compute_double_layer:
-        if obs_normal_deriv:
+        if acute:
+            dk_vals = _acute_touching_derivative(
+                k0, diff, obs_elem.normal if obs_normal_deriv else src_elem.normal, obs_normal_deriv)
+        elif obs_normal_deriv:
             dk_vals = _dgreen_dn_obs_array(k0, diff, obs_elem.normal)
         else:
             src_normals = np.broadcast_to(src_elem.normal, diff.shape)
@@ -810,6 +924,56 @@ def _integrate_linear_touching_duffy_sk_vectorized(
 
     scale = obs_len * src_len
     return s_block * scale, k_block * scale
+
+
+# Tolerance of the acute-corner self-check (relative change of a touching
+# block when the angular points per piece double and the radial order goes to
+# 40); the production rule measures 3e-14 against an adaptive reference.
+ACUTE_SELF_CHECK_LIMIT = 1.0e-8
+
+
+def acute_touching_report(mesh, k0):
+    """Acute touching panel pairs of ``mesh`` and a self-check of their rule.
+
+    Returns None without acute pairs, otherwise ``{'pairs', 'min_angle_deg',
+    'self_check'}``: the pair count, the smallest angle between two panels at
+    a shared corner (0 for panels folding back onto each other, as at a thin
+    wedge tip or a feathered coating edge), and the largest relative change
+    of any S, K or K' block under the refined rule. The quadrature error of
+    these blocks does not shrink with the mesh, so a base/fine mesh
+    comparison cannot detect it; this check measures it directly.
+    """
+    from scipy.spatial import cKDTree
+    elements = mesh.elements
+    if len(elements) < 2:
+        return None
+    ends = np.array([(e.p0, e.p1) for e in elements], dtype=float).reshape(-1, 2)
+    pairs = cKDTree(ends).query_pairs(2.0 * NODE_SNAP_TOLERANCE, output_type='ndarray').reshape(-1, 2)
+    panels = np.array([e.panel_index for e in elements])
+    pairs = pairs[panels[pairs[:, 0] // 2] != panels[pairs[:, 1] // 2]]
+    # Direction away from the shared end: end 0 -> p1 - p0, end 1 -> p0 - p1.
+    away = lambda index: (ends[index ^ 1] - ends[index])
+    pairs = pairs[_touching_is_acute(away(pairs[:, 0]), away(pairs[:, 1]))]
+    if not len(pairs):
+        return None
+    smallest, worst = 180.0, 0.0
+    for i, j in pairs:
+        obs, src = elements[i // 2], elements[j // 2]
+        starts = (i % 2 == 0, j % 2 == 0)
+        d_o, d_s = away(i), away(j)
+        smallest = min(smallest, math.degrees(math.atan2(abs(d_o[0] * d_s[1] - d_o[1] * d_s[0]),
+                                                         float(d_o @ d_s))))
+        for obs_normal_deriv in (False, True):
+            # (S, K) and then (S, K'); S is compared once.
+            production, refined = (_integrate_linear_touching_duffy_sk_vectorized(
+                obs, src, k0, obs_normal_deriv, (0.0, 1.0), (0.0, 1.0), *starts, order=order,
+                angular_points=points) for order, points in ((9, _ACUTE_TOUCHING_POINTS),
+                                                             (40, 2 * _ACUTE_TOUCHING_POINTS)))
+            for low, high in list(zip(production, refined))[int(obs_normal_deriv):]:
+                scale = float(np.linalg.norm(high))
+                if scale > 0.0:
+                    worst = max(worst, float(np.linalg.norm(low - high)) / scale)
+    return {'pairs': int(len(pairs)), 'min_angle_deg': smallest, 'self_check': worst}
 
 
 def _near_kernel_values(k0, distance, with_green, with_derivative, table=None):
@@ -861,9 +1025,9 @@ def _integrate_linear_touching_pairs_sk_batched(pairs, shared, k0,
     on (0, 1) x (0, 1) to rounding, or to the table's 2e-13 when ``table`` (a
     validated kernel table) evaluates the kernels. ``geometry``
     (``_touching_geometry_arrays``) replaces ``pairs`` with the same element
-    values as arrays.
+    values as arrays. Acute pairs (``_touching_is_acute``) take their own graded
+    rule, one pair at a time.
     """
-    x0, y0, weights = _touching_rule(order)
     shared = np.asarray(shared, dtype=bool).reshape(-1, 2)
     if geometry is None:
         obs, src = zip(*pairs)
@@ -872,7 +1036,6 @@ def _integrate_linear_touching_pairs_sk_batched(pairs, shared, k0,
                     np.asarray([e.length for e in obs], float), np.asarray([e.length for e in src], float),
                     np.asarray([e.normal for e in (obs if obs_normal_deriv else src)]))
     obs_p0, obs_p1, src_p0, src_p1, obs_len, src_len, normals = geometry
-    npairs = len(obs_p0)
     obs_start, src_start = shared[:, :1], shared[:, 1:]
     corner_o = np.where(obs_start, obs_p0, obs_p1)
     corner_s = np.where(src_start, src_p0, src_p1)
@@ -882,25 +1045,37 @@ def _integrate_linear_touching_pairs_sk_batched(pairs, shared, k0,
     roundoff = 64.0 * np.finfo(float).eps * np.maximum.reduce([
         np.linalg.norm(corner_o, axis=1), np.linalg.norm(corner_s, axis=1), obs_len, src_len])
     origin[np.linalg.norm(origin, axis=1) <= roundoff] = 0.0
-    diff = (origin[:, None, :] + x0[None, :, None] * d_o[:, None, :]
-            - y0[None, :, None] * d_s[:, None, :])
-    x = np.where(obs_start, x0[None, :], 1.0 - x0[None, :])
-    y = np.where(src_start, y0[None, :], 1.0 - y0[None, :])
-    po, ps = np.stack((1-x, x), axis=-1), np.stack((1-y, y), axis=-1)
-    dist = np.linalg.norm(diff, axis=-1)
-    safe = np.maximum(dist, EPS)
-    s = k = np.zeros((npairs, 2, 2), complex)
-    green, deriv = _near_kernel_values(k0, safe, compute_single_layer, compute_double_layer, table)
-    if compute_single_layer:
-        s = po.swapaxes(1, 2) @ ((weights[None, :] * green)[:, :, None] * ps)
-    if compute_double_layer:
-        deriv *= np.sum(diff * normals[:, None, :], axis=-1) / safe
-        if obs_normal_deriv:
-            deriv = -deriv
-        deriv[dist <= EPS] = 0
-        k = po.swapaxes(1, 2) @ ((weights[None, :] * deriv)[:, :, None] * ps)
-    scale = (obs_len * src_len)[:, None, None]
-    return s * scale, k * scale
+
+    def blocks(pick, x0, y0, weights, acute=False):
+        diff = (origin[pick, None, :] + x0[None, :, None] * d_o[pick, None, :]
+                - y0[None, :, None] * d_s[pick, None, :])
+        x = np.where(obs_start[pick], x0[None, :], 1.0 - x0[None, :])
+        y = np.where(src_start[pick], y0[None, :], 1.0 - y0[None, :])
+        po, ps = np.stack((1-x, x), axis=-1), np.stack((1-y, y), axis=-1)
+        dist = np.linalg.norm(diff, axis=-1)
+        safe = np.maximum(dist, EPS)
+        s = k = np.zeros((len(diff), 2, 2), complex)
+        green, deriv = _near_kernel_values(k0, safe, compute_single_layer,
+                                           compute_double_layer and not acute, table)
+        if compute_single_layer:
+            s = po.swapaxes(1, 2) @ ((weights[None, :] * green)[:, :, None] * ps)
+        if compute_double_layer and acute:
+            deriv = _acute_touching_derivative(k0, diff, normals[pick, None, :], obs_normal_deriv)
+        elif compute_double_layer:
+            deriv *= np.sum(diff * normals[pick, None, :], axis=-1) / safe
+            if obs_normal_deriv:
+                deriv = -deriv
+            deriv[dist <= EPS] = 0
+        if compute_double_layer:
+            k = po.swapaxes(1, 2) @ ((weights[None, :] * deriv)[:, :, None] * ps)
+        scale = (obs_len[pick] * src_len[pick])[:, None, None]
+        return s * scale, k * scale
+
+    s, k = blocks(slice(None), *_touching_rule(order))
+    for index in np.flatnonzero(_touching_is_acute(d_o, d_s)):
+        s[index], k[index] = (part[0] for part in
+                              blocks([index], *_acute_touching_rule(order, d_o[index], d_s[index]), acute=True))
+    return s, k
 
 
 def _integrate_linear_pair_recursive(

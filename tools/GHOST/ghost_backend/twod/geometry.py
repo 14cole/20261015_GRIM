@@ -945,21 +945,41 @@ def _reverse_point_pairs(point_pairs: 'List[Dict[str, Any]]') -> 'List[Dict[str,
 def _check_segment_orientation_or_raise(
     segments: 'List[Dict[str, Any]]',
     meters_scale: 'float' = 1.0,
-) -> 'None':
+    mode: 'str' = "2d",
+    regions: 'bool' = True,
+):
     """
     Run the shared winding / air-side consistency checks (geometry_io) and
-    raise on any ERROR finding.
+    the whole-geometry material-region check (geometry.regions), and raise
+    on any ERROR finding. Returns the region report.
 
     The TM formulations are winding-insensitive, but the TE MFIE/Robin rows
     carry a +-1/2 mass jump tied to the normal direction, so a wrong winding
     or inconsistent air side silently corrupts TE results (residuals stay
-    tiny).  The solver deliberately refuses to run rather than silently
-    reorienting the user's geometry.
+    tiny).  A region two boundaries declare as different media, or an open
+    dielectric boundary, is solved as some other body in either
+    polarization: an outer shell split into arcs with one arc naming another
+    dielectric, or a partial coating whose core names another dielectric,
+    solved silently up to 5 dB off. The solver deliberately refuses to run
+    rather than silently reorienting or relabeling the user's geometry.
+
+    The region graph welds endpoints at the mesh node tolerance, so it sees
+    exactly the topology the mesher builds (the crack scan has already
+    refused endpoints between that and the drawing-precision tolerance).
+    In "bor" mode the rotation axis closes the meridians. With
+    ``regions=False`` only the winding check runs and None is returned (the
+    BoR dispatcher runs the region check after its own layout preflight, whose
+    messages are more specific for a misplaced core).
     """
 
     from ghost_backend.geometry.io import (
         chains_from_snapshot_segments,
         check_orientation_consistency,
+    )
+    from ghost_backend.geometry.regions import (
+        analyze_regions,
+        merge_orientation_findings,
+        primitives_from_snapshot_segments,
     )
 
     meters_scale = float(meters_scale)
@@ -979,11 +999,36 @@ def _check_segment_orientation_or_raise(
     findings = check_orientation_consistency(
         chains, tol=tolerance_m / meters_scale
     )
-    errors = [msg for severity, _idx, msg in findings if severity == "ERROR"]
+    report = analyze_regions(
+        primitives_from_snapshot_segments(segments, mode=mode),
+        mode=mode, tol=NODE_WELD_TOLERANCE_M / meters_scale,
+    ) if regions else None
+    old_errors = [msg for severity, _idx, msg in findings if severity == "ERROR"]
+    merged = merge_orientation_findings(findings, report) if report is not None else findings
+    errors = [msg for severity, _idx, msg in merged if severity == "ERROR"]
     if errors:
-        raise ValueError(
-            "Geometry orientation check failed:\n  - " + "\n  - ".join(errors)
-        )
+        title = ("Geometry orientation check failed" if old_errors
+                 else "Geometry material-region check failed")
+        raise ValueError(title + ":\n  - " + "\n  - ".join(errors))
+    return report
+
+
+def check_bor_regions_or_raise(segments, meters_scale: 'float' = 1.0) -> 'None':
+    """Whole-meridian material-region check, closed by the rotation axis (BoR).
+
+    Run by the BoR dispatcher after `_prepare_bor_groups`, so a layout error
+    (a core outside its coating) keeps its specific message; this then
+    catches labels that the layout accepts but that disagree, such as a TYPE
+    3 outer interface naming the inner layer of a two-layer stack.
+    """
+
+    from ghost_backend.geometry.regions import analyze_regions, primitives_from_snapshot_segments
+
+    report = analyze_regions(primitives_from_snapshot_segments(segments, mode="bor"), mode="bor",
+                             tol=NODE_WELD_TOLERANCE_M / float(meters_scale))
+    errors = report.errors()
+    if errors:
+        raise ValueError("BoR material-region check failed:\n  - " + "\n  - ".join(errors))
 
 
 def _normalize_segment_orientation(
@@ -1123,6 +1168,7 @@ def validate_geometry_snapshot_for_solver(
     base_dir: 'str',
     meters_scale: 'float' = 1.0,
     material_library: 'Optional[MaterialLibrary]' = None,
+    mode: 'str' = "2d",
 ) -> 'Dict[str, Any]':
     """
     Strict solver-side preflight for geometry/material consistency.
@@ -1140,6 +1186,9 @@ def validate_geometry_snapshot_for_solver(
     meters_scale = float(meters_scale)
     if not math.isfinite(meters_scale) or meters_scale <= 0.0:
         raise ValueError("meters_scale must be positive and finite.")
+    mode = str(mode).strip().lower()
+    if mode not in ("2d", "bor"):
+        raise ValueError("Geometry preflight mode must be '2d' or 'bor'.")
 
     segments = _snapshot_segments(geometry_snapshot)
     if not segments:
@@ -1325,7 +1374,11 @@ def validate_geometry_snapshot_for_solver(
 
 
     diag = max(math.hypot(max(xs) - min(xs), max(ys) - min(ys)), 1.0)
-    tol = max(1e-8, 1e-6 * diag)
+    # Drawing-precision tolerance: 1e-6 of the diagonal, capped at 1 um so a
+    # deliberate 0.001 in (25.4 um) layer on a long body is never read as
+    # coincident, duplicate or intersecting. Larger accidental gaps at free
+    # ends are reported by the region check's near-miss diagnostics.
+    tol = max(1e-8, min(1e-6 * diag, 1e-6))
 
     # Endpoints are one vertex exactly when the mesher welds them into one node.
     snap_tol_m = NODE_WELD_TOLERANCE_M
@@ -1377,6 +1430,10 @@ def validate_geometry_snapshot_for_solver(
             continue
         if frozenset((key_i, key_j)) in joined:
             continue        # the two ends of one primitive
+        if node_degree[key_i] > 1 and node_degree[key_j] > 1:
+            # Both ends are already connected: two boundaries placed close on
+            # purpose (a thin layer), not a crack. A crack leaves a free end.
+            continue
         raise ValueError(
             f"Geometry crack: endpoints ({px:.9g}, {py:.9g}) m and ({qx:.9g}, {qy:.9g}) m "
             f"are {gap:.3g} m apart -- close enough to look connected, but "
@@ -1453,7 +1510,15 @@ def validate_geometry_snapshot_for_solver(
         )
 
 
-    _check_segment_orientation_or_raise(segments, meters_scale)
+    region_report = _check_segment_orientation_or_raise(
+        segments, meters_scale, mode, regions=mode == "2d")
+    if mode == "2d":
+        for miss in region_report.near_misses_of_type(2):
+            warnings.append(
+                f"Open TYPE 2 boundary: {miss.message} TM solves this gap as a slit "
+                "(valid physics, but probably unintended); TE refuses open TYPE 2 "
+                "contours. Join the endpoints if the body is meant to be closed."
+            )
 
     return {
         'segment_count': int(len(segments)),
@@ -1784,7 +1849,28 @@ def _reject_open_dielectric_boundaries(segments, meters_scale: 'float') -> 'None
             f"meeting another primitive ({len(dangling)} free TYPE 3/4/5 endpoint(s) in "
             "all). A dielectric region must be closed by its boundaries; close the "
             "contour or stitch it to the neighboring segment."
+            + _near_miss_note(segments, meters_scale, (3, 4, 5))
         )
+
+
+def _near_miss_note(segments, meters_scale: 'float', types) -> 'str':
+    """' Segments X and Y almost meet at (x, y): gap d.' for free ends of these TYPEs.
+
+    Coordinates and gaps are in the geometry's own units, as drawn. Only
+    computed on the error path.
+    """
+
+    from ghost_backend.geometry.regions import analyze_regions, primitives_from_snapshot_segments
+
+    report = analyze_regions(primitives_from_snapshot_segments(segments),
+                             tol=NODE_WELD_TOLERANCE_M / float(meters_scale), near_miss_types=tuple(types))
+    misses = report.near_misses
+    if not misses:
+        return ""
+    note = " " + " ".join(miss.message for miss in misses[:3])
+    if len(misses) > 3:
+        note += f" ({len(misses) - 3} more near miss(es).)"
+    return note + " (Coordinates in geometry units.)"
 
 
 def _build_panels(

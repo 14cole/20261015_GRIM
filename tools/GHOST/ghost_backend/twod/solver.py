@@ -92,6 +92,7 @@ from ghost_backend.twod.geometry import (
     _build_panels,
     _causal_medium_index,
     _check_segment_orientation_or_raise,
+    _near_miss_note,
     _conservative_mesh_wavelength_for_frequencies,
     _discretize_primitive,
     _ensure_finite_complex,
@@ -970,6 +971,34 @@ def _panel_notice_kwargs(notices):
     return dict(notices=notices) if accepts else {}
 
 
+def _note_acute_corners(mesh, k0, notices, record):
+    """Report acute touching panel pairs; warn if their quadrature self-check fails.
+
+    Returns ``record`` merged with this frequency's
+    ``operators.acute_touching_report`` (largest self-check kept). Their
+    blocks' quadrature error does not change with the mesh, so the base/fine
+    certificate could not see it (a 0.1 degree wedge certified 1.7 dB off
+    before the angle-graded rule); the self-check measures it directly.
+    """
+    from ghost_backend.twod.operators import acute_touching_report, ACUTE_SELF_CHECK_LIMIT
+    report = acute_touching_report(mesh, k0)
+    if report is None:
+        return record
+    if record is not None:
+        report = dict(report, self_check=max(report['self_check'], record['self_check']))
+    notices.inform_once(
+        f"{report['pairs']} touching panel pair(s) meet at acute corners (smallest "
+        f"{report['min_angle_deg']:.3g} deg); their near-singular blocks use the "
+        "angle-graded touching quadrature.")
+    if not report['self_check'] <= ACUTE_SELF_CHECK_LIMIT:
+        notices.warn_once(
+            f"Acute-corner quadrature self-check failed: a touching block changed by "
+            f"{report['self_check']:.2e} (limit {ACUTE_SELF_CHECK_LIMIT:.0e}) under a refined "
+            f"rule at corners down to {report['min_angle_deg']:.3g} deg. This error does not "
+            "change with mesh refinement, so mesh convergence does not certify those results.")
+    return report
+
+
 def _memory_estimate_note(est_gb, resources, limit_gb):
     """Advisory for a large admitted solve (information, not a warning).
 
@@ -1153,6 +1182,8 @@ def _assert_supported_te_type2_contours(
     mesh: 'LinearMesh',
     infos: 'List[PanelCoupledInfo]',
     pol: 'str',
+    geometry_snapshot: 'Optional[Dict[str, Any]]' = None,
+    meters_scale: 'float' = 1.0,
 ) -> 'None':
     """
     Reject open TYPE 2 contours before applying a closed-obstacle TE MFIE.
@@ -1182,6 +1213,8 @@ def _assert_supported_te_type2_contours(
             f"the geometry has {open_endpoint_count} open TYPE 2 endpoint(s). "
             "Close/stitch the obstacle contour, or use a physically appropriate "
             "TYPE 1 sheet model for an open impedance card."
+            + (_near_miss_note(geometry_snapshot.get("segments", []) or [], meters_scale, (2,))
+               if geometry_snapshot is not None else "")
         )
 
 _BYTES_PER_GIB = 1024.0 ** 3
@@ -2303,6 +2336,7 @@ def solve_monostatic_rcs_2d_single_polarization(
             f"Reusing for {len(frequencies)} frequencies."
         )
 
+    acute_corners = None
     for freq_ghz in frequencies:
 
 
@@ -2392,7 +2426,8 @@ def solve_monostatic_rcs_2d_single_polarization(
         coupled_infos = _build_linear_coupled_infos(mesh, materials, freq_ghz, pol, k0)
         _assert_no_type1_sheet_for_mixed(coupled_infos)
         _assert_air_exterior(coupled_infos)
-        _assert_supported_te_type2_contours(mesh, coupled_infos, pol)
+        _assert_supported_te_type2_contours(mesh, coupled_infos, pol, geometry_snapshot, unit_scale)
+        acute_corners = _note_acute_corners(mesh, k0, notices, acute_corners)
 
 
         resources = _dense_formulation_resources(mesh, coupled_infos, pol,
@@ -2731,6 +2766,7 @@ def solve_monostatic_rcs_2d_single_polarization(
         ),
         "thin_layer": thin_layer_evidence,
         # This solve's own notices; the shared library holds the run's union.
+        "acute_corners": acute_corners,
         "warnings": notices.reported_warnings(),
         "information": notices.reported_information(),
         "warning_count": int(len(notices.reported_warnings())),
@@ -3454,6 +3490,7 @@ def solve_bistatic_rcs_2d_single_polarization(
             except Exception:
                 pass
 
+    acute_corners = None
     for freq_ghz in frequencies:
         frequency_condition_recorded = False
         check_abort()
@@ -3493,7 +3530,8 @@ def solve_bistatic_rcs_2d_single_polarization(
         coupled_infos = _build_linear_coupled_infos(mesh, materials, freq_ghz, pol, k0)
         _assert_no_type1_sheet_for_mixed(coupled_infos)
         _assert_air_exterior(coupled_infos)
-        _assert_supported_te_type2_contours(mesh, coupled_infos, pol)
+        _assert_supported_te_type2_contours(mesh, coupled_infos, pol, geometry_snapshot, unit_scale)
+        acute_corners = _note_acute_corners(mesh, k0, notices, acute_corners)
         nnodes = len(mesh.nodes)
 
         use_sheet = _is_all_sheet(coupled_infos)
@@ -3662,6 +3700,7 @@ def solve_bistatic_rcs_2d_single_polarization(
             if compute_condition_number else "not_requested"
         ),
         "thin_layer": thin_layer_evidence,
+        "acute_corners": acute_corners,
         "warnings": notices.reported_warnings(),
         "information": notices.reported_information(),
         "warning_count": int(len(notices.reported_warnings())),
@@ -4314,7 +4353,7 @@ def compute_boundary_densities(
     coupled_infos = _build_linear_coupled_infos(mesh, materials, frequency_ghz, pol, k0)
     _assert_no_type1_sheet(coupled_infos)
     _assert_air_exterior(coupled_infos)
-    _assert_supported_te_type2_contours(mesh, coupled_infos, pol)
+    _assert_supported_te_type2_contours(mesh, coupled_infos, pol, geometry_snapshot, unit_scale)
     nnodes = len(mesh.nodes)
     elev_arr = np.asarray([elevation_deg], dtype=float)
 

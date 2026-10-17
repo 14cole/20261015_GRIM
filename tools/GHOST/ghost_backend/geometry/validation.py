@@ -184,6 +184,7 @@ class GeometryAudit:
     def _junction_findings(self, endpoint_hits, primitives_by_row, axis_tol, tol):
         """Compare shared material sectors, including valid triple junctions."""
         findings, issue_rows = [], set()
+        self._junction_points = []
         for hits in endpoint_hits.values():
             self.checkpoint()
             if len(hits) < 2:
@@ -240,40 +241,43 @@ class GeometryAudit:
                 )
                 findings.append(("ERROR", rows[0], message))
                 issue_rows.update(rows)
+                self._junction_points.append((first[4], first[5]))
         return findings, issue_rows
 
-    def _nested_region_findings(self):
-        """Check the shared medium across separate, nested closed contours."""
-        from ghost_backend.geometry.preview import build_material_faces, _inside
-        def sides(segment):
-            left, right = self._material_sides(segment) or (("unknown", 0), ("unknown", 0))
-            return left, "", right, ""
-        faces = build_material_faces(self.segments, sides)
-        findings, rows = [], set()
-        def name(medium):
-            return f"material {medium[1]}" if medium[0] == "material" else medium[0]
-        for face in faces:
-            self.checkpoint()
-            parents = [parent for parent in faces
-                       if parent is not face and parent["area"] > face["area"]
-                       and _inside(face["label_point"], parent["points"])]
-            if not parents:
-                continue
-            parent = min(parents, key=lambda candidate: candidate["area"])
-            if not parent["consistent"]:
-                continue
-            expected = parent["label"]
-            for row, outside in face["outside_materials"]:
-                if outside == expected:
-                    continue
-                findings.append(("ERROR", row,
-                    f"Row {row+1} '{self.segments[row].name}': nested material-side mismatch; "
-                    f"the surrounding region is {name(expected)}, but this boundary "
-                    f"assigns {name(outside)} outside. Check TYPE, pos_mat/neg_mat, "
-                    "and segment direction."))
-                rows.update(parent["rows"])
-                rows.add(row)
-        return findings, rows
+    def _region_findings(self, tol, axis_tol, orientation, junction_points):
+        """Whole-geometry material regions (geometry.regions) merged with the winding check.
+
+        Region conflicts and open dielectric boundaries are ERRORs; a TYPE 2
+        free end that almost meets another primitive is a WARN (TM solves the
+        gap as a slit, TE refuses it). A junction whose labels disagree is
+        already reported by the junction-sector check, and a region conflict
+        whose culprit the winding check flags is appended to that message.
+        """
+        from ghost_backend.geometry.regions import (
+            analyze_regions, merge_orientation_findings, primitives_from_editor_segments)
+        self.checkpoint()
+        report = analyze_regions(primitives_from_editor_segments(self.segments, mode=self.mode),
+                                 mode=self.mode, tol=tol, axis_tol=axis_tol)
+        self.checkpoint()
+        for failure in report.closure_failures:
+            if not failure.dangling and any(
+                    math.hypot(failure.point[0] - x, failure.point[1] - y) <= tol
+                    for x, y in junction_points):
+                failure.explained_by = -1
+        merged = merge_orientation_findings(orientation, report)
+        rows = {row for severity, row, _ in merged if severity == "ERROR" and row >= 0}
+        rows.update(row for item in report.error_items() for row in item.rows)
+        # Highlight every boundary of a conflicting region, as the junction check does.
+        rows.update(row for conflict in report.conflicts if not conflict.explained
+                    for row in conflict.rows)
+        if self.mode == "2d":
+            for miss in report.near_misses_of_type(2):
+                merged.append(("WARN", miss.row,
+                    f"Open TYPE 2 boundary: {miss.message} TM solves this gap as a slit (valid "
+                    "physics, but probably unintended); TE refuses open TYPE 2 contours. Join "
+                    "the endpoints if the body is meant to be closed."))
+                rows.update((miss.row, miss.other_row))
+        return merged, rows
 
     def _bor_findings(self, primitives_by_row):
         """Use the solver topology preflight without meshing or solving."""
@@ -615,16 +619,28 @@ class GeometryAudit:
                 break
 
 
+        # The region graph needs a planar drawing: with crossing or doubled
+        # primitives (reported above) its faces would be meaningless.
+        regions_ready = found_intersections == 0 and all(primitives_by_row) and primitives_by_row
+        if not regions_ready and primitives_by_row:
+            findings.append(("INFO", -1, "Material-region check skipped until the intersection, "
+                             "overlap and coordinate errors above are fixed."))
+
         if self.mode == "bor":
             # A meridian uses axis closure and solver grouping, not 2D winding.
+            bor_ok = True
             if all(primitives_by_row) and primitives_by_row:
-                findings.extend(self._bor_findings(primitives_by_row))
+                bor_findings = self._bor_findings(primitives_by_row)
+                bor_ok = not any(level == "ERROR" for level, _, _ in bor_findings)
+                findings.extend(bor_findings)
+            # As in the dispatcher: a layout error keeps its specific message.
+            if regions_ready and bor_ok:
+                region_findings, region_rows = self._region_findings(
+                    tol, axis_tol, [], self._junction_points)
+                findings.extend(region_findings)
+                issue_rows.update(region_rows)
             self.checkpoint()
             return findings, issue_rows
-
-        region_findings, region_rows = self._nested_region_findings()
-        findings.extend(region_findings)
-        issue_rows.update(region_rows)
 
         chain_specs: 'List[ChainSpec]' = []
         for row, seg in enumerate(self.segments):
@@ -640,7 +656,12 @@ class GeometryAudit:
                 # solver-side validation (geometry.io) does.
                 neg_mat=self._parse_int_token(props[4], 0),
             ))
-        for severity, chain_idx, message in check_orientation_consistency(chain_specs):
+        orientation = check_orientation_consistency(chain_specs)
+        if regions_ready:
+            orientation, region_rows = self._region_findings(
+                tol, axis_tol, orientation, self._junction_points)
+            issue_rows.update(row for row in region_rows if 0 <= row < len(self.segments))
+        for severity, chain_idx, message in orientation:
             findings.append((severity, chain_idx, message))
             if severity == "ERROR" and 0 <= chain_idx < len(self.segments):
                 issue_rows.add(chain_idx)

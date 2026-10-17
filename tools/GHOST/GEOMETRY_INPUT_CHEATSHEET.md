@@ -153,6 +153,18 @@ rows again to restore their original direction, and save to keep the change.
 Scrolling over a closed table dropdown scrolls the table without changing
 its value. Open the dropdown or use the keyboard to deliberately change it.
 
+**Fill Materials** shades every region by the medium its boundaries declare:
+air unshaded, conductors gray, one color per dielectric flag (named in the
+legend). Holes stay open, so a 0.001 inch coating shows as a thin ring around
+its core. A region whose boundaries disagree is hatched red and circled, so
+a conflict inside a thin layer is visible at full view, and an open
+dielectric end is marked with a red x; hover over either, or read the status
+line, for the message. Choose a medium in the **Material** filter to shade
+only its regions (others stay faint with **Faint context**, otherwise hidden);
+conflicts and open ends always stay visible. The preview follows edits,
+reversals, mode changes and loads, also appears in the **Detail inset**, and
+uses the same region check as **Validate** and the solver.
+
 ## Thin dielectric layer material (2D only)
 
 A TYPE 1 midsurface can refer to a typed row in `IBCS_Resistances`.
@@ -245,10 +257,33 @@ Consequences for closed contours:
 - A closed segment must not pass through one vertex twice (a figure-8 or
   bow-tie). Draw each loop as its own segment.
 - In 2D every TYPE 3/4/5 boundary must be closed (or stitched end-to-end to
-  other segments); a free dielectric endpoint is an error.
+  other segments); a free dielectric endpoint is an error. When it stops just
+  short of another primitive, the message gives the location and the gap:
+  "segments X and Y almost meet at (x, y): gap d".
+- A free TYPE 2 end is refused for TE. For a TM-only run a TYPE 2 end that
+  almost meets another primitive is a warning: the gap is solved as a slit.
 
 These directions matter especially for TE/VV because the boundary jump term
 depends on the normal. The preflight rejects common reversed-winding cases.
+
+### Material-region check
+
+Validate and the solver preflight (2D and BoR) also check the whole drawing.
+Every region enclosed by boundaries, whichever segments they belong to, must
+be declared the same medium by every boundary around it. The exterior must be
+air. Each dielectric's boundary must close at every vertex. This catches what
+a contour-by-contour check cannot see: an outer shell split into open arcs
+where one arc names another dielectric, a partial coating whose core or side
+wall names another dielectric, or a void whose `pos_mat` differs from the
+dielectric around it. Solved as drawn, such inputs were off by up to 5 dB.
+
+The error lists the media each segment declares and the segment that is most
+likely wrong, with a fix (for example "check 'wall_r' (TYPE 3, pos_mat=2)
+near (0.085, 0): set pos_mat=1"). When two readings are equally likely (two
+layers 0.001 inch apart), both are given. A free TYPE 1 sheet or TYPE 2 plate
+has air on both sides. In BoR the rotation axis closes the meridians.
+Endpoints are joined only within the mesh node tolerance, so layers 0.001
+inch apart stay separate, from 1 inch to 500 inch bodies, in inches or meters.
 
 ## TYPE 3: hard-coded bulk dielectric example
 

@@ -149,15 +149,16 @@ def material_fingerprints(snapshot, base_dir):
     return fingerprints
 
 
-def prepare_geometry(snapshot, material_base_dir=None, units='inches'):
-    # Import lazily to preserve the public solver's validation hooks.
+def prepare_geometry(snapshot, material_base_dir=None, units='inches', mode='2d'):
+    # Import lazily to preserve the public solver's validation hooks. ``mode``
+    # 'bor' closes meridians on the rotation axis in the region check.
     from ghost_backend.twod import solver
     state = _ACTIVE.get()
     base_dir = solver._material_base_dir_for_snapshot(snapshot, material_base_dir)
     scale = solver._unit_scale_to_meters(units)
     entries = [snapshot.get('ibcs', []) or [], snapshot.get('dielectrics', []) or []]
     material_key = (base_dir, json.dumps(entries, sort_keys=True))
-    geometry_key = (material_key, scale, hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode('utf-8')).hexdigest())
+    geometry_key = (material_key, scale, str(mode), hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode('utf-8')).hexdigest())
     if state is not None and geometry_key in state['geometry']:
         state['hits'] += 1
         return state['geometry'][geometry_key]
@@ -171,7 +172,7 @@ def prepare_geometry(snapshot, material_base_dir=None, units='inches'):
             state['materials'][material_key] = library
             state['fingerprints'][material_key] = fingerprints
     report = solver.validate_geometry_snapshot_for_solver(
-        snapshot, base_dir=base_dir, meters_scale=scale, material_library=library)
+        snapshot, base_dir=base_dir, meters_scale=scale, material_library=library, mode=mode)
     result = (base_dir, report, library, float(scale))
     if state is not None:
         state['geometry'][geometry_key] = result

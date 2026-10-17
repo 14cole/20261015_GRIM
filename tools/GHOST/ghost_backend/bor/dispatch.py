@@ -32,6 +32,7 @@ from ghost_backend.twod.solver import (
     _material_base_dir_for_snapshot,
     validate_geometry_snapshot_for_solver,
 )
+from ghost_backend.twod.geometry import check_bor_regions_or_raise
 from ghost_backend.runs.quality import (
     evaluate_mesh_convergence,
     scale_snapshot_panel_density,
@@ -847,7 +848,7 @@ def estimate_bor_resources(
         preview_snapshot, material_base_dir
     )
     _reject_unsupported_bor_ibc_interfaces(preview_snapshot)
-    base_dir, _, materials, scale = prepare_geometry(preview_snapshot, base_dir, geometry_units)
+    base_dir, _, materials, scale = prepare_geometry(preview_snapshot, base_dir, geometry_units, mode="bor")
     wavelength, _max_index, _flags = (
         _conservative_mesh_wavelength_for_frequencies(
             preview_snapshot, materials, [frequency]
@@ -859,6 +860,7 @@ def estimate_bor_resources(
         kind, assembly_key, precision, stream_budget
     )
     groups, _tol, _axis_tol = _prepare_bor_groups(chains, kind)
+    check_bor_regions_or_raise(preview_snapshot.get("segments", []) or [], scale)
     # Operator families of a conductor solve, as solve_bor states them: every
     # family keeps its own near contractions (three for an impedance CFIE).
     surface_kinds = None
@@ -1897,7 +1899,7 @@ def solve_monostatic_rcs_bor(
 
     _reject_unsupported_bor_ibc_interfaces(geometry_snapshot)
     base_dir, preflight, prepared_materials, scale = prepare_geometry(
-        geometry_snapshot, base_dir, geometry_units)
+        geometry_snapshot, base_dir, geometry_units, mode="bor")
     # Parsed models are immutable for this run. Notices belong to this solve:
     # sharing the library's warning lists would contaminate later frequencies
     # and the fine certification pass with earlier numerical warnings.
@@ -1936,6 +1938,7 @@ def solve_monostatic_rcs_bor(
         kind, assembly_key, table_precision_key, stream_budget
     )
     groups, tol, axis_tol = _prepare_bor_groups(chains, kind)
+    check_bor_regions_or_raise(geometry_snapshot.get("segments", []) or [], scale)
 
     def check_abort():
         if abort_event is not None and abort_event.is_set():

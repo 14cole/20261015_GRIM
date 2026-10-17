@@ -93,7 +93,7 @@ def resource_summary(snapshot, base_dir, value, checkpoint=None, forecast_freque
         # Cached fields remove the need for a numerical resource forecast,
         # but input validation still covers the entire requested sweep.
         from ghost_backend.twod.preparation import prepare_geometry
-        _, _, library, _ = prepare_geometry(snapshot, base_dir, value['units'])
+        _, _, library, _ = prepare_geometry(snapshot, base_dir, value['units'], mode='bor')
         validate_material_coverage(snapshot, library, value['frequencies_ghz'], checkpoint)
     assembly = {}
     if frequencies and options['factorization'] == 'auto':

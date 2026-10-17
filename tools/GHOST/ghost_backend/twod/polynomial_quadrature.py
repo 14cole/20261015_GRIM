@@ -83,6 +83,10 @@ def block(obs, src, k, obs_derivative=True, order=24, intervals=((0., 1.), (0., 
             if np.linalg.norm(origin) <= roundoff: origin = np.zeros(2)
             do = (ob-oa)*(obs.p1-obs.p0)*(1 if shared[0] else -1)
             ds = (sb-sa)*(src.p1-src.p0)*(1 if shared[1] else -1)
+            from ghost_backend.twod.operators import (_touching_is_acute, _acute_touching_rule,
+                                                      _ACUTE_TOUCHING_POINTS)
+            if bool(_touching_is_acute(do, ds)):
+                x, y, weight = _acute_touching_rule(order, do, ds, max(_ACUTE_TOUCHING_POINTS, order // 2))
             stable_difference = origin + x[:, None]*do - y[:, None]*ds
             if not shared[0]: x = 1 - x
             if not shared[1]: y = 1 - y
@@ -530,11 +534,13 @@ class _PairGeometry:
 
 
 def _evaluate_chunk(tasks, pairs, k, obs_derivative, order, kind, shared, table=None,
-                    geometry=None, pair_ids=None, intervals=None):
+                    geometry=None, pair_ids=None, intervals=None, nodes=None):
     """Scaled monomial S and K moments, shape (T, 2, 4, 4), for one node set.
 
     ``geometry`` (a :class:`_PairGeometry`), ``pair_ids`` and ``intervals``
-    (T, 4) replace ``tasks``/``pairs`` with prepared arrays."""
+    (T, 4) replace ``tasks``/``pairs`` with prepared arrays. Acute shared
+    tasks (operators._touching_is_acute) take their own angle-graded rule,
+    one task at a time; ``nodes`` passes such a rule."""
     if geometry is None:
         geometry = _PairGeometry([pairs[t.pair] for t in tasks])
         pair_ids = np.arange(len(tasks))
@@ -549,7 +555,27 @@ def _evaluate_chunk(tasks, pairs, k, obs_derivative, order, kind, shared, table=
     src_length = geometry.src_length[pair_ids]
     iv = np.asarray(intervals, float)
     oa, ob, sa, sb = iv[:, 0:1], iv[:, 1:2], iv[:, 2:3], iv[:, 3:4]
-    x0, y0, weight = _nodes(order, kind != 'regular')
+    if kind == 'shared' and nodes is None:
+        from ghost_backend.twod.operators import (_touching_is_acute, _acute_touching_rule,
+                                                  _ACUTE_TOUCHING_POINTS)
+        do = (ob - oa) * seg_o * (1 if shared[0] else -1)
+        ds = (sb - sa) * seg_s * (1 if shared[1] else -1)
+        acute = _touching_is_acute(do, ds)
+        if np.any(acute):
+            # Low and high orders refine the angular rule too, so their
+            # comparison in near_blocks still checks it.
+            points = max(_ACUTE_TOUCHING_POINTS, order // 2)
+            moments = np.empty((count, 2, _MOMENT_DEGREE + 1, _MOMENT_DEGREE + 1), complex)
+            parts = [(np.flatnonzero(~acute), None)] + [
+                ([index], _acute_touching_rule(order, do[index], ds[index], points))
+                for index in np.flatnonzero(acute)]
+            for members, rule in parts:
+                if len(members):
+                    moments[members] = _evaluate_chunk(
+                        None, None, k, obs_derivative, order, kind, shared, table, geometry,
+                        pair_ids[members], iv[members], nodes=rule)
+            return moments
+    x0, y0, weight = _nodes(order, kind != 'regular') if nodes is None else nodes
     if kind == 'same':
         diff = ((ob - oa) * (x0 - y0)[None, :])[:, :, None] * seg_o[:, None, :]
         x, y = x0, y0

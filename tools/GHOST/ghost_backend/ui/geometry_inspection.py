@@ -10,9 +10,8 @@ except ImportError:
     from PySide2.QtCore import Qt, QThread, Signal
     from PySide2.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QPushButton
 
-from matplotlib.colors import to_rgb
 from matplotlib.lines import Line2D
-from matplotlib.patches import Polygon, Patch, Rectangle, ConnectionPatch
+from matplotlib.patches import Rectangle, ConnectionPatch
 from ghost_backend.ui.table_editors import ScrollSafeComboBox
 from ghost_backend.geometry.measurements import point_to_primitive, closest_segment_points
 
@@ -55,13 +54,12 @@ class GeometryInspectionMixin:
         self._detail_sources = []
         self._detail_dirty = True
         self._detail_view = None
-        self._fill_loops_cache = []
 
         isolation = QHBoxLayout()
         isolation.addWidget(QLabel("Material"))
         self.cmb_material_isolation = ScrollSafeComboBox()
         self.cmb_material_isolation.addItem("All materials", None)
-        self.cmb_material_isolation.setToolTip("Show boundaries touching the selected material and emphasize its regions.")
+        self.cmb_material_isolation.setToolTip("Show boundaries touching the selected material. With Fill Materials, shade only its regions; conflicts stay visible.")
         isolation.addWidget(self.cmb_material_isolation)
         self.chk_isolation_context = QCheckBox("Faint context")
         self.chk_isolation_context.setChecked(True)
@@ -180,45 +178,10 @@ class GeometryInspectionMixin:
         self._refresh_segment_styles()
         self._render_normals()
         self._render_impedance_overlay()
-        self._render_fills()
+        if self.chk_fill_materials.isChecked():
+            self._render_regions()
         self._detail_dirty = True
         self.canvas.draw_idle()
-
-    def _material_face_patch(self, face, ax):
-        target = self.cmb_material_isolation.currentData()
-        matches = target is None or (face["consistent"] and face["label"] == target)
-        background = to_rgb(ax.get_facecolor())
-        if not matches:
-            # Keep every mask opaque. Removing a nested nonmatching region
-            # would incorrectly fill the hole with its parent's material.
-            color = tuple(.93 * value + .07 * .5 for value in background) if self.chk_isolation_context.isChecked() else background
-            edge, hatch = "none", None
-        elif not face["consistent"]:
-            color, edge, hatch = background, "red", "//"
-        elif face["label"] == "air":
-            color, edge, hatch = background, "none", None
-        else:
-            color = tuple(.55 * value + .45 for value in to_rgb(face["color"]))
-            edge, hatch = "none", None
-        return Polygon(face["points"], closed=True, facecolor=color,
-                       edgecolor=edge, hatch=hatch, linewidth=0, alpha=1,
-                       zorder=1 + .01 * face["depth"])
-
-    def _draw_fill_faces(self, ax, *, legend=False):
-        artists, labels = [], {}
-        target = self.cmb_material_isolation.currentData()
-        for face in sorted(self._fill_loops_cache, key=lambda face: face["depth"]):
-            patch = self._material_face_patch(face, ax)
-            ax.add_patch(patch)
-            artists.append(patch)
-            if face["consistent"] and face["label"] != "air" and target in (None, face["label"]):
-                labels[face["label"]] = face["color"]
-        if legend and labels:
-            key = ax.legend(handles=[Patch(facecolor=color, label=label) for label, color in sorted(labels.items())],
-                            loc="lower left", fontsize=7, framealpha=.9)
-            key.set_zorder(14)
-            artists.append(key)
-        return artists
 
     def _inspection_geometry_changed(self, *_):
         self._clear_gap()
@@ -228,7 +191,7 @@ class GeometryInspectionMixin:
         if previous is not None:
             self._render_normals()
             self._render_impedance_overlay()
-            self._render_fills()
+            self._schedule_regions()
         self._detail_dirty = True
         self.canvas.draw_idle()
 
@@ -523,7 +486,7 @@ class GeometryInspectionMixin:
         detail.set_aspect("equal", adjustable="box")
         detail.set_title(f"Detail {zoom:g}x ({self._geometry_unit_label()})", fontsize=8, color=text, pad=4)
         if self.chk_fill_materials.isChecked():
-            self._draw_fill_faces(detail)
+            self._draw_region_patches(detail)
         for line in self.segment_lines:
             if line.get_visible():
                 detail.add_line(Line2D(line.get_xdata(), line.get_ydata(), color=line.get_color(),
