@@ -27,7 +27,7 @@ def main():
         raise RuntimeError('This check must import an installed wheel, not the source checkout.')
     required = {
         'ghost_backend.bor.native': ['bor_stream_kernel.c', 'build_kernel.py'],
-        'ghost_backend.twod.assembly.native': ['table.c', 'far.c', 'build.py'],
+        'ghost_backend.twod.assembly.native': ['table.c', 'far.c', 'near.c', 'build.py'],
         'ghost_backend.geometry': ['templates/point_features_template.csv',
                                    'templates/line_features_template.csv', 'geometries/body.geo'],
     }

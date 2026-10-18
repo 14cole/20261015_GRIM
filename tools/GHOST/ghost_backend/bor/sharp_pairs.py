@@ -1,41 +1,43 @@
-"""Graded meridian quadrature for sharp touching BoR element pairs.
+"""Graded meridian quadrature for every touching BoR element pair.
 
-The fixed graded-cell rules (``solver._graded_cells``: same-surface depth 4,
-order 4; junctions depth 7, order 10) refine toward the diagonal or the
-touching corner of the unit square only, so two kinds of touching pair keep
-an error that does not shrink with the mesh:
+Self, adjacent and junction pairs (two surfaces sharing an end point) are
+integrated here. The fixed graded-cell rules they used (``solver._graded_cells``:
+same-surface depth 4, order 4; junctions depth 7, order 10) refine toward the
+diagonal or the touching corner of the unit square only, and their block
+error does not shrink with the mesh. Against converged references (k = 2 pi /
+0.3 m, largest block change over the largest block of the pair, modes 0..8
+unless stated): a sphere's self block 3e-3 (1e-2 at m_max = 30), its pole
+element's 0.2 (0.4); 90..150 degree corners 3e-3..5e-3 (MFIE); cone tips and
+disc centres 0.2..0.3 (0.6 at m_max = 30); rotated-PV junction blocks 3e-5 at
+90 degrees, 8e-5 at 135, 3e-4 next to an element of L/8; a thin junction
+1e-6..6e-5. Sharp pairs were worse:
 
 * elements meeting at a small included angle (a thin rim, a feathered
   coating junction): the kernel's logarithm is near-singular along s = s' at
-  a distance proportional to the angle, all along both elements;
+  a distance proportional to the angle, all along both elements (adjacent
+  pair of a rim: 30 degrees 9.5e-3 MFIE, 15 degrees 2.5e-2, 1 degree 0.5);
 * steep elements whose ring diameter 2 rho is small against their length (a
   needle or cone tip, a thin rod): the modal kernel changes from log(d) to
-  about 1/(2 d) at meridian separations d ~ 2 rho, inside one graded cell.
+  about 1/(2 d) at meridian separations d ~ 2 rho, inside one graded cell
+  (self pair of a 2 degree needle's fourth element 0.33).
 
-Against converged references (k = 2 pi / 0.3 m, modes 0..8, largest block
-change over the largest block of the pair) the fixed rules' errors are the
-same at 10 and 160 elements per wavelength. Adjacent pair at a rim: 30
-degrees 1.4e-6 (EFIE) / 9.5e-3 (MFIE), 15 degrees 1.5e-5 / 2.5e-2, 5 degrees
-7e-4 / 0.14, 1 degree 5e-3 / 0.5 (a 90 degree corner: 5e-7 / 2.7e-3). Self
-pair of a needle's fourth element: 10 degrees 7.6e-2 / 6.8e-3, 2 degrees
-0.33 / 2.3e-2; its tip element 0.65 and 0.91 of the EFIE block. Junction
-pairs (rotated-PV): 12.5 degrees 1.2e-3, 5 degrees 7e-3, 1 degree 0.26. A
-near-refinement level at most halves these, and at 1 degree it hardly changes
-them (0.50, 0.47, 0.45 of the rim's MFIE block at depths 4, 5, 6), so the
-optional base/refined comparison cannot see them there.
+A near-refinement level at most halves these, so the optional base/refined
+comparison cannot see them.
 
-Those pairs are integrated in polar coordinates about the singular point
+The pairs are integrated in polar coordinates about the singular point
 (Duffy triangles) with composite Gauss rules graded dyadically toward each
 near-singular feature down to its own scale: an adjacent pair's angular
 variable toward the complex pole of its separation (as in the 2-D acute
 touching rule), the radial and separation variables toward the ring scale
-rho. Below that scale the kernel is a logarithm plus a smooth part, which the
-innermost piece integrates through x = h t**4. Against references with 32
-points per piece and every stop four times deeper, the production blocks are
-within 6e-8 for rims to 0.25 degree, 3e-10 for junctions to 1 degree and
-7e-7 for needles to 0.25 degree (modes to 60), the same at 10 and 160
-elements per wavelength. Every other pair keeps its fixed rule, so ordinary
-bodies are unchanged.
+rho (deeper for high modes, RING_MODES). Below that scale the kernel is a
+logarithm plus a smooth part, which the innermost piece integrates through
+x = h t**4. A self pair whose ring is at least an element length away uses
+the two triangles about the diagonal in |s - s'| instead (cheaper near
+kernels). Against references with 32 points per piece and every stop four
+times deeper, every category is within 1e-7, mostly 1e-9..3e-8 (modes to
+60, lossy and high-contrast media, 10 and 40 elements per wavelength): see
+test_bor_touching_pairs.py and NUMERICAL_METHODS.md. A sampled self-check
+(CHECK_*) runs on every solve.
 """
 import math
 from functools import lru_cache
@@ -44,34 +46,45 @@ import numpy as np
 
 from ghost_backend.bor.kernels import cached_leggauss
 
-# Touching pairs below this included angle use the angle-graded rule.
+# Classification (reporting and self-check probes only: every touching pair
+# uses the graded rule). Touching pairs below this included angle are
+# 'acute'.
 SHARP_ANGLE_DEGREES = 60.0
-# Steep elements (|d rho| below THIN_SLOPE element lengths: within 30
-# degrees of the axis) whose ring diameter 2 rho_max is below
-# THIN_RING_RATIO element lengths use the ring-graded rule, for their self
-# pair and both adjacent pairs. End caps and the pole elements of round
-# bodies are not steep and keep the fixed rule; a steep element with a wider
-# ring has the fixed rule's ordinary error (2.4e-3 of its self block at a
-# ratio of 8, as on a sphere).
+# Steep elements (|d rho| below THIN_SLOPE element lengths: within 30 degrees
+# of the axis) whose ring diameter 2 rho_max is below THIN_RING_RATIO element
+# lengths are 'thin', for their self pair and every touching pair, junction
+# pairs included. Every other pair is 'regular'.
 THIN_RING_RATIO = 8.0
 THIN_SLOPE = 0.5 * (1.0 - 1e-9)
 # Gauss points per graded piece at the base near depth; each level of the
-# near-refinement option adds four.
-SHARP_POINTS = 12
+# near-refinement option adds four. Self pairs carry the logarithm along the
+# whole diagonal and need more: with 12 their blocks were within 5e-8 at
+# m <= 8 but 7e-7 at an axis pole (2e-8 / 3e-8 with 16).
+TOUCHING_POINTS = 12
+SELF_POINTS = 16
 BASE_NEAR_DEPTH = 4
 # The self-check rule adds CHECK_POINTS points per piece and takes every
 # graded variable CHECK_DEPTH dyadic levels further. Its largest relative
-# change of a sharp pair's blocks is reported; above SELF_CHECK_LIMIT it is a
-# warning. Production measures at most 7e-7.
+# change of a pair's blocks is reported; above SELF_CHECK_LIMIT it is a
+# warning. Production measures at most 3e-8.
 CHECK_POINTS = 6
 CHECK_DEPTH = 1
 SELF_CHECK_LIMIT = 1.0e-5
 # Mode m resolves azimuthal arcs ~ rho / m, so the ring-scale stops move a
-# dyadic level deeper per doubling of m_max above RING_MODES. With stops at
-# rho itself the blocks of a 2 degree needle lose accuracy from 1.3e-7
-# (m_max = 8) to 3e-6 (30) and 5.5e-5 (60); with these stops needles to
-# 0.25 degree stay within 7e-7.
+# dyadic level deeper per doubling of m_max above RING_MODES (self pairs) or
+# TOUCHING_RING_MODES (adjacent and junction pairs). With stops at rho itself
+# (and 12 points) a 2 degree needle's blocks lost accuracy from 1.3e-7
+# (m_max = 8) to 3e-6 (30) and 5.5e-5 (60). At m_max = 30 the adjacent pairs
+# of a 30 degree cone tip are within 1e-7 with 16, 3e-9 with 8 and 1e-11
+# with 4 (1.0, 1.3 and 1.7 times the points); its self pairs within 2e-8,
+# 1e-8 and 6e-9 at 1.0, 1.8 and 2.9 times the points, so self pairs keep 16.
 RING_MODES = 16.0
+TOUCHING_RING_MODES = 8.0
+# Regular pairs (ordinary geometry) are probed by the self-check every
+# REGULAR_CHECK_STRIDE-th time the sampling stride would probe a sharp pair,
+# plus the most severe regular pair: their error is uniform (2e-9..3e-8)
+# and the check rule costs 2.4 times the production points.
+REGULAR_CHECK_STRIDE = 4
 # Pole closeness at which an angular variable is graded (Bernstein ellipse
 # parameter on [0, 1], as in the 2-D touching rule).
 ANGULAR_RHO = 2.0
@@ -87,17 +100,20 @@ def _toward_zero(stop, n, deeper=1.0):
     """[0, 1]: dyadic pieces toward 0 down to ``stop``, innermost x = h t**4.
 
     A graded variable (``stop`` < 1) goes ``deeper`` times further."""
-    t, w = _unit_gauss(n)
     stop = min(1.0, float(stop))
     stop = max(stop * deeper if stop < 1.0 else stop, 2.0**-50)
-    pieces = max(0, int(math.ceil(math.log2(1.0 / stop) - 1e-12)))
+    return _pieces(max(0, int(math.ceil(math.log2(1.0 / stop) - 1e-12))), int(n))
+
+
+@lru_cache(maxsize=512)
+def _pieces(pieces, n):
+    t, w = _unit_gauss(n)
     lower = 2.0**-np.arange(1, pieces + 1, dtype=float)
-    x = [(lower[:, None] * (1.0 + t[None, :])).ravel()]
-    wx = [(lower[:, None] * w[None, :]).ravel()]
     h = 2.0**-pieces
-    x.append(h * t**_POLY)
-    wx.append(h * _POLY * t**(_POLY - 1) * w)
-    return np.concatenate(x), np.concatenate(wx)
+    x = np.concatenate([(lower[:, None] * (1.0 + t[None, :])).ravel(), h * t**_POLY])
+    wx = np.concatenate([(lower[:, None] * w[None, :]).ravel(), h * _POLY * t**(_POLY - 1) * w])
+    x.setflags(write=False); wx.setflags(write=False)
+    return x, wx
 
 
 def _bernstein_rho(c):
@@ -148,21 +164,22 @@ def _thin(r0, r1):
             and 2.0 * max(float(r0[0]), float(r1[0])) < THIN_RING_RATIO * length)
 
 
-def touching_class(other_e, corner, other_f, junction=False):
-    """'acute', 'thin' or None for elements (other_e, corner) and (corner, other_f).
+def touching_class(other_e, corner, other_f):
+    """'acute', 'thin' or 'regular' for elements (other_e, corner) and (corner, other_f).
 
-    Junction pairs (two surfaces) are classified by their angle only."""
+    Same-surface and junction pairs are classified alike."""
     if _angle_degrees(other_e - corner, other_f - corner) < SHARP_ANGLE_DEGREES:
         return 'acute'
-    if not junction and (_thin(other_e, corner) or _thin(corner, other_f)):
+    if _thin(other_e, corner) or _thin(corner, other_f):
         return 'thin'
-    return None
+    return 'regular'
 
 
-def _ring_factor(m_max):
+def _ring_factor(m_max, ring_modes=None):
     """Dyadic factor of the ring-scale stops for modes up to ``m_max``."""
+    ring_modes = RING_MODES if ring_modes is None else ring_modes
     modes = max(0, int(m_max or 0))
-    return 2.0**-max(0, int(math.ceil(math.log2(modes / RING_MODES) - 1e-12))) if modes > RING_MODES else 1.0
+    return 2.0**-max(0, int(math.ceil(math.log2(modes / ring_modes) - 1e-12))) if modes > ring_modes else 1.0
 
 
 def _touching_rule(other_e, corner, other_f, e_end, f_end, n, deeper=1.0, ring=1.0):
@@ -195,13 +212,35 @@ def _touching_rule(other_e, corner, other_f, e_end, f_end, n, deeper=1.0, ring=1
     return (1.0 - x if e_end else x), (1.0 - y if f_end else y), w
 
 
+def _diagonal_rule(n, floor):
+    """(s, s', w) of a self pair without a ring scale: the two triangles about
+    the diagonal in u = |s - s'| (graded toward 0, innermost x = h t**4) and
+    Gauss in s along it. Its samples sit at tiny separations less often than
+    the apex-centred triangles', whose separation is a product of two graded
+    variables: the near kernels cost 40 % less at the same accuracy (1e-9 at
+    m <= 8, 1e-8 at 30, 512 points)."""
+    u, wu = _toward_zero(1.0, n)
+    keep = u >= floor
+    u, wu = u[keep], wu[keep]
+    t, wt = _unit_gauss(n)
+    U = np.repeat(u, t.size)
+    big = U + (1.0 - U) * np.tile(t, u.size)
+    weight = np.repeat(wu, t.size) * np.tile(wt, u.size) * (1.0 - U)
+    return np.r_[big, big - U], np.r_[big - U, big], np.r_[weight, weight]
+
+
 def _self_rule(r0, r1, n, deeper=1.0, ring=1.0):
-    """(s, s', w) of a self pair: triangles about the diagonal from the smaller ring."""
+    """(s, s', w) of a self pair: triangles about the diagonal from the smaller
+    ring, graded toward the ring scale; ``_diagonal_rule`` when no variable
+    would be graded (the ring at least an element length away)."""
     length = float(np.hypot(*(r1 - r0)))
     flip = r1[0] < r0[0]
     apex, far = (r1, r0) if flip else (r0, r1)
-    t, wt = _toward_zero(ring * float(apex[0]) / length if apex[0] > 1e-12 * length else 1.0, n, deeper)
+    stop = ring * float(apex[0]) / length if apex[0] > 1e-12 * length else 1.0
     floor = _floor(np.vstack((r0, r1)), length)
+    if stop >= 1.0 and apex[0] > 1e-12 * length:
+        return _diagonal_rule(n, floor)
+    t, wt = _toward_zero(stop, n, deeper)
     ss, ps, ws = [], [], []
     for ti, wi in zip(t, wt):
         if ti < floor:
@@ -249,16 +288,18 @@ def _cached_rule(key, ends, n, deeper, ring):
     return GradedRule(out, reference)
 
 
-def points_per_piece(depth, check=False):
+def points_per_piece(depth, check=False, self_pair=False):
     """Gauss points per graded piece for a near depth (4 + near_refinement)."""
-    n = max(8, SHARP_POINTS + 4 * (int(depth) - BASE_NEAR_DEPTH))
+    base = SELF_POINTS if self_pair else TOUCHING_POINTS
+    n = max(8, base + 4 * (int(depth) - BASE_NEAR_DEPTH))
     return n + CHECK_POINTS if check else n
 
 
 def _rule(points, ends, depth, m_max, check):
     key = tuple(float(v) for v in np.asarray(points, float).ravel())
-    return _cached_rule(key, ends, points_per_piece(depth, check),
-                        2.0**-CHECK_DEPTH if check else 1.0, _ring_factor(m_max))
+    return _cached_rule(key, ends, points_per_piece(depth, check, ends is None),
+                        2.0**-CHECK_DEPTH if check else 1.0,
+                        _ring_factor(m_max, RING_MODES if ends is None else TOUCHING_RING_MODES))
 
 
 def _ring_ratio(r0, r1):
@@ -269,7 +310,7 @@ def _same_surface_geometry(gen, e, f):
     """(class, rule points, ends) of a same-surface self/adjacent pair."""
     nodes = gen.nodes
     if e == f:
-        return ('thin' if _thin(nodes[e], nodes[e + 1]) else None), nodes[e:e + 2], None
+        return ('thin' if _thin(nodes[e], nodes[e + 1]) else 'regular'), nodes[e:e + 2], None
     if f == e + 1:
         points, ends = nodes[[e, e + 1, e + 2]], (1, 0)
     else:
@@ -277,12 +318,12 @@ def _same_surface_geometry(gen, e, f):
     return touching_class(*points), points, ends
 
 
-def sharp_points(gen, e, f, depth, m_max=None, check=False):
-    """(s, s', weights) of the graded rule for a sharp same-surface pair, or None.
+def pair_points(gen, e, f, depth, m_max=None, check=False):
+    """(s, s', weights) of the graded rule of a same-surface self/adjacent pair.
 
     ``m_max`` is the largest mode the points serve (None: RING_MODES or less)."""
-    kind, points, ends = _same_surface_geometry(gen, e, f)
-    return None if kind is None else _rule(points, ends, depth, m_max, check)
+    _, points, ends = _same_surface_geometry(gen, e, f)
+    return _rule(points, ends, depth, m_max, check)
 
 
 def _junction_geometry(gp, e, gq, f, cell):
@@ -291,51 +332,68 @@ def _junction_geometry(gp, e, gq, f, cell):
 
 
 def junction_points(gp, e, gq, f, cell, refinement, m_max=None, check=False):
-    """(s, s', weights) of the graded rule for an acute junction pair, or None.
+    """(s, s', weights) of the graded rule of a junction pair.
 
     ``cell`` is the pair's ``cornerAB`` (touching at s = A, s' = B)."""
     points, ends = _junction_geometry(gp, e, gq, f, cell)
-    if touching_class(*points, junction=True) is None:
-        return None
     return _rule(points, ends, BASE_NEAR_DEPTH + int(refinement), m_max, check)
 
 
 def sharp_report(pairs):
-    """Counts and extremes of [(class, angle, ring ratio)] records, or None.
+    """Counts and extremes of the sharp ones of [(class, angle, ring ratio)] records, or None.
 
     ``min_angle_deg`` is over the acute pairs, ``min_ring_ratio`` (2 rho_max
     over the length of the thinner element) over the thin ones."""
-    if not pairs:
-        return None
     angles = [angle for kind, angle, _ in pairs if kind == 'acute']
     rings = [ring for kind, _, ring in pairs if kind == 'thin']
-    return dict(pairs=len(pairs), acute=len(angles), thin=len(rings),
+    if not angles and not rings:
+        return None
+    return dict(pairs=len(angles) + len(rings), acute=len(angles), thin=len(rings),
                 min_angle_deg=min(angles) if angles else None,
                 min_ring_ratio=min(rings) if rings else None)
 
 
+CLASSES = ('acute', 'thin', 'regular')
+
+
 def severity(record):
-    """Sort key of a record: the sharpest angle or thinnest ring first."""
+    """Sort key of a record: the sharpest angle or thinnest ring first.
+
+    Regular pairs order by ring ratio: an axis pole first."""
     kind, angle, ring = record
-    return (0, angle) if kind == 'acute' else (1, ring)
+    return (0, angle) if kind == 'acute' else (CLASSES.index(kind), ring)
 
 
-def same_surface_pair(gen, e, f):
-    """(class, included angle, ring ratio) of a sharp same-surface pair, or None."""
-    kind, points, ends = _same_surface_geometry(gen, e, f)
-    if kind is None:
-        return None
+def _record(kind, points, ends):
     if ends is None:
         return kind, None, _ring_ratio(*points)
     return (kind, _angle_degrees(points[0] - points[1], points[2] - points[1]),
             min(_ring_ratio(points[0], points[1]), _ring_ratio(points[1], points[2])))
 
 
+def same_surface_pair(gen, e, f):
+    """(class, included angle or None for a self pair, ring ratio) of a same-surface pair."""
+    return _record(*_same_surface_geometry(gen, e, f))
+
+
 def junction_pair(gp, e, gq, f, cell):
-    """(class, included angle, None) of an acute junction pair, or None."""
-    points, _ = _junction_geometry(gp, e, gq, f, cell)
-    kind = touching_class(*points, junction=True)
-    return None if kind is None else (kind, _angle_degrees(points[0] - points[1], points[2] - points[1]), None)
+    """(class, included angle, ring ratio) of a junction pair."""
+    points, ends = _junction_geometry(gp, e, gq, f, cell)
+    return _record(touching_class(*points), points, ends)
+
+
+def check_probes(records, stride):
+    """Indices of the pairs a self-check integrates again: every ``stride``-th
+    sharp pair and every (REGULAR_CHECK_STRIDE * ``stride``)-th regular one
+    (0: every pair), and the most severe pair of each class (``severity``)."""
+    probe = set()
+    for kind in CLASSES:
+        members = [i for i, record in enumerate(records) if record[0] == kind]
+        step = stride * (REGULAR_CHECK_STRIDE if kind == 'regular' else 1)
+        probe.update(members[::step] if step > 0 else members)
+        if members:
+            probe.add(min(members, key=lambda i: severity(records[i])))
+    return probe
 
 
 def relative_change(production, refined):

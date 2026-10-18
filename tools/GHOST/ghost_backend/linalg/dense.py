@@ -1,4 +1,5 @@
 """Reusable CPU factorization with bounded solves and shared residual evidence."""
+import math
 import numpy as np
 import time
 from functools import wraps
@@ -172,8 +173,21 @@ class DenseFactor:
         failed = False
         if self.hierarchical is not None:
             try:
-                estimate = rcs._equilibrated_condition_from_lu(self.a, None, None, self.hierarchical.solve,
+                # Probes only locate ||A^-1|| for the 1e6 gate: a backward error
+                # eps moves the estimate by about kappa*eps relative, so 1e-9
+                # (usually the unrefined factor, one exact product per probe
+                # instead of two) changes any estimate the gate can pass by at
+                # most ~1e-3; larger estimates repeat with fully refined solves.
+                from ghost_backend.compressed.factor import (CONDITION_PROBE_BACKWARD_ERROR_LIMIT as probe,
+                                                             CONDITION_PROBE_ACCEPTED_PERTURBATION as accepted)
+                relaxed = lambda b, trans=0: self.hierarchical.solve(b, trans=trans, tolerance=probe)
+                estimate = rcs._equilibrated_condition_from_lu(self.a, None, None, relaxed,
                                                                scaling=self._condition_scaling)
+                if not math.isfinite(estimate) or estimate*probe > accepted:
+                    probe = None
+                    estimate = rcs._equilibrated_condition_from_lu(self.a, None, None, self.hierarchical.solve,
+                                                                   scaling=self._condition_scaling)
+                self.diagnostics['condition_probe_backward_error_limit'] = probe
                 method = 'equilibrated_1norm_hierarchical_refined_inverse'
             except (RuntimeError, np.linalg.LinAlgError, FloatingPointError, RuntimeWarning) as exc:
                 if self.factor_mode == 'hierarchical':

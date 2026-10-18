@@ -13,6 +13,9 @@ REQUIRED_SYMBOLS = {
     'table': ('ghost_table_eval',),
     'far': ('ghost_far_block', 'ghost_scatter_columns', 'ghost_scatter_tile',
             'ghost_scatter_has_fused'),
+    'near': ('ghost_near_box_arguments', 'ghost_near_box_blocks', 'ghost_thin_analytic',
+             'ghost_thin_squares', 'ghost_thin_remainder', 'ghost_thin_contract',
+             'ghost_near_has_fused'),
 }
 _LOAD_CHECK = (
     'import ctypes, sys\n'

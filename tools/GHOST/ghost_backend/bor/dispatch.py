@@ -331,28 +331,167 @@ def _mark_impedance_junctions(ordered: 'List[_SegChain]', materials, freq_ghz: '
     return graded
 
 
-def _primitive_mesh_plan(chain: '_SegChain', index: 'int', count: 'int'):
-    """Allocation-free subdivision plan shared by counting and meshing."""
+def _primitive_mesh_plan(chain: '_SegChain', index: 'int', count: 'int', sharp=(0, 0)):
+    """Allocation-free subdivision plan shared by counting and meshing.
+
+    Returns (count, start levels, end levels): an impedance junction takes
+    ``BOR_JUNCTION_GRADING_LEVELS``, a sharp vertex (``_sharp_run_levels``)
+    its own levels, and an end that is both the larger of the two.
+    """
     at_start = chain.grade_start and index == 0
     at_end = chain.grade_end and index == len(chain.pts) - 2
-    if count == 1 and at_start and at_end:
-        count = 2
     levels = max(0, int(BOR_JUNCTION_GRADING_LEVELS))
-    return count, at_start, at_end, levels
+    first = max(levels if at_start else 0, int(sharp[0]))
+    last = max(levels if at_end else 0, int(sharp[1]))
+    if count == 1 and ((at_start and at_end) or (first and last)):
+        count = 2
+    return count, first, last
 
 
-def _primitive_breaks(chain: '_SegChain', index: 'int', count: 'int') -> 'List[float]':
+def _primitive_breaks(chain: '_SegChain', index: 'int', count: 'int', sharp=(0, 0)) -> 'List[float]':
     """Parametric boundaries; callers admit the element count before allocating."""
-    count, at_start, at_end, levels = _primitive_mesh_plan(chain, index, count)
+    count, first, last = _primitive_mesh_plan(chain, index, count, sharp)
     breaks = [i / count for i in range(count + 1)]
-    if not (at_start or at_end):
-        return breaks
-    cuts = [BOR_JUNCTION_GRADING_RATIO ** level for level in range(levels, 0, -1)]
-    if at_start:
+    if first:
+        cuts = [BOR_JUNCTION_GRADING_RATIO ** level for level in range(first, 0, -1)]
         breaks = [0.0] + [breaks[1] * cut for cut in cuts] + breaks[1:]
-    if at_end:
+    if last:
+        cuts = [BOR_JUNCTION_GRADING_RATIO ** level for level in range(last, 0, -1)]
         breaks = breaks[:-1] + [1.0 - (1.0 - breaks[-2]) * cut for cut in reversed(cuts)] + [1.0]
     return breaks
+
+
+# Sharp generatrix vertices are graded by the 2D rule (twod.geometry,
+# "Sharp-feature grading"). Off the axis a rim is locally a 2D wedge: the
+# field fills the angle alpha on the exterior (left-of-travel) side, both
+# sides of a TYPE 1 sheet, and nu = pi / alpha. Lens rims (5-15 degrees), N =
+# 10..160 per primitive: 0.01 dB needed about 1800 elements uniform and 55
+# graded; a 3 mm thick disk 212 against 29. Only conductor walls (TYPE 1, 2
+# and 4) are graded; dielectric interfaces keep their meshes.
+#
+# On the axis the tip of a body of half-angle theta (between the generatrix
+# and the axis, inside the body) is a conical point. Its charge behaves like
+# r**(nu_D - 1), P_nu_D(-cos theta) = 0 (0.11 at 1 degree, 0.24 at 15, 0.46
+# at 45, 1 for a flat pole), and the meridian line charge 2*pi*rho*sigma like
+# r**nu_D. Measured on cones and needles the 2D rule with nu = 2*nu_D fits:
+# a 30-degree cone gained most from one level (65 -> 43 elements for 0.01
+# dB), 10- and 2-degree needles kept gaining up to four (146 -> 27, 545 ->
+# 64), 90- and 120-degree cones gained nothing at 0.01 dB. Tips are held to
+# BOR_AXIS_TIP_MAX_LEVELS, and their innermost element keeps a radius of at
+# least BOR_AXIS_TIP_MIN_RADIUS wavelengths. The rank loss once seen beyond
+# four levels came from snapping interior tip nodes onto the axis (fixed in
+# _mesh_generatrix); 0.5- and 2-degree needles and 10/30-degree cones then solve
+# at 4-10 levels, agree with 4 levels to 0.002 dB and settle by about 8.
+_BOR_WALL_TYPES = (1, 2, 4)
+BOR_AXIS_TIP_MAX_LEVELS = 8
+BOR_AXIS_TIP_MIN_RADIUS = 1.0e-8
+_AXIS_TIP_EXPONENTS: 'Dict[float, float]' = {}
+
+
+def _axis_tip_exponent(theta: 'float') -> 'float':
+    """Grading exponent 2 * nu_D of an axis tip of body half-angle ``theta`` (radians), at most 1."""
+    if not 0.0 < theta < 0.5 * math.pi:
+        return 1.0
+    key = round(float(theta), 9)
+    if key not in _AXIS_TIP_EXPONENTS:
+        from scipy.special import lpmv
+        x = -math.cos(key)
+        grid = np.linspace(1.0e-3, 0.5, 501)
+        values = lpmv(0, grid, x)
+        change = np.nonzero(values[:-1] * values[1:] <= 0.0)[0]
+        nu = 1.0
+        if len(change):
+            lo, hi = float(grid[change[0]]), float(grid[change[0] + 1])
+            for _ in range(48):
+                mid = 0.5 * (lo + hi)
+                if float(lpmv(0, lo, x)) * float(lpmv(0, mid, x)) <= 0.0:
+                    hi = mid
+                else:
+                    lo = mid
+            nu = min(1.0, lo + hi)
+        _AXIS_TIP_EXPONENTS[key] = nu
+    return _AXIS_TIP_EXPONENTS[key]
+
+
+def _sharp_run_levels(run: 'List[_SegChain]', wavelength: 'float') -> 'Dict[Tuple[int, int], Tuple[int, int]]':
+    """{(chain index, primitive index): (start levels, end levels)} at the sharp vertices of one run."""
+    from ghost_backend.twod.geometry import (FACET_ADVISORY_MAX_TURN_DEG, SHARP_GRADING_MAX_EXPONENT,
+                                             _sharp_grading_levels)
+    prims = []
+    for ci, chain in enumerate(run):
+        wall = chain.seg_type in _BOR_WALL_TYPES
+        for pi, length in enumerate(chain.prim_lengths):
+            length = float(length)
+            if length <= 0.0:
+                continue
+            count = _chain_element_count(chain, length, wavelength)
+            prims.append((ci, pi, chain.pts[pi], chain.pts[pi + 1], length, length / max(1, count),
+                          wall, chain.seg_type == 1))
+    levels: 'Dict[Tuple[int, int], List[int]]' = {}
+
+    def grade(k, slot, nu, scale, tip_angle=None):
+        value = _sharp_grading_levels(nu, prims[k][5], scale, wavelength)
+        if tip_angle is not None:
+            # An axis tip: at most BOR_AXIS_TIP_MAX_LEVELS, innermost radius above the floor.
+            value = min(value, int(BOR_AXIS_TIP_MAX_LEVELS))
+            while value and prims[k][5] * 0.5 ** value * math.sin(tip_angle) < BOR_AXIS_TIP_MIN_RADIUS * wavelength:
+                value -= 1
+        if value:
+            entry = levels.setdefault(prims[k][:2], [0, 0])
+            entry[slot] = max(entry[slot], value)
+
+    def far_point(k, forward, distance):
+        """The generatrix point ``distance`` from the vertex, walking from primitive k on (or back)."""
+        travelled, step, stop = 0.0, (1 if forward else -1), prims[k][3 if forward else 2]
+        while 0 <= k < len(prims):
+            start, stop = (prims[k][2], prims[k][3]) if forward else (prims[k][3], prims[k][2])
+            if travelled + prims[k][4] >= distance:
+                return start + (stop - start) * ((distance - travelled) / prims[k][4])
+            travelled += prims[k][4]
+            k += step
+        return stop
+
+    def left_angle(out_dir, back_dir):
+        """CCW angle from the outgoing to the backward direction: the exterior (left) sector."""
+        return (math.atan2(back_dir[1], back_dir[0]) - math.atan2(out_dir[1], out_dir[0])) % (2.0 * math.pi)
+
+    min_turn = math.radians(FACET_ADVISORY_MAX_TURN_DEG)
+    for k in range(len(prims) - 1):
+        a, b = prims[k], prims[k + 1]
+        if not (a[6] and b[6]):
+            continue
+        drawn = left_angle(b[3] - b[2], a[2] - a[3])
+        if abs(math.pi - drawn) <= min_turn + 1.0e-12:
+            continue
+        vertex, scale = a[3], max(a[5], b[5])
+        seen = left_angle(far_point(k + 1, True, scale) - vertex, far_point(k, False, scale) - vertex)
+        alpha = seen if abs(seen - drawn) < 0.75 * math.pi else drawn
+        if a[7] or b[7]:
+            alpha = max(alpha, 2.0 * math.pi - alpha)
+        nu = min(1.0, math.pi / alpha) if alpha > 0.0 else 1.0
+        if nu < SHARP_GRADING_MAX_EXPONENT - 1.0e-9:
+            grade(k, 1, nu, scale)
+            grade(k + 1, 0, nu, scale)
+    # Run ends. Only an end on the axis is a conical tip; a run that stops off
+    # the axis meets another run there (the covered and bare cores of a
+    # partial coating, which continue each other) or is the free rim of a
+    # TYPE 1 sheet, a knife edge (alpha = 2 pi, nu = 1/2, as in 2D).
+    extent = float(np.ptp(np.asarray([q for p in prims for q in p[2:4]]), axis=0).max()) if prims else 0.0
+    on_axis_tol = 1.0e-6 * max(extent, 1.0e-9)    # _prepare_bor_groups' axis tolerance
+    for k, slot, inward in ((0, 0, (0.0, -1.0)), (len(prims) - 1, 1, (0.0, 1.0))):
+        if not prims or not prims[k][6]:
+            continue
+        p = prims[k]
+        if abs(float((p[2] if slot == 0 else p[3])[0])) > on_axis_tol:
+            if p[7]:
+                grade(k, slot, 0.5, p[5])
+            continue
+        away = (p[3] - p[2]) / p[4] if slot == 0 else (p[2] - p[3]) / p[4]
+        theta = math.acos(float(np.clip(away[0] * inward[0] + away[1] * inward[1], -1.0, 1.0)))
+        nu = _axis_tip_exponent(theta)
+        if nu < SHARP_GRADING_MAX_EXPONENT - 1.0e-9:
+            grade(k, slot, nu, p[5], theta)
+    return {key: tuple(value) for key, value in levels.items()}
 
 
 def _mesh_generatrix(ordered: 'List[_SegChain]', lam_target: 'float',
@@ -365,6 +504,7 @@ def _mesh_generatrix(ordered: 'List[_SegChain]', lam_target: 'float',
     if planned_elements > max_elements:
         raise ValueError(f"BoR mesh would need {planned_elements} elements "
                          f"(> max {max_elements}). Reduce frequency or density.")
+    sharp = _sharp_run_levels(ordered, lam_target)
     points: 'List[Tuple[float, float]]' = []
     elem_seg: 'List[int]' = []
     elem_arc: 'List[float]' = []
@@ -374,8 +514,8 @@ def _mesh_generatrix(ordered: 'List[_SegChain]', lam_target: 'float',
             p0, p1 = c.pts[pi], c.pts[pi + 1]
             plen = c.prim_lengths[pi]
             cnt = _chain_element_count(c, plen, lam_target)
-            if c.grade_start or c.grade_end:
-                breaks = _primitive_breaks(c, pi, cnt)
+            if c.grade_start or c.grade_end or (ci, pi) in sharp:
+                breaks = _primitive_breaks(c, pi, cnt, sharp.get((ci, pi), (0, 0)))
                 for t0, t1 in zip(breaks[:-1], breaks[1:]):
                     if not points:
                         points.append(tuple(p0 + (p1 - p0) * t0))
@@ -395,7 +535,15 @@ def _mesh_generatrix(ordered: 'List[_SegChain]', lam_target: 'float',
             arc0 += plen
     pts = np.asarray(points, dtype=float)
 
-    pts[np.abs(pts[:, 0]) <= axis_tol, 0] = 0.0
+    # Only the run's end points may sit on the axis (the drawing tolerance
+    # snaps them there). Interior nodes keep their radius: a graded needle tip
+    # puts nodes within 1e-6 * diagonal of the axis, and snapping one gave a
+    # zero-area element whose rows vanished (LAPACK info = 1).
+    for end in (0, -1):
+        if abs(pts[end, 0]) <= axis_tol:
+            pts[end, 0] = 0.0
+    interior = pts[1:-1, 0]
+    interior[np.abs(interior) <= 1.0e-12 * max(1.0, float(np.max(np.abs(pts[:, 0]))))] = 0.0
     pts[:, 0] = np.maximum(pts[:, 0], 0.0)
     if len(pts) - 1 > max_elements:
         raise ValueError(f"BoR mesh would need {len(pts) - 1} elements "
@@ -1571,11 +1719,13 @@ def _run_element_count(run: 'List[_SegChain]', wavelength: 'float') -> 'int':
     # Count the mesher's plan without constructing a potentially enormous
     # breakpoint list before the configured element limit can reject it.
     total = 0
-    for chain in run:
+    sharp = _sharp_run_levels(run, wavelength)
+    for ci, chain in enumerate(run):
         for index, length in enumerate(chain.prim_lengths):
-            count, start, end, levels = _primitive_mesh_plan(
-                chain, index, _chain_element_count(chain, float(length), wavelength))
-            total += count + levels * (int(start) + int(end))
+            count, first, last = _primitive_mesh_plan(
+                chain, index, _chain_element_count(chain, float(length), wavelength),
+                sharp.get((ci, index), (0, 0)))
+            total += count + first + last
     return total
 
 

@@ -75,7 +75,7 @@ def build_native(stage, *, compiler=None, no_openmp=False):
     checked = {}
     for path in binaries:
         symbols = (bor.REQUIRED_SYMBOLS if path == kernel
-                   else twod.REQUIRED_SYMBOLS['table' if 'table' in path.stem else 'far'])
+                   else twod.REQUIRED_SYMBOLS[path.stem.removeprefix('lib').removeprefix('ghost_')])
         twod.validate_library(path, symbols)
         checked[path.relative_to(stage).as_posix()] = dict(
             path=path, symbols=list(symbols), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
@@ -165,6 +165,7 @@ def main():
             required = {'ghost_backend/bor/native/bor_stream_kernel.c',
                         'ghost_backend/twod/assembly/native/table.c',
                         'ghost_backend/twod/assembly/native/far.c',
+                        'ghost_backend/twod/assembly/native/near.c',
                         'ghost_backend/geometry/templates/point_features_template.csv'}
             missing = required - set(names)
             if missing:

@@ -533,7 +533,8 @@ class HierarchicalFactor:
         result[self.permutation] = ordered
         return result
 
-    def solve(self, rhs, trans=0, return_residual=False):
+    def solve(self, rhs, trans=0, return_residual=False, tolerance=None):
+        """Refined solve; ``tolerance`` relaxes the backward-error target (condition probes)."""
         if trans not in (0, 1, 2):
             raise ValueError('Invalid transpose mode.')
         b = np.asarray(rhs, complex)
@@ -542,16 +543,17 @@ class HierarchicalFactor:
         if not np.all(np.isfinite(b)):
             raise ValueError('Nonfinite RHS.')
         try:
-            return self._solve_refined(b, trans, return_residual)
+            return self._solve_refined(b, trans, return_residual, tolerance)
         except (HierarchicalRejected, np.linalg.LinAlgError, RuntimeWarning) as exc:
             if self.tolerance <= self.TIGHT_TOLERANCE:
                 raise
             self.evidence['coarse_rejection'] = str(exc)
 
         self._rebuild(self.TIGHT_TOLERANCE)
-        return self._solve_refined(b, trans, return_residual)
+        return self._solve_refined(b, trans, return_residual, tolerance)
 
-    def _solve_refined(self, b, trans, return_residual):
+    def _solve_refined(self, b, trans, return_residual, tolerance=None):
+        target = self.refinement_tolerance if tolerance is None else max(float(tolerance), self.refinement_tolerance)
         vector = b.ndim == 1
         if vector:
             b = b[:, None]
@@ -566,8 +568,11 @@ class HierarchicalFactor:
             residual = b-product(x)
             denominator = self._norm(trans)*np.max(abs(x),axis=0)+np.max(abs(b),axis=0)
             error = float(np.max(np.max(abs(residual),axis=0)/np.maximum(denominator,1e-300)))
-            if np.isfinite(error) and error <= self.refinement_tolerance:
-                self.evidence['refinements'] = max(self.evidence['refinements'], step)
+            if np.isfinite(error) and error <= target:
+                if tolerance is None:
+                    self.evidence['refinements'] = max(self.evidence['refinements'], step)
+                else:
+                    self.evidence['probe_refinements'] = max(self.evidence.get('probe_refinements', 0), step)
                 solution = x[:, 0] if vector else x
                 if return_residual:
                     return solution, residual[:, 0] if vector else residual

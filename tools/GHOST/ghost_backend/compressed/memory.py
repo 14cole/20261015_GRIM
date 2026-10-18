@@ -113,6 +113,30 @@ def sample_operator(oracle, coordinates, tile=512, checkpoint=None, pilot_identi
         tile=tile, groups=groups, bands=bands, sampled=True)
 
 
+def hmatrix_storage(mesh, infos, formulation, system_dofs, layout=None):
+    """Geometry-only hierarchical forecast for a system above its threshold, or None.
+
+    Thin layers with a magnetic contrast (twice the nodes) keep the tile
+    operator (``hmatrix.unsupported``) and so its pricing.
+    """
+    from ghost_backend.compressed import hmatrix
+    from ghost_backend.compressed.runtime import coordinates
+    if not system_dofs or not hmatrix.selected(system_dofs):
+        return None
+    if formulation == 'thin_dielectric_layer' and system_dofs != len(mesh.nodes):
+        return None
+    if layout is not None:
+        from ghost_backend.twod.formulations.regions import dof_coordinates
+        xy = dof_coordinates(mesh, layout)
+    else:
+        xy = coordinates(mesh, system_dofs)
+    if len(xy) != system_dofs:
+        return None
+    waves = [complex(value) for info in infos for value in (info.k_plus, info.k_minus) if value is not None]
+    wavenumber = max(abs(value) for value in waves) if waves else 0.
+    return hmatrix.forecast_storage(xy, hmatrix.support_radius(mesh, xy), wavenumber)
+
+
 @timed_stage('compressed_memory_sampling')
 def geometry_storage(mesh, infos, pol, kind, k0, layer=None, dofs=None):
     from ghost_backend.compressed.coefficients import NativeOracle
@@ -171,6 +195,10 @@ def forecast(n, d, count, batch, threads, storage_limit, resources=None, safety=
     if not math.isfinite(safety) or safety < 1 or not math.isfinite(floor_gb) or floor_gb < 0:
         raise ValueError('Compressed memory safety must be finite and >=1; floor must be finite and >=0.')
     resources = resources or {}
+    model = resources.get('hmatrix_storage')
+    from ghost_backend.compressed import hmatrix
+    if model is not None and hmatrix.selected(d):
+        return hmatrix_forecast(n, d, count, batch, threads, resources, model, floor_gb)
     sample = resources.get('compressed_storage')
     if sample is None:
         size = min(storage_limit, 16*d*d+96*d)
@@ -231,3 +259,37 @@ def forecast(n, d, count, batch, threads, storage_limit, resources=None, safety=
         temporary_disk_semantics='one partner estimate; exact payload depends on its material equations',
         storage_method=sample['method'], sampled=sample['sampled'], samples=sample['samples'],
         safety=float(safety), floor_gb=float(floor_gb), forecast_is_hard_limit=False)
+
+
+def hmatrix_forecast(n, d, count, batch, threads, resources, model, floor_gb=0.):
+    """Phases of a hierarchical (compressed.hmatrix) solve; both polarizations' operators resident.
+
+    The TE assembly builds the TM operator in the same traversal and keeps it
+    for the TM solve when both fit the hierarchical storage cap; otherwise
+    each polarization is assembled alone. The inverse is the model's.
+    """
+    from ghost_backend.compressed.runtime import hmatrix_storage_budget
+    limit = hmatrix_storage_budget()
+    operator, inverse, construction = model['operator_bytes'], model['inverse_bytes'], model['inverse_peak_bytes']
+    resident = 2*operator if 2*operator + inverse <= limit else operator
+    from ghost_backend.twod.polynomial_quadrature import MOMENT_CACHE_BYTES
+    moment_cache = resources.get('moment_cache_bytes', MOMENT_CACHE_BYTES if resources.get('basis_width', 2) > 2 else 0)
+    from ghost_backend.compressed.recycling import capacity_bytes
+    overhead = 128*MIB + 6144*n + count*4096 + moment_cache + capacity_bytes()
+    from ghost_backend.twod.assembly.kernels import PROJECTION_CACHE_BYTES
+    solve_work = 32*MIB + 16*12*d*batch
+    phases = dict(assembly=resident + (resident//operator)*model['assembly_workspace_bytes'] + overhead,
+                  factorization=resident + construction + overhead,
+                  solve=resident + inverse + solve_work + PROJECTION_CACHE_BYTES + overhead)
+    peak = max(float(floor_gb)*GIB, max(phases.values()))
+    return dict(model='compressed_hmatrix_v1', peak_bytes=int(math.ceil(peak)),
+        phase_bytes={k: int(v) for k, v in phases.items()}, operator_bytes=int(operator),
+        operator_allowance_bytes=int(operator), resident_operator_bytes=int(resident),
+        inverse_ceiling_bytes=int(inverse), inverse_construction_bytes=int(construction),
+        process_geometry_bytes=int(overhead), rhs_workspace_bytes=int(solve_work),
+        projection_cache_bytes=PROJECTION_CACHE_BYTES, moment_cache_bytes=moment_cache,
+        assembly_workspace_bytes=int(model['assembly_workspace_bytes']),
+        storage_limit_bytes=int(limit), storage_fits=bool(operator + inverse <= limit),
+        temporary_disk_bytes=0, storage_method=model['method'], sampled=False, samples=0,
+        coefficients=int(model['coefficients']), inverse_rank=int(model['inverse_rank']),
+        safety=1., floor_gb=float(floor_gb), forecast_is_hard_limit=False)

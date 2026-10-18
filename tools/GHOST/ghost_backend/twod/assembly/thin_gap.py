@@ -84,6 +84,10 @@ def _inner(x, q0, tangent, length, normal, sigma, k, degree, want_s, want_k, par
     delta = np.abs(h)
     d2 = delta * delta
     u0, u1 = -t, length - t
+    from ghost_backend.twod.assembly.native import near as native
+    if native.available():
+        return _native_inner(t, h, delta, d2, u0, u1, length, normal, tangent, sigma, k, degree,
+                             want_s, want_k, part, table)
     qmax = degree + 1 + 2 * SERIES_TERMS
     # C_q = int u^q / (u^2 + delta^2) du, with delta^2 C_0 = delta times the
     # subtended angle; B_q = int u^q ln(u^2 + delta^2) du.
@@ -162,6 +166,40 @@ def _inner(x, q0, tangent, length, normal, sigma, k, degree, want_s, want_k, par
     return s_out, k_out
 
 
+def _native_inner(t, h, delta, d2, u0, u1, length, normal, tangent, sigma, k, degree, want_s, want_k,
+                  part, table):
+    """``_inner`` with its arithmetic in assembly.native.near, bitwise the NumPy route.
+
+    The logarithms, arctangent, powers and kernel values are NumPy's own; the
+    closed forms, series and remainder sums take NumPy's operation order there.
+    """
+    from ghost_backend.twod.polynomial_quadrature import _kernels
+    from ghost_backend.twod.assembly.native import near as native
+    m0 = normal[:, 1] * tangent[:, 0] - normal[:, 0] * tangent[:, 1]
+    m1 = np.sum(normal * tangent, axis=1)
+    v_series = [a * k**(2 * j + 2) for j, a in enumerate(_V_SERIES)]
+    if part == 'analytic':
+        angle = np.arctan2(delta * length, d2 + u0 * u1)
+        l0, l1 = np.log(u0 * u0 + d2), np.log(u1 * u1 + d2)
+        t3, l3 = (t**3, length**3) if degree == 3 else (None, None)
+        return native.thin_analytic(degree, t, h, delta, d2, u0, u1, angle, l0, l1, length, t3, l3, m0, m1, sigma,
+                                    [a * k**(2 * j) for j, a in enumerate(_S_SERIES)], v_series, want_s, want_k)
+    qt, qw = _gauss(INNER_ORDER)
+    r2 = native.thin_squares(t, length, d2, qt, qw)
+    r = np.sqrt(r2)
+    log_r2 = np.log(r2)
+    green, derivative = _kernels(k, r, want_k, table)
+    return native.thin_remainder(degree, t, length, d2, h, m0, m1, sigma, qt, qw, r, log_r2, green, derivative,
+                                 k * k, _S_SERIES, v_series, want_s, want_k)
+
+
+def _contract(outer, values):
+    """Moments sum_q outer[q, a] values[q, b] per pair (native or einsum, the same bits)."""
+    from ghost_backend.twod.assembly.native import near as native
+    blocks = native.thin_contract(outer, values)
+    return np.einsum('nqa,nqb->nab', outer, values) if blocks is None else blocks
+
+
 def thin_gap_moments(obs, src, k, obs_normal_deriv, want_s=True, want_k=True, degree=DEGREE,
                      rtol=1.0e-9, max_depth=24, map_jobs=None, checkpoint=None):
     """Monomial S and K moments (n, 2, degree + 1, degree + 1) of separated pairs.
@@ -204,7 +242,7 @@ def thin_gap_moments(obs, src, k, obs_normal_deriv, want_s=True, want_k=True, de
             for values in _inner(x, inner0[rows], tangent[rows], inner_length[rows], normal[rows],
                                  sigma[rows], k, degree, want_s, want_k, part, table):
                 blocks.append(np.zeros((len(pair), size, size), dtype=np.complex128) if values is None else
-                              np.einsum('nqa,nqb->nab', outer, values.reshape(len(pair), len(qt), size)))
+                              _contract(outer, values.reshape(len(pair), len(qt), size)))
         return blocks
 
     def evaluate(pair, a, b, parts):

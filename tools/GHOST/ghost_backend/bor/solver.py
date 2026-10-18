@@ -31,10 +31,8 @@ from ghost_backend.bor.kernels import (
     gauss_on_generatrix,
     modal_kernels_fft,
     modal_kernels_near,
-    kernels_for_mode,
     mfie_kernels_fft,
     mfie_kernels_near,
-    mfie_for_mode,
     nonnegative_bracket_tables,
     ibc_kernels_fft,
     ibc_kernels_near,
@@ -781,78 +779,38 @@ def _graded_cells(kind: 'str', depth: 'int' = 4) -> 'List[Tuple[float, float, fl
 
 _CELL_CACHE: 'Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]' = {}
 
-# Element pairs of two DIFFERENT surfaces that touch at a junction point.  The
-# graded corner cells converge only linearly in the grading depth there: the
-# former order-4, depth-4 rule left 1e-3 of relative far-field error in the
-# partial-coating and layered-patch solvers (against an order-12, depth-8
-# reference); order 10, depth 7 is within 2e-5.  A junction has only a few
-# such pairs, so the ninefold point count costs nothing measurable.
-JUNCTION_CELL_ORDER = 10
-JUNCTION_CELL_DEPTH = 7
-
-
-def _junction_cell_points(kind: 'str', refinement=None) -> 'Tuple[np.ndarray, np.ndarray, np.ndarray]':
-    """Graded cells for a cross-surface pair touching at corner ``kind``."""
-    if refinement is None:
-        from ghost_backend.bor.options import current_options
-        refinement = current_options()['near_refinement']
-    return _cell_points(kind, gorder=JUNCTION_CELL_ORDER, depth=JUNCTION_CELL_DEPTH + refinement)
-
 
 def _junction_points(gp, e, gq, f, kind: 'str', refinement=None, m_max=None):
-    """Quadrature of a junction pair: the graded polar rule at an acute
-    junction (bor.sharp_pairs), otherwise the junction cells."""
+    """Quadrature of a cross-surface pair touching at corner ``kind``: the
+    graded polar rule (bor.sharp_pairs), as for same-surface touching pairs.
+
+    (The former junction cells, order 10 and depth 7 with 2420 points, left
+    3e-5..4e-4 of the rotated-PV block at 45..150 degree junctions and 1e-6
+    of the EFIE block at a thin junction; the polar rule, 288 points at an
+    ordinary junction, is within 2e-7 at modes to 30.)"""
     if refinement is None:
         from ghost_backend.bor.options import current_options
         refinement = current_options()['near_refinement']
     from ghost_backend.bor.sharp_pairs import junction_points
-    sharp = junction_points(gp, e, gq, f, kind, refinement, m_max)
-    return sharp if sharp is not None else _junction_cell_points(kind, refinement)
+    return junction_points(gp, e, gq, f, kind, refinement, m_max)
 
 
-def _check_sharp_pairs(owner, entries, k, m_max, kinds, mode_start=0, workers=1) -> 'None':
-    """Self-check of sharp touching pairs integrated by the graded polar rule.
+def _touching_probes(owner, records):
+    """Register touching-pair records on ``owner``; the indices to self-check.
 
-    ``entries`` are ``(gp, e, gq, f, check_points, blocks, record)``: the
-    production blocks of the pair and its (class, angle, ring ratio). The refined rule
-    (bor.sharp_pairs CHECK_*) is integrated once per pair and the largest
-    relative block change kept on ``owner``. The quadrature error of these
-    blocks does not change with the mesh, so a mesh comparison cannot see
-    it; this check measures it directly, on every solve.  Like the angular
-    and disjoint-meridian checks it probes every NEAR_CHECK_STRIDE-th pair
-    (GHOST_BOR_NEAR_CHECK_STRIDE=0: every pair), plus the sharpest pair of
-    each class: the rule is scale-invariant, so geometrically similar pairs
-    share their error."""
-    if not entries:
-        return
+    A probed pair is integrated again by the refined rule (bor.sharp_pairs
+    CHECK_*) in the same batch as its production blocks (``_touching_blocks``,
+    ``NearTask.check_pairs``) and the relative change is kept on the owner
+    (``touching_pair_self_check``).  The quadrature error of these blocks
+    does not change with the mesh, so a mesh comparison cannot see it; this
+    check measures it directly, on every solve, sampled like the angular and
+    disjoint-meridian checks (GHOST_BOR_NEAR_CHECK_STRIDE=0: every pair).
+
+    ``records`` are ``((e, f), (class, angle, ring ratio))`` in pair order."""
     from ghost_backend.bor.kernels import _near_check_stride
-    from ghost_backend.bor.sharp_pairs import relative_change, severity
-    records = owner.__dict__.setdefault('sharp_pair_records', {})
-    for gp, e, gq, f, _, _, record in entries:
-        records[(e, f)] = record
-    stride = _near_check_stride()
-    probe = set(range(0, len(entries), stride)) if stride > 0 else set(range(len(entries)))
-    for kind in ('acute', 'thin'):
-        members = [i for i, entry in enumerate(entries) if entry[6][0] == kind]
-        if members:
-            probe.add(min(members, key=lambda i: severity(entries[i][6])))
-    probe = sorted(probe)
-    checkpoint = getattr(owner, '_checkpoint', None) or getattr(getattr(owner, 'sp', None), '_checkpoint', None)
-
-    def refine(i):
-        if checkpoint is not None:
-            checkpoint()
-        gp, e, gq, f, points = entries[i][:5]
-        return _contract_near_points(gp, e, gq, f, k, m_max, kinds, points, signed=False, mode_start=mode_start)
-
-    worst = getattr(owner, 'sharp_pair_self_check', 0.0)
-    with contextlib.closing(_iter_near_pairs(refine, probe, workers, None, checkpoint)) as refined:
-        refined = list(refined)
-    for i, fine in zip(probe, refined):
-        blocks = entries[i][5]
-        worst = max(worst, relative_change({kind: blocks[kind] for kind in fine}, fine))
-    owner.sharp_pair_self_check = worst
-    owner.sharp_pairs_checked = getattr(owner, 'sharp_pairs_checked', 0) + len(probe)
+    from ghost_backend.bor.sharp_pairs import check_probes
+    owner.__dict__.setdefault('touching_pair_records', {}).update(records)
+    return check_probes([record for _, record in records], _near_check_stride())
 
 
 def _cell_points(kind: 'str', gorder: 'int' = 4,
@@ -885,24 +843,19 @@ def _cell_points(kind: 'str', gorder: 'int' = 4,
 
 
 def _same_surface_points(gen, e: 'int', f: 'int', kinds, depth: 'int', m_max=None):
-    """Graded-cell quadrature of a same-surface self (e == f) or adjacent pair.
+    """Quadrature of a same-surface self (e == f) or adjacent pair: the graded
+    polar rule of bor.sharp_pairs, for every pair.
 
-    One definition for the prepared contractions, the process workers and the
-    per-pair fallbacks.  (A rule graded in |s - s'| only integrates the log
-    self term ~1000x more accurately, but its end-to-end error against exact
-    sphere series was no better at 10-40 elements per wavelength -- the cell
-    rule's error partly offsets the flat-segment geometry error -- and it cost
-    ~10% more, so the cell rule stays.)  Sharp pairs -- a small included
-    angle or a ring small against the element (bor.sharp_pairs) -- use the
-    graded polar rule instead: the cell rule's error there does not shrink
-    with the mesh.  ``m_max``: the largest mode served (grades sharp pairs)."""
-    from ghost_backend.bor.sharp_pairs import sharp_points
-    sharp = sharp_points(gen, e, f, depth, m_max)
-    if sharp is not None:
-        return sharp
-    if e == f:
-        return _cell_points("diag", depth=depth)
-    return _cell_points("corner10" if f == e + 1 else "corner01", depth=depth)
+    One definition for the prepared contractions and the process workers.
+    The former fixed graded cells (depth 4, order 4) had a block error that
+    does not shrink with the mesh: 2e-3 of a sphere's self block, 0.2 of its
+    pole element's, 3e-3 of a 90 degree corner's MFIE block, more at sharp
+    corners and tips; the polar rule is within 3e-8 at modes to 60 (see
+    bor.sharp_pairs) with fewer points for ordinary pairs (282-288 against
+    920 and 260).  ``kinds`` is accepted for the callers' symmetry: the rule
+    does not depend on it.  ``m_max``: the largest mode served."""
+    from ghost_backend.bor.sharp_pairs import pair_points
+    return pair_points(gen, e, f, depth, m_max)
 
 
 TABLE_BLOCK_BYTES = 256 * 1024**2
@@ -1489,6 +1442,8 @@ class BorPecSolver:
                 ) from exc
         self._G_table = None
         self._stream = None
+        # Former per-pair near data cache; every near block is now prepared
+        # (_prepared_near), so it stays empty (preparation still clears it).
         self._near_cache: 'Dict[int, Dict[Tuple[int, int], Tuple]]' = {}
         self._near_contractions: 'Dict[Tuple[str, int], Dict[str, np.ndarray]]' = {}
         self._mass_cache = None
@@ -1876,28 +1831,6 @@ class BorPecSolver:
         return self._G_table
 
 
-    def _near_pair_data(self, e: 'int', f: 'int', m_max: 'int'):
-        key = (e, f)
-        cache = self._near_cache.setdefault(m_max, {})
-        if key in cache:
-            return cache[key]
-        if abs(e - f) <= 1:
-            s, sp, w = _same_surface_points(self.gen, e, f, ('efie',), self.near_depth, m_max)
-        else:
-
-
-            s, sp, w = _regular_cell_points()
-        rho_p, z_p, tr_p, tz_p, T0p, T1p, D0p, D1p, Lp = _points_on_element(self.gen, e, s)
-        rho_q, z_q, tr_q, tz_q, T0q, T1q, D0q, D1q, Lq = _points_on_element(self.gen, f, sp)
-        Gm = modal_kernels_near(rho_p, z_p, rho_q, z_q, self.k, m_max)
-        data = (s, sp, w * Lp * Lq,
-                rho_p, tr_p, tz_p, np.vstack([T0p, T1p]), np.vstack([D0p, D1p]),
-                rho_q, tr_q, tz_q, np.vstack([T0q, T1q]), np.vstack([D0q, D1q]),
-                Gm)
-        cache[key] = data
-        return data
-
-
     def assemble_mode(self, m: 'int', m_max: 'int', out=None,
                       scale: 'complex' = 1.0) -> 'np.ndarray':
         """EFIE operator ``C * T`` of one signed mode, ``C = j k eta 2 pi``.
@@ -1929,33 +1862,10 @@ class BorPecSolver:
                               g, ne, self.gauss_order, Gtab, C)
 
         prepared = self._prepared_near("efie", m_max)
-        if prepared is not None:
-            midx = abs(m)
-            rc = (prepared["rows"], prepared["cols"])
-            for uv, quad in enumerate(quads):
-                np.add.at(quad, rc, prepared["values"][uv, midx] * (C * mode_sign(uv, m)))
-        else:
-            ne = self.gen.n_elems
-            for e in range(ne):
-                for f in self._near_sources_by_element[e]:
-                    (s, sp, w, rho_p, tr_p, tz_p, Tp, Dp,
-                     rho_q, tr_q, tz_q, Tq, Dq, Gm) = self._near_pair_data(e, f, m_max)
-                    Gn, Gcn, Gsn = kernels_for_mode(Gm, m)
-                    rr = rho_p * rho_q * w
-                    ktt = rr * ((tr_p * tr_q) * Gcn + (tz_p * tz_q) * Gn)
-                    ksc = w * Gn
-                    ktf = rr * (tr_p * Gsn)
-                    kft = -rr * (tr_q * Gsn)
-                    kff = rr * Gcn
-                    btt = np.einsum("ip,p,jp->ij", Tp, ktt, Tq) - (1.0 / k ** 2) * np.einsum("ip,p,jp->ij", Dp, ksc, Dq)
-                    btf = np.einsum("ip,p,jp->ij", Tp, ktf, Tq) - (1j * m / k ** 2) * np.einsum("ip,p,jp->ij", Dp, ksc, Tq)
-                    bft = np.einsum("ip,p,jp->ij", Tp, kft, Tq) + (1j * m / k ** 2) * np.einsum("ip,p,jp->ij", Tp, ksc, Dq)
-                    bff = np.einsum("ip,p,jp->ij", Tp, kff, Tq) - (m ** 2 / k ** 2) * np.einsum("ip,p,jp->ij", Tp, ksc, Tq)
-                    rows = np.array([e, e + 1]); cols = np.array([f, f + 1])
-                    quads[0][np.ix_(rows, cols)] += C * btt
-                    quads[1][np.ix_(rows, cols)] += C * btf
-                    quads[2][np.ix_(rows, cols)] += C * bft
-                    quads[3][np.ix_(rows, cols)] += C * bff
+        midx = abs(m)
+        rc = (prepared["rows"], prepared["cols"])
+        for uv, quad in enumerate(quads):
+            np.add.at(quad, rc, prepared["values"][uv, midx] * (C * mode_sign(uv, m)))
         return Z
 
 
@@ -1997,25 +1907,6 @@ class BorPecSolver:
         self._K_tables = tuple(K)
         self._K_tables_m_max = int(m_max)
         return self._K_tables
-
-    def _near_mfie_data(self, e: 'int', f: 'int', m_max: 'int'):
-        cache = self._near_cache.setdefault(("mfie", m_max), {})
-        if (e, f) in cache:
-            return cache[(e, f)]
-        if abs(e - f) <= 1:
-            s, sp, w = _same_surface_points(self.gen, e, f, ('mfie',), self.near_depth, m_max)
-        else:
-            s, sp, w = _regular_cell_points()
-        rho_p, z_p, tr_p, tz_p, T0p, T1p, _, _, Lp = _points_on_element(self.gen, e, s)
-        rho_q, z_q, tr_q, tz_q, T0q, T1q, _, _, Lq = _points_on_element(self.gen, f, sp)
-        tr_pa = np.full_like(rho_p, tr_p); tz_pa = np.full_like(rho_p, tz_p)
-        tr_qa = np.full_like(rho_q, tr_q); tz_qa = np.full_like(rho_q, tz_q)
-        Kn = mfie_kernels_near(rho_p, z_p, tr_pa, tz_pa, rho_q, z_q, tr_qa, tz_qa,
-                               self.k, m_max)
-        data = (w * Lp * Lq, rho_p, np.vstack([T0p, T1p]),
-                rho_q, np.vstack([T0q, T1q]), Kn)
-        cache[(e, f)] = data
-        return data
 
     def mass_blocks(self, weight=None) -> 'np.ndarray':
         """2pi * Int w(t) rho T_i T_j dt  (node-based [Nn, Nn]); weight is a
@@ -2125,22 +2016,10 @@ class BorPecSolver:
                                  g, ne, self.gauss_order, Kt, far)
 
         prepared = self._prepared_near("mfie", m_max)
-        if prepared is not None:
-            midx = abs(m)
-            rc = (prepared["rows"], prepared["cols"])
-            for uv, quad in enumerate(quads):
-                np.add.at(quad, rc, prepared["values"][uv, midx] * (far * mode_sign(uv, m)))
-        else:
-            ne = self.gen.n_elems
-            for e in range(ne):
-                for f in self._near_sources_by_element[e]:
-                    w, rho_p, Tp, rho_q, Tq, Kn = self._near_mfie_data(e, f, m_max)
-                    rr = rho_p * rho_q * w
-                    rows = np.array([e, e + 1]); cols = np.array([f, f + 1])
-                    for uv, quad in enumerate(quads):
-                        Km = mfie_for_mode(Kn[uv], m, m_max, odd=uv in (1, 2))
-                        blk = 2.0 * np.pi * np.einsum("ip,p,jp->ij", Tp, rr * Km, Tq)
-                        quad[np.ix_(rows, cols)] += far * blk
+        midx = abs(m)
+        rc = (prepared["rows"], prepared["cols"])
+        for uv, quad in enumerate(quads):
+            np.add.at(quad, rc, prepared["values"][uv, midx] * (far * mode_sign(uv, m)))
 
         bands = self._unit_mass_bands
         if bands is None:
@@ -2226,24 +2105,6 @@ class BorPecSolver:
         self._KI_tables_m_max = int(m_max)
         return self._KI_tables
 
-    def _near_ibc_data(self, e: 'int', f: 'int', m_max: 'int'):
-        cache = self._near_cache.setdefault(("ibc", m_max), {})
-        if (e, f) in cache:
-            return cache[(e, f)]
-        if abs(e - f) <= 1:
-            s, sp, w = _same_surface_points(self.gen, e, f, ('ibc',), self.near_depth, m_max)
-        else:
-            s, sp, w = _regular_cell_points()
-        rho_p, z_p, tr_p, tz_p, T0p, T1p, _, _, Lp = _points_on_element(self.gen, e, s)
-        rho_q, z_q, tr_q, tz_q, T0q, T1q, _, _, Lq = _points_on_element(self.gen, f, sp)
-        Kn = ibc_kernels_near(rho_p, z_p, np.full_like(rho_p, tr_p), np.full_like(rho_p, tz_p),
-                              rho_q, z_q, np.full_like(rho_q, tr_q), np.full_like(rho_q, tz_q),
-                              self.k, m_max)
-        data = (w * Lp * Lq, rho_p, np.vstack([T0p, T1p]),
-                rho_q, np.vstack([T0q, T1q]), Kn)
-        cache[(e, f)] = data
-        return data
-
     def _rot_pv_blocks(self, m: 'int', m_max: 'int', src_wpt=None, src_welem=None):
         """Galerkin contraction of the rotated-PV brackets
         B_uv = p(R) W_u . [Rvec x (n_hat_q x f_v)] with an optional source
@@ -2286,32 +2147,17 @@ class BorPecSolver:
                                  source_weight=src_wpt)
 
         prepared = self._prepared_near("ibc", m_max)
-        if prepared is not None:
-            midx = abs(m)
-            rc = (prepared["rows"], prepared["cols"])
-            source_weight = (
-                1.0 if src_welem is None
-                else np.asarray(src_welem)[prepared["source_elems"]]
+        midx = abs(m)
+        rc = (prepared["rows"], prepared["cols"])
+        source_weight = (
+            1.0 if src_welem is None
+            else np.asarray(src_welem)[prepared["source_elems"]]
+        )
+        for uv, tgt in enumerate(targets):
+            np.add.at(
+                tgt, rc,
+                prepared["values"][uv, midx] * source_weight * (mode_sign(uv, m) * scale),
             )
-            for uv, tgt in enumerate(targets):
-                np.add.at(
-                    tgt, rc,
-                    prepared["values"][uv, midx] * source_weight * (mode_sign(uv, m) * scale),
-                )
-        else:
-            ne = self.gen.n_elems
-            for e in range(ne):
-                for f in self._near_sources_by_element[e]:
-                    welem = 1.0 if src_welem is None else src_welem[f]
-                    if abs(welem) == 0.0:
-                        continue
-                    w, rho_p, Tp, rho_q, Tq, Kn = self._near_ibc_data(e, f, m_max)
-                    rr = rho_p * rho_q * w * welem
-                    rows = np.array([e, e + 1]); cols = np.array([f, f + 1])
-                    for uv, tgt in enumerate(targets):
-                        Km = mfie_for_mode(Kn[uv], m, m_max, odd=uv in (1, 2))
-                        blk = 2.0 * np.pi * np.einsum("ip,p,jp->ij", Tp, rr * Km, Tq)
-                        tgt[np.ix_(rows, cols)] += scale * blk
 
     def assemble_ibc_extra(self, m: 'int', m_max: 'int', zs_pt: 'np.ndarray',
                            zs_elem: 'np.ndarray', out=None,
@@ -2375,7 +2221,11 @@ class BorPecSolver:
         return P
 
     def _prepared_near(self, kind, m_max):
-        """Direct operator callers get the same bounded, checked integration."""
+        """The prepared near contractions of ``kind`` serving ``m_max``.
+
+        Direct operator callers get the same bounded, checked integration:
+        a missing family is prepared here, so assembly has one near path
+        (the former per-pair fallbacks were unreachable)."""
         available = [(cap, data) for (family, cap), data in self._near_contractions.items()
                      if family == kind and cap >= int(m_max)]
         if available:
@@ -2418,38 +2268,38 @@ class BorPecSolver:
         values = {kind: np.zeros((4, width, len(layouts[kind][0]['rows'])), complex) for kind in kinds}
         reciprocity = EfieReciprocity(width) if 'efie' in kinds else None
 
+        from ghost_backend.bor.sharp_pairs import same_surface_pair, pair_points
+        touching = [pair for pair in pairs if abs(pair[0] - pair[1]) <= 1]
+        probes = _touching_probes(self, [(pair, same_surface_pair(self.gen, *pair)) for pair in touching])
+        checked = frozenset(touching[i] for i in probes)
+
         def integrate(pair):
             if self._checkpoint is not None:
                 self._checkpoint()
             e, f = pair
             if abs(e - f) <= 1:
                 points = _same_surface_points(self.gen, e, f, kinds, self.near_depth, m_max)
-                blocks = _contract_near_points(self.gen, e, self.gen, f,
-                    self.k, m_max, kinds, points, signed=False, mode_start=mode_start)
-                return blocks, None
+                check = pair_points(self.gen, e, f, self.near_depth, m_max, check=True) if pair in checked else None
+                return _touching_blocks(self.gen, e, self.gen, f, points, check,
+                                        self.k, m_max, kinds, mode_start)
             blocks, order, error = _converged_disjoint_blocks(
                 self.gen, e, self.gen, f, self.k, m_max, kinds, signed=False, mode_start=mode_start)
             return blocks, (order, error)
 
         from ghost_backend.bor.near_parallel import NearTask
         task = NearTask(self.gen, self.gen, self.k, m_max, kinds, depth=self.near_depth,
-                        mode_start=mode_start, return_families=True)
-        from ghost_backend.bor.sharp_pairs import same_surface_pair, sharp_points
-        sharp = []
+                        mode_start=mode_start, return_families=True, check_pairs=checked)
+        check_worst, check_count = getattr(self, 'touching_pair_self_check', 0.0), 0
         with contextlib.closing(_iter_near_pairs(integrate, pairs, workers, task, self._checkpoint)) as results:
             for pi, ((e, f), (blocks, refinement)) in enumerate(zip(pairs, results)):
-                if refinement is not None:
+                if isinstance(refinement, tuple):
                     order, error = refinement
                     self.near_quadrature_order_max = max(
                         getattr(self, 'near_quadrature_order_max', 0), order)
                     self.near_quadrature_error_max = max(
                         getattr(self, 'near_quadrature_error_max', 0.), error)
-                elif abs(e - f) <= 1:
-                    record = same_surface_pair(self.gen, e, f)
-                    if record is not None:
-                        sharp.append((self.gen, e, self.gen, f,
-                                      sharp_points(self.gen, e, f, self.near_depth, m_max, check=True),
-                                      blocks, record))
+                elif refinement is not None:
+                    check_worst, check_count = max(check_worst, refinement), check_count + 1
                 if reciprocity is not None:
                     reciprocity.add((e, f), blocks['efie'])
                 # The four corners within one element pair are distinct;
@@ -2459,7 +2309,8 @@ class BorPecSolver:
         if reciprocity is not None:
             self.near_efie_asymmetry = max(getattr(self, 'near_efie_asymmetry', 0.0),
                                            reciprocity.value())
-        _check_sharp_pairs(self, sharp, self.k, m_max, kinds, mode_start, workers)
+        self.touching_pair_self_check = check_worst
+        self.touching_pairs_checked = getattr(self, 'touching_pairs_checked', 0) + check_count
         for kind in kinds:
             retained = values[kind]
             if previous[kind] is not None:
@@ -2467,7 +2318,6 @@ class BorPecSolver:
             for key in [key for key in self._near_contractions if key[0] == kind]:
                 del self._near_contractions[key]
             self._near_contractions[(kind, int(m_max))] = dict(layouts[kind][0], values=retained)
-            self._near_cache.pop(m_max if kind == 'efie' else (kind, m_max), None)
 
 
     def prepare_operators(self, m_max: 'int', efie: 'bool' = True,
@@ -3602,6 +3452,18 @@ def _validate_solve_bor_generatrix(points, formulation: 'str') -> 'np.ndarray':
             "BoR generatrix lies entirely on the rotation axis and sweeps "
             "zero surface area."
         )
+    # Only the two end points may lie on the axis. An interior axis node is a
+    # pinched (non-manifold) surface, and an element on the axis sweeps no
+    # area: its rows vanish and the system loses rank (LAPACK info = 1,
+    # condition 1e37 on a graded needle tip whose inner nodes a mesher had
+    # snapped onto the axis).
+    interior = np.flatnonzero(pts[1:-1, 0] == 0.0) + 1
+    if interior.size:
+        index = int(interior[0])
+        raise ValueError(
+            f"BoR generatrix node {index} of {len(pts)} (rho = {float(raw[index, 0].real):.3g}) "
+            "lies on the rotation axis; only the end points may. A mesher "
+            "that snaps small radii onto the axis must spare interior nodes.")
 
 
     n_elem = len(pts) - 1
@@ -4673,7 +4535,7 @@ def solve_bor(points, freq_hz: 'float', thetas_deg, formulation: 'str' = "auto",
     _require_mode_convergence(stats, mode_tol)
     near_summary = _near_quadrature_summary(solver)
     _warn_near_asymmetry(near_summary, solve_warnings)
-    _warn_sharp_pairs((solver,), solve_warnings)
+    _warn_touching_pairs((solver,), solve_warnings)
     return {
         "theta_deg": thetas.tolist(),
         "sigma_vv": (4.0 * math.pi * np.abs(F[0]) ** 2).tolist(),
@@ -4932,7 +4794,7 @@ def solve_bor_dielectric(points, freq_hz: 'float', thetas_deg, eps_r: 'complex',
         for owner in (se, si):
             owner.close_streaming()
     _require_mode_convergence(stats, mode_tol)
-    sharp_pairs = _warn_sharp_pairs((se, si), solve_warnings)
+    pair_fields = _warn_touching_pairs((se, si), solve_warnings)
     return {
         "theta_deg": thetas.tolist(),
         "sigma_vv": (4.0 * math.pi * np.abs(F[0]) ** 2).tolist(),
@@ -4953,7 +4815,7 @@ def solve_bor_dielectric(points, freq_hz: 'float', thetas_deg, eps_r: 'complex',
         "stream_sampling_backend": stream_backend,
         "stream_sampling_backends": stream_backends,
         "warnings": solve_warnings,
-        **({"sharp_pair_quadrature": sharp_pairs} if sharp_pairs else {}),
+        **pair_fields,
         **stats,
     }
 
@@ -4984,6 +4846,21 @@ def _contract_near_points(gp, e, gq, f, k, m_max, kinds, points, signed=True, mo
     EFIE omits j*k*eta*2pi; bracket blocks include 2pi.
     """
     return _contract_near_batch([(gp, e, gq, f, points)], k, m_max, kinds, signed, mode_start)[0]
+
+
+def _touching_blocks(gp, e, gq, f, points, check, k, m_max, kinds, mode_start=0):
+    """(blocks, self-check change or None) of a touching pair (nonnegative modes).
+
+    With ``check`` points the pair is integrated again by that refined rule
+    in the same batch and the relative block change (sharp_pairs
+    ``relative_change``) is returned; the production blocks are those of
+    the pair's own call, bitwise (``_contract_near_batch``)."""
+    jobs = [(gp, e, gq, f, points)] + ([(gp, e, gq, f, check)] if check is not None else [])
+    outs = _contract_near_batch(jobs, k, m_max, kinds, signed=False, mode_start=mode_start)
+    if check is None:
+        return outs[0], None
+    from ghost_backend.bor.sharp_pairs import relative_change
+    return outs[0], relative_change(outs[0], outs[1])
 
 
 def _near_point_chunks(gp, e, gq, f, points, nm):
@@ -5282,10 +5159,12 @@ def _converged_disjoint_batch(gp, gq, pairs, k, m_max, kinds,
 
 # The exact Galerkin EFIE blocks of one medium are reciprocal: for every near
 # element pair tt(e,f) = tt(f,e)^T, ff(e,f) = ff(f,e)^T, tf(e,f) = -ft(f,e)^T.
-# Integrated with the fixed graded self/adjacent rule they are not exactly so,
-# and the violation bounds that rule's error from below at no cost (measured
-# 1e-7..2e-5 of the largest block, concentrated at axis poles and corners).
-# A violation above this fraction is reported as a warning.
+# The former fixed graded self/adjacent cells were not exactly so (1e-7..2e-5
+# of the largest block, concentrated at axis poles and corners). The polar
+# rule of every touching pair is symmetric (self) and mirrored (adjacent) by
+# construction, so the violation is now rounding (1e-15) and the touching-
+# pair self-check measures the quadrature error instead; a violation above
+# this fraction still warns (an inconsistent or corrupted near block).
 EFIE_NEAR_ASYMMETRY_WARNING = 1.0e-3
 
 
@@ -5299,33 +5178,57 @@ def _warn_near_asymmetry(summary, warnings) -> 'None':
             "poles and sharp corners or check for extremely small elements.")
 
 
-def _sharp_pair_summary(operators) -> 'Optional[Dict]':
-    """Sharp touching pairs of the operators and their self-check, or None."""
+def _touching_pair_summary(operators) -> 'Optional[Dict]':
+    """Touching (self, adjacent, junction) pairs of the operators and their
+    self-check, or None.  ``sharp`` is the report of the acute and thin ones
+    (None without any)."""
     from ghost_backend.bor.sharp_pairs import sharp_report, SELF_CHECK_LIMIT
-    records = [record for op in operators for record in getattr(op, 'sharp_pair_records', {}).values()]
-    report = sharp_report(records)
-    if report is None:
+    records = [record for op in operators for record in getattr(op, 'touching_pair_records', {}).values()]
+    if not records:
         return None
-    return dict(report, rule='graded_polar_singular_point', self_check_max=float(max(
-        getattr(op, 'sharp_pair_self_check', 0.0) for op in operators)),
-        self_check_limit=SELF_CHECK_LIMIT,
-        self_checked_pairs=int(sum(getattr(op, 'sharp_pairs_checked', 0) for op in operators)))
+    return dict(pairs=len(records), rule='graded_polar_singular_point',
+                self_check_max=float(max(getattr(op, 'touching_pair_self_check', 0.0) for op in operators)),
+                self_check_limit=SELF_CHECK_LIMIT,
+                self_checked_pairs=int(sum(getattr(op, 'touching_pairs_checked', 0) for op in operators)),
+                sharp=sharp_report(records))
 
 
-def _warn_sharp_pairs(operators, warnings) -> 'Optional[Dict]':
-    """Warn when the sharp-pair self-check fails; returns the summary (or None)."""
-    summary = _sharp_pair_summary(operators)
+def _sharp_pair_summary(operators) -> 'Optional[Dict]':
+    """The acute and thin touching pairs and the self-check, or None without any."""
+    summary = _touching_pair_summary(operators)
+    if summary is None or summary['sharp'] is None:
+        return None
+    return dict(summary['sharp'], rule=summary['rule'], self_check_max=summary['self_check_max'],
+                self_check_limit=summary['self_check_limit'],
+                self_checked_pairs=summary['self_checked_pairs'])
+
+
+def _warn_touching_pairs(operators, warnings) -> 'Dict':
+    """Warn when the touching-pair self-check fails.
+
+    Returns the result fields of material layouts: ``touching_pair_quadrature``
+    (every self, adjacent and junction pair) and ``sharp_pair_quadrature``
+    (the acute and thin ones), each only when present."""
+    summary = _touching_pair_summary(operators)
     if summary is not None and not summary['self_check_max'] <= summary['self_check_limit']:
-        angle, ring = summary['min_angle_deg'], summary['min_ring_ratio']
+        sharp = summary['sharp'] or {}
+        angle, ring = sharp.get('min_angle_deg'), sharp.get('min_ring_ratio')
         where = ' and '.join(([f"corners down to {angle:.3g} degrees"] if angle is not None else [])
                              + ([f"rings down to {ring:.3g} element lengths"] if ring is not None else []))
         warnings.append(
-            f"BoR sharp-corner quadrature self-check failed: a block of {summary['pairs']} "
-            f"sharp touching element pair(s) changed by {summary['self_check_max']:.2e} "
-            f"(limit {summary['self_check_limit']:.0e}) under a refined rule at {where}. "
+            f"BoR self/adjacent/junction quadrature self-check failed: a block of the "
+            f"{summary['pairs']} touching element pair(s) changed by {summary['self_check_max']:.2e} "
+            f"(limit {summary['self_check_limit']:.0e}) under a refined rule"
+            + (f" (sharp pairs at {where})" if where else "") + ". "
             "This error does not change with mesh refinement, so mesh convergence does not "
             "certify those results.")
-    return summary
+    fields = {}
+    if summary is not None:
+        fields['touching_pair_quadrature'] = {key: value for key, value in summary.items() if key != 'sharp'}
+    sharp = _sharp_pair_summary(operators)
+    if sharp is not None:
+        fields['sharp_pair_quadrature'] = sharp
+    return fields
 
 
 def _stream_compression_evidence(streams):
@@ -5341,7 +5244,7 @@ def _near_quadrature_summary(*operators):
             (getattr(op, 'near_quadrature_order_max', 0) for op in operators), default=0),
         'disjoint_meridian_relative_change_max': max(
             (getattr(op, 'near_quadrature_error_max', 0.) for op in operators), default=0.),
-        'self_and_junction_rule': 'graded_singular_cells',
+        'self_and_junction_rule': 'graded_polar_singular_point',
         'self_and_junction_convergence_checked': False,
         # Reciprocity of the retained EFIE near blocks: a free a-posteriori
         # lower bound on the self/adjacent quadrature error (not a certificate).
@@ -5350,6 +5253,9 @@ def _near_quadrature_summary(*operators):
         'prepared_modal_bands': [band for operator in operators
                                  for band in getattr(operator, 'near_preparation_bands', ())],
     }
+    touching = _touching_pair_summary(operators)
+    if touching is not None:
+        summary['touching_pairs'] = {key: value for key, value in touching.items() if key != 'sharp'}
     sharp = _sharp_pair_summary(operators)
     if sharp is not None:
         summary['sharp_pairs'] = sharp
@@ -5529,42 +5435,52 @@ class BorCrossOperators:
         self._B = None if B is None else tuple(value.astype(table_dtype, copy=False) for value in B)
         return self._G, self._B
 
-    def _integrate_near(self, e, f, m_max, signed=True, mode_start=0):
-        """Return (blocks, (order, error) or None) without touching state.
+    def _integrate_near(self, e, f, m_max, signed=True, mode_start=0, check=False):
+        """Return (blocks, refinement) without touching state: refinement is
+        (order, error) of a disjoint pair, or a junction pair's self-check
+        change (``check``; else None).
 
         Production callers pass ``signed=False`` (modes 0..m_max only)."""
         kind = self.pair_kind.get((e, f))
         if kind is not None:
-            return _contract_near_points(self.sp.gen, e, self.sq.gen, f,
-                self.k, m_max, self._near_kinds, _junction_points(self.sp.gen, e, self.sq.gen, f, kind, m_max=m_max),
-                signed=signed, mode_start=mode_start), None
+            points = _junction_points(self.sp.gen, e, self.sq.gen, f, kind, m_max=m_max)
+            if signed:
+                return _contract_near_points(self.sp.gen, e, self.sq.gen, f, self.k, m_max,
+                                             self._near_kinds, points, signed=True), None
+            from ghost_backend.bor.options import current_options
+            from ghost_backend.bor.sharp_pairs import junction_points
+            refined = (junction_points(self.sp.gen, e, self.sq.gen, f, kind,
+                                       current_options()['near_refinement'], m_max, check=True)
+                       if check else None)
+            return _touching_blocks(self.sp.gen, e, self.sq.gen, f, points, refined,
+                                    self.k, m_max, self._near_kinds, mode_start)
         blocks, order, error = _converged_disjoint_blocks(
             self.sp.gen, e, self.sq.gen, f, self.k, m_max,
             self._near_kinds, self.near_order, self.near_rtol, self.near_max_order,
             signed=signed, mode_start=mode_start)
         return blocks, (order, error)
 
+    def _junction_probes(self, pairs):
+        """Register the junction pairs among ``pairs``; the set to self-check."""
+        from ghost_backend.bor.sharp_pairs import junction_pair
+        touching = [pair for pair in pairs if self.pair_kind.get(pair) is not None]
+        probes = _touching_probes(self, [(pair, junction_pair(self.sp.gen, pair[0], self.sq.gen, pair[1],
+                                                              self.pair_kind[pair])) for pair in touching])
+        return frozenset(touching[i] for i in probes)
+
     def _store_near(self, e, f, m_max, blocks, refinement, mode_start=0):
-        if refinement is not None:
+        if isinstance(refinement, tuple):
             order, error = refinement
             self.near_quadrature_order_max = max(self.near_quadrature_order_max, order)
             self.near_quadrature_error_max = max(self.near_quadrature_error_max, error)
+        elif refinement is not None:
+            self.touching_pair_self_check = max(getattr(self, 'touching_pair_self_check', 0.0), refinement)
+            self.touching_pairs_checked = getattr(self, 'touching_pairs_checked', 0) + 1
         # Keep an owned copy of the nonnegative half; a slice alone would keep
         # both signs alive when the caller integrated the signed modes.
         from ghost_backend.bor.near_storage import ModalBands
         retained = {kind: (value if value.shape[1] == m_max + 1 - mode_start
                            else value[:, m_max:]).copy() for kind, value in blocks.items()}
-        cell = self.pair_kind.get((e, f))
-        if cell is not None:
-            from ghost_backend.bor.sharp_pairs import junction_pair, junction_points
-            from ghost_backend.bor.options import current_options
-            gp, gq = self.sp.gen, self.sq.gen
-            record = junction_pair(gp, e, gq, f, cell)
-            if record is not None:
-                check = junction_points(gp, e, gq, f, cell, current_options()['near_refinement'],
-                                        m_max, check=True)
-                _check_sharp_pairs(self, [(gp, e, gq, f, check, retained, record)], self.k, m_max,
-                                   tuple(retained), mode_start)
         if mode_start:
             previous = self._cache[mode_start - 1][(e, f)]
             retained = {kind: ModalBands(previous[kind], value) for kind, value in retained.items()}
@@ -5577,7 +5493,9 @@ class BorCrossOperators:
                 return data[(e, f)]
         cache = self._cache.setdefault(m_max, {})
         if (e, f) not in cache:
-            self._store_near(e, f, m_max, *self._integrate_near(e, f, m_max, signed=False))
+            # A pair integrated on demand is a probe of its own.
+            check = bool(self._junction_probes([(e, f)]))
+            self._store_near(e, f, m_max, *self._integrate_near(e, f, m_max, signed=False, check=check))
         return cache[(e, f)]
 
     def assemble_T(self, m: 'int', m_max: 'int', out=None) -> 'np.ndarray':
@@ -5657,16 +5575,19 @@ class BorCrossOperators:
             return
         mode_start = previous + 1
         pending = [pair for pair in self.near_pairs if pair not in cached]
+        checked = self._junction_probes(pending)
 
         def integrate(pair):
             if self.sp._checkpoint is not None:
                 self.sp._checkpoint()
-            return self._integrate_near(pair[0], pair[1], m_max, signed=False, mode_start=mode_start)
+            return self._integrate_near(pair[0], pair[1], m_max, signed=False, mode_start=mode_start,
+                                        check=pair in checked)
 
         from ghost_backend.bor.near_parallel import NearTask
         task = NearTask(self.sp.gen, self.sq.gen, self.k, m_max, self._near_kinds,
             pair_kind=self.pair_kind, near_order=self.near_order,
-            near_rtol=self.near_rtol, near_max_order=self.near_max_order, mode_start=mode_start)
+            near_rtol=self.near_rtol, near_max_order=self.near_max_order, mode_start=mode_start,
+            check_pairs=checked)
         with contextlib.closing(_iter_near_pairs(integrate, pending, workers, task, self.sp._checkpoint)) as results:
             for (e, f), result in zip(pending, results):
                 self._store_near(e, f, m_max, *result, mode_start=mode_start)
@@ -6136,7 +6057,7 @@ def solve_bor_coated_pec(points_outer, points_core, freq_hz: 'float', thetas_deg
         for owner in (se, sLo, sLc, Xoc, Xco):
             owner.close_streaming()
     _require_mode_convergence(stats, mode_tol)
-    _warn_sharp_pairs((se, sLo, sLc, Xoc, Xco), solve_warnings)
+    _warn_touching_pairs((se, sLo, sLc, Xoc, Xco), solve_warnings)
     return {
         "theta_deg": thetas.tolist(),
         "sigma_vv": (4.0 * math.pi * np.abs(F[0]) ** 2).tolist(),
@@ -6704,7 +6625,7 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
         for owner in stream_owners:
             owner.close_streaming()
     _require_mode_convergence(stats, mode_tol)
-    sharp_pairs = _warn_sharp_pairs(stream_owners, solve_warnings)
+    pair_fields = _warn_touching_pairs(stream_owners, solve_warnings)
     return {
         "theta_deg": thetas.tolist(),
         "sigma_vv": (4.0 * math.pi * np.abs(F[0]) ** 2).tolist(),
@@ -6733,7 +6654,7 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
         "stream_auxiliary_peak_gb": plan["auxiliary_peak_gb"],
         "stream_far_compression": stream_compression,
         "warnings": solve_warnings,
-        **({"sharp_pair_quadrature": sharp_pairs} if sharp_pairs else {}),
+        **pair_fields,
         **stats,
     }
 
@@ -7187,7 +7108,7 @@ def _solve_multiregion(sys_: '_MultiRegionBor', freq_hz, thetas_deg, n_modes,
     extra = {**extra, **stats}
     warnings = list(extra.get("warnings", []) or [])
     extra["warnings"] = warnings
-    sharp_pairs = _warn_sharp_pairs((*sys_.solv.values(), *sys_.X.values()), warnings)
+    pair_fields = _warn_touching_pairs((*sys_.solv.values(), *sys_.X.values()), warnings)
     unique_backends = set(stream_backends.values())
     out = {
         "theta_deg": thetas.tolist(),
@@ -7214,8 +7135,7 @@ def _solve_multiregion(sys_: '_MultiRegionBor', freq_hz, thetas_deg, n_modes,
         "stream_auxiliary_peak_gb": plan["auxiliary_peak_gb"],
         "stream_far_compression": stream_compression,
     }
-    if sharp_pairs:
-        out["sharp_pair_quadrature"] = sharp_pairs
+    out.update(pair_fields)
     out.update(extra)
     return out
 

@@ -42,6 +42,19 @@ def storage_budget():
     return value*1024**2
 
 
+def hmatrix_storage_budget():
+    """Retained-storage cap of hierarchical operators and their inverse.
+
+    The 2048-MiB default was sized for one spooled tile operator; at that
+    default (and at 0) hierarchical storage is sized automatically from the
+    solve RAM limit, where admission prices both polarizations' operators.
+    Any other configured value caps it.
+    """
+    text=environment_value('GHOST_COMPRESSED_STORAGE_MIB','2048').strip()
+    if text in ('0','2048'):return max(storage_budget(),automatic_storage_bytes())
+    return storage_budget()
+
+
 def checkpoint():
     from ghost_backend.execution.cpu import current_state
     from ghost_backend.twod.assembly.session import current_session
@@ -55,11 +68,49 @@ def coordinates(mesh,n):
     return np.tile(xy,(n//len(mesh.nodes),1))
 
 
+def hierarchical(oracle,xy):
+    """(operator, None) above the hierarchical threshold, else (None, fallback reason or None).
+
+    The tile operator of the original path remains for smaller systems, for
+    oracles the hierarchical operator cannot sample safely, and whenever its
+    assembly is rejected (measured error, rank or storage).
+    """
+    from ghost_backend.compressed import hmatrix
+    if not hmatrix.selected(oracle.n):return None,None
+    reason=hmatrix.unsupported(oracle)
+    if reason is not None:return None,reason
+    sources=getattr(oracle,'oracles',None)
+    mesh=sources[0].mesh if sources else oracle.mesh
+    try:
+        if sources:
+            # Both polarizations from one kernel traversal; (TE, TM) operators.
+            return hmatrix.build_pair(oracle,xy,hmatrix.support_radius(mesh,xy),
+                budget=hmatrix_storage_budget(),checkpoint=checkpoint),None
+        return hmatrix.HMatrixOperator(oracle,xy,hmatrix.support_radius(mesh,xy),
+            budget=hmatrix_storage_budget(),checkpoint=checkpoint),None
+    except (hmatrix.HMatrixRejected,MemoryError) as exc:
+        reason='{}: {}'.format(type(exc).__name__,exc)
+        # A pair over its storage cap is retried one polarization at a time;
+        # otherwise the tile operator assembles this system (and its partner).
+        if not (sources and isinstance(exc,MemoryError)):
+            for source in sources or [oracle]:source.hmatrix_rejected=reason
+        return None,reason
+
+
+def pairable(oracle):
+    """Shared TE/TM tile traversal only where the tile operator will be built."""
+    from ghost_backend.compressed import hmatrix
+    return not hmatrix.selected(oracle.n) or hmatrix.unsupported(oracle) is not None
+
+
 @timed_stage('compressed_assembly')
 def build(oracle,xy):
     from ghost_backend.compressed.operator import StreamedOperator
+    operator,reason=hierarchical(oracle,xy)
+    if operator is not None:return operator
     operator=StreamedOperator(oracle,xy,tile=min(512,getattr(oracle,'maximum_tile',512)),
         budget=storage_budget(),checkpoint=checkpoint)
+    if reason is not None:operator.evidence['hmatrix_fallback']=reason
     if hasattr(oracle,'cached'):oracle.cached=oracle.cached_columns=None
     return operator
 
@@ -78,7 +129,16 @@ def native(mesh,infos,pol,k0,kind,obs_order=8,src_order=8,layer=None):
         previous.load()
         return previous,oracle
     partner=getattr(session,'compressed_partner',None)
-    if pol=='TE' and partner is not None and (partner[0] is mesh or kind=='thin'):
+    if pol=='TE' and partner is not None and (partner[0] is mesh or kind=='thin') and not pairable(oracle):
+        other=NativeOracle(mesh,None if kind=='thin' else partner[1],'TM',k0,kind,obs_order,src_order,layer)
+        if other.n==oracle.n:
+            pair,reason=hierarchical(PairedNativeOracle(oracle,other),coordinates(mesh,oracle.n))
+            if pair is not None:
+                pair[0].reserved_partner_bytes=pair[1].bytes
+                key=(system_key(mesh,partner[1] if kind!='thin' else [],'compressed_'+kind,obs_order,src_order),layer)
+                session.save(key,'TE',pair[1]);session.compressed_partner=None
+                return pair[0],oracle
+    if pol=='TE' and partner is not None and (partner[0] is mesh or kind=='thin') and pairable(oracle):
         other=NativeOracle(mesh,None if kind=='thin' else partner[1],'TM',k0,kind,obs_order,src_order,layer)
         attach(other,mesh,None if kind=='thin' else partner[1],'TM',kind,k0,layer,obs_order,src_order)
         if other.n==oracle.n:
@@ -129,6 +189,12 @@ def _projected_regional(mesh,infos,pol,obs_order,src_order):
     plans=[pair.prepare(mesh,values,label,obs_order,src_order)
            for values,label in ((infos,'TE'),(partner[1],'TM'))]
     if any(plan is None for plan in plans):return None
+    from ghost_backend.compressed import hmatrix
+    if hmatrix.selected(len(plans[0]['fine_mesh'].nodes)):
+        # Projection consumes tile operators; assemble the coarse system directly.
+        owner.evidence.append(dict(backend='compressed',action='independent_assembly',
+            reason='hierarchical operator selected for the fine polynomial system'))
+        return None
     import ghost_backend.twod.solver as solver
     from ghost_backend.compressed.memory import inverse_storage
     from ghost_backend.twod.formulations.regions import dof_coordinates
@@ -236,8 +302,20 @@ def _regional(mesh,infos,pol,obs_order=8,src_order=8):
         operator.load()
         return operator,layout
     partner=getattr(session,'compressed_partner',None)
+    oracle=None
     if pol=='TE' and partner is not None and partner[0] is mesh:
         oracle=PairedOracle(mesh,infos,partner[1],cut=32,obs_order=obs_order,src_order=src_order)
+        if not pairable(oracle.oracles[0]):
+            xy=mr.dof_coordinates(mesh,oracle.oracles[0].layout)
+            pair,reason=hierarchical(oracle,xy)
+            if pair is not None:
+                pair[0].reserved_partner_bytes=pair[1].bytes
+                key=system_key(mesh,partner[1],'compressed_region',obs_order,src_order)
+                session.save(key,'TE',(pair[1],oracle.oracles[1].layout))
+                session.compressed_partner=None
+                return pair[0],oracle.oracles[0].layout
+            oracle=oracle.oracles[0]
+    if isinstance(oracle,PairedOracle):
         for source,values,label in zip(oracle.oracles,(infos,partner[1]),('TE','TM')):
             attach(source,mesh,values,label,'multi_region',obs_order=obs_order,src_order=src_order)
         xy=mr.dof_coordinates(mesh,oracle.oracles[0].layout)
@@ -247,10 +325,14 @@ def _regional(mesh,infos,pol,obs_order=8,src_order=8):
         session.save(key,'TE',(pair[1],oracle.oracles[1].layout))
         session.compressed_partner=None
         return pair[0],oracle.oracles[0].layout
-    oracle=PreparedOracle(mesh,infos,pol,cut=32,obs_order=obs_order,src_order=src_order)
-    attach(oracle,mesh,infos,pol,'multi_region',obs_order=obs_order,src_order=src_order)
+    if oracle is None:
+        oracle=PreparedOracle(mesh,infos,pol,cut=32,obs_order=obs_order,src_order=src_order)
     xy=mr.dof_coordinates(mesh,oracle.layout)
+    operator,reason=hierarchical(oracle,xy)
+    if operator is not None:return operator,oracle.layout
+    attach(oracle,mesh,infos,pol,'multi_region',obs_order=obs_order,src_order=src_order)
     operator=StreamedOperator(oracle,xy,tile=512,budget=storage_budget(),checkpoint=checkpoint)
+    if reason is not None:operator.evidence['hmatrix_fallback']=reason
     return operator,oracle.layout
 
 

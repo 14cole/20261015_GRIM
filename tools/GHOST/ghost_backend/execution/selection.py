@@ -87,7 +87,8 @@ def _select_backend(arguments, options, certified=False, checkpoint=None):
         result['meshes'] = [row for part in parts for row in part['meshes']]
         result['candidates'] = {
             mode: dict(cost=sum(part['candidates'][mode]['cost'] for part in parts),
-                       peak_gb=max(part['candidates'][mode]['peak_gb'] for part in parts))
+                       peak_gb=max(part['candidates'][mode]['peak_gb'] for part in parts),
+                       **({'hmatrix': True} if any(part['candidates'][mode].get('hmatrix') for part in parts) else {}))
             for mode in result['candidates']}
         with execution_scope(dict(normalized, factorization='dense')):
             budget = s._solve_memory_limit_gb()
@@ -218,6 +219,8 @@ def _forecast_backend(arguments, options, certified=False, checkpoint=None, reso
                             threads=work_threads(resources['system_dofs'],mesh_options)
                             candidates[mode]['cost']+=relative_cost(resources,len(arguments['elevations_deg']),mode,*threads)
                             candidates[mode]['peak_gb']=max(candidates[mode]['peak_gb'],peaks[mode])
+                            if mode=='compressed' and 'hmatrix_storage' in resources:
+                                candidates[mode]['hmatrix']=True
                         records.append(dict(frequency_ghz=float(freq), phase=phase, polarization=pol,
                             polynomial_degree=degree, panels=len(panels), unknowns=resources['system_dofs'], dense_peak_gib=peaks['dense'],
                             formulation=resources['formulation'],backend_peak_gib=peaks, resources=dict(resources)))

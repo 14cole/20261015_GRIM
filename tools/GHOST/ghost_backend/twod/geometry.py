@@ -891,6 +891,303 @@ def _grade_toward_junctions(pts, junctions, wavelength=None):
         pts = pts[:-1] + [pts[-1] + (pts[-2] - pts[-1]) * f for f in reversed(fractions(pts[-1], pts[-2]))] + [pts[-1]]
     return pts
 
+
+# Sharp-feature grading. At a vertex where the field fills a sector wider than
+# a half plane (a convex conductor corner, a wedge, the open end of a sheet or
+# strip, an acute dielectric corner) the boundary densities behave like
+# r**(nu - 1), nu < 1, and a uniform P1 mesh converges like h**(2*nu): first
+# order at a knife edge (nu = 1/2), h**(4/3) at a right-angled PEC corner. The
+# exponent nu is the smallest positive eigenvalue of the static angular problem
+# around the vertex (TM: Dirichlet on conductors, u and u'/mu continuous across
+# interfaces; TE: Neumann on conductors, u and u'/eps continuous), taken over
+# both polarizations and every mesh frequency so both share one mesh; a lone
+# conductor sector of angle alpha gives nu = pi / alpha. The panels next to the
+# vertex are split geometrically (ratio 1/2, as at impedance junctions) down to
+#     t = s * 2**(-(1/nu - 1) * D),   D = max(JUNCTION_GRADING_LEVELS, log2(lambda / (2 s))),
+# where s is the longest end panel at the vertex: the singular term t**(2 nu)
+# then stays below the smooth error (s/lambda)**2, and nu = 1/2 reproduces the
+# impedance-junction levels exactly. Short primitives at the vertex (the
+# 0.001-inch end of a thin plate) already lie below t and receive no levels.
+# The angles are measured on the boundary as the coarsest end panel s sees it
+# (directions to the points one arc length s away along each boundary), so
+# the two right-angled corners of a plate thinner than its panels grade like
+# the knife edge they resolve to, and a densely drawn smooth curve stays
+# smooth. A vertex turning by at most FACET_ADVISORY_MAX_TURN_DEG between two
+# primitives is a drawn curve and is never graded.
+# Measured (1 GHz, chord 0.3 m, panels for 0.01 dB uniform -> graded): strip
+# TM 82 -> 13, 0.03-1 degree rhombus 250 -> 43, square 298 -> 100, feathered
+# coating 450 -> 140. On regular polygons grading pays from turns of about
+# 30 degrees (12-gon: half the error at equal panels); at 20 degrees (nu =
+# 0.9, the threshold, not graded) it gained under 1.5x and only below 0.001 dB.
+SHARP_GRADING_MAX_EXPONENT = 0.90
+SHARP_GRADING_MIN_PANEL_M = 1.0e-7
+# Walk at most this many primitives to find the point one panel away.
+_SHARP_GRADING_MAX_WALK = 64
+_SHARP_EXPONENT_SAMPLES = 512
+
+
+class _SharpVertices(dict):
+    """Welded vertex key -> (exponent nu, coarsest end panel s), queried with ``at(point)``."""
+
+    def __init__(self, items=(), welder: 'Optional[_NodeWelder]' = None) -> 'None':
+        super().__init__(items)
+        self.welder = welder
+
+    def at(self, point):
+        if not self or self.welder is None:
+            return None
+        key = self.welder.lookup(point)
+        return None if key is None else self.get(key)
+
+
+def _sector_transfer(nu: 'np.ndarray', sectors) -> 'np.ndarray':
+    """Transfer matrices (u, k u' / nu) across consecutive sectors (angle, k), one per nu."""
+
+    m = np.broadcast_to(np.eye(2), (len(nu), 2, 2)).copy()
+    for angle, k in sectors:
+        c, s = np.cos(nu * angle), np.sin(nu * angle)
+        step = np.empty_like(m)
+        step[:, 0, 0], step[:, 0, 1] = c, s / k
+        step[:, 1, 0], step[:, 1, 1] = -k * s, c
+        m = step @ m
+    return m
+
+
+def _first_exponent(residual, nu: 'np.ndarray') -> 'float':
+    """Smallest sign change of ``residual`` on the grid ``nu``, refined by bisection; 1 without one."""
+
+    values = residual(nu)
+    change = np.nonzero((values[:-1] == 0.0) | (values[:-1] * values[1:] < 0.0))[0]
+    if not len(change):
+        return 1.0
+    lo, hi = float(nu[change[0]]), float(nu[change[0] + 1])
+    f_lo = float(residual(np.asarray([lo]))[0])
+    for _ in range(48):
+        mid = 0.5 * (lo + hi)
+        f_mid = float(residual(np.asarray([mid]))[0])
+        if f_lo * f_mid <= 0.0:
+            hi = mid
+        else:
+            lo, f_lo = mid, f_mid
+    return 0.5 * (lo + hi)
+
+
+def _wedge_exponent(sectors, walled: 'bool', polarization: 'str') -> 'float':
+    """Smallest singular exponent nu < 1 of one field arc around a vertex (1 when regular).
+
+    ``sectors`` are (angle, k) in angular order, k = 1/mu (TM) or 1/eps (TE)
+    of the sector's medium; ``walled`` arcs end on conductors at both sides
+    (Dirichlet in TM, Neumann in TE), otherwise the arc closes around the
+    vertex through interfaces only.
+    """
+
+    sectors = [(float(a), float(k)) for a, k in sectors if a > 0.0]
+    if not sectors:
+        return 1.0
+    total = sum(a for a, _ in sectors)
+    if walled and len({k for _, k in sectors}) == 1:
+        return min(1.0, math.pi / total)
+    nu = np.linspace(1.0e-3, 1.0 - 1.0e-9, _SHARP_EXPONENT_SAMPLES)
+    if not walled:
+        return _first_exponent(lambda x: np.trace(_sector_transfer(x, sectors), axis1=1, axis2=2) - 2.0, nu)
+    entry = (0, 1) if polarization == "TM" else (1, 0)
+    return _first_exponent(lambda x: _sector_transfer(x, sectors)[:, entry[0], entry[1]], nu)
+
+
+def _sharp_grading_levels(nu: 'float', end_panel: 'float', scale: 'float', wavelength) -> 'int':
+    """Levels for a primitive end at a vertex of exponent ``nu`` whose coarsest end panel is ``scale``."""
+
+    if not (end_panel > 0.0 and scale > 0.0 and 0.0 < nu < 1.0):
+        return 0
+    depth = float(JUNCTION_GRADING_LEVELS)
+    if wavelength is not None and math.isfinite(wavelength) and wavelength > 0.0:
+        depth = max(depth, math.log2(float(wavelength) / (2.0 * scale)))
+    levels = int(math.ceil(math.log2(end_panel / scale) + (1.0 / nu - 1.0) * depth - 1.0e-9))
+    floor = int(math.floor(math.log2(max(end_panel / SHARP_GRADING_MIN_PANEL_M, 1.0))))
+    return max(0, min(levels, floor))
+
+
+def _boundary_sides(seg_type: 'int', pos_mat: 'int', neg_mat: 'int'):
+    """(is a conductor wall, medium on the panel-normal side, medium on the other side).
+
+    Internal orientation (after ``_apply_user_convention_flip``); ``None`` is a
+    conductor interior. Sheets and opaque conductors are walls.
+    """
+
+    if seg_type == 1:
+        return True, 0, 0
+    if seg_type == 2:
+        return True, None, 0
+    if seg_type == 4:
+        return True, pos_mat, None
+    if seg_type == 3:
+        return False, pos_mat, 0
+    return False, pos_mat, neg_mat
+
+
+def _sharp_vertices(edges, materials, frequencies_ghz) -> '_SharpVertices':
+    """Vertices whose field singularity is graded, with their exponent and scale.
+
+    ``edges`` are (p0, p1, length, end panel length, TYPE, pos_mat, neg_mat) of
+    every primitive in internal orientation.
+    """
+
+    welder = _NodeWelder()
+    incident: 'Dict[Tuple[int, int], List[Tuple[int, bool]]]' = {}
+    coords: 'Dict[Tuple[int, int], np.ndarray]' = {}
+    for index, (p0, p1, length, _panel, _t, _p, _n) in enumerate(edges):
+        if length <= EPS:
+            continue
+        for point, at_start in ((p0, True), (p1, False)):
+            key = welder.key(point)
+            incident.setdefault(key, []).append((index, at_start))
+            coords.setdefault(key, np.asarray(point, dtype=float))
+    min_turn = math.radians(FACET_ADVISORY_MAX_TURN_DEG)
+    candidates = []
+    for key, ends in incident.items():
+        if len(ends) == 2:
+            u, v = (_outgoing(edges[i], start) for i, start in ends)
+            if math.pi - math.acos(float(np.clip(np.dot(u, v), -1.0, 1.0))) <= min_turn + 1.0e-12:
+                continue
+        candidates.append(key)
+    if not candidates:
+        return _SharpVertices(welder=welder)
+
+    def far_point(key, index, at_start, distance):
+        """The boundary point ``distance`` along the boundary from vertex ``key`` through this edge."""
+        travelled, current, edge, forward = 0.0, key, index, at_start
+        for _ in range(_SHARP_GRADING_MAX_WALK):
+            p0, p1, length = edges[edge][0], edges[edge][1], edges[edge][2]
+            start, stop = (p0, p1) if forward else (p1, p0)
+            if travelled + length >= distance:
+                return start + (stop - start) * ((distance - travelled) / length)
+            travelled += length
+            current = welder.lookup(stop)
+            onward = [end for end in incident.get(current, ()) if end[0] != edge]
+            if current == key or len(onward) != 1:
+                return stop
+            edge, forward = onward[0]
+        return stop
+
+    frequencies = list(frequencies_ghz or []) or [None]
+    media: 'Dict[Tuple[int, Optional[float]], Tuple[float, float]]' = {}
+
+    def k_values(flag, freq):
+        if (flag, freq) not in media:
+            values = (1.0, 1.0)
+            if flag and materials is not None and freq is not None:
+                try:
+                    eps, mu = materials.get_medium(int(flag), float(freq))
+                    values = (1.0 / max(abs(complex(mu)), EPS), 1.0 / max(abs(complex(eps)), EPS))
+                except (TypeError, ValueError):
+                    pass
+            media[(flag, freq)] = values
+        return media[(flag, freq)]
+
+    result = _SharpVertices(welder=welder)
+    for key in candidates:
+        ends = incident[key]
+        scale = max(edges[i][3] for i, _ in ends)
+        origin = coords[key]
+        rows = []
+        for index, at_start in ends:
+            direction = _outgoing(edges[index], at_start)
+            angle = math.atan2(direction[1], direction[0])
+            chord = far_point(key, index, at_start, scale) - origin
+            far = math.atan2(chord[1], chord[0]) if np.hypot(*chord) > NODE_WELD_TOLERANCE_M else angle
+            wall, plus, minus = _boundary_sides(*edges[index][4:7])
+            # Normal (plus) side is left of the internal direction p0 -> p1.
+            ccw, cw = (plus, minus) if at_start else (minus, plus)
+            rows.append((angle, far, wall, ccw, cw))
+        rows.sort(key=lambda row: row[0])
+        count = len(rows)
+
+        def widths(slot):
+            if count == 1:
+                return [2.0 * math.pi]
+            return [(rows[(i + 1) % count][slot] - rows[i][slot]) % (2.0 * math.pi) for i in range(count)]
+        drawn, seen = widths(0), widths(1)
+        # The far directions must keep the drawn sectors (no sector crossing over).
+        sector_widths = seen if all(abs(a - b) < 0.75 * math.pi for a, b in zip(drawn, seen)) else drawn
+        sectors = []
+        for i, row in enumerate(rows):
+            nxt = rows[(i + 1) % count]
+            width = sector_widths[i]
+            medium = row[3]
+            if medium is None or nxt[4] is None:
+                # A conductor interior only where both bounding walls say so;
+                # an open strip end has air on both sides.
+                medium = None if (medium is None and nxt[4] is None) else (medium if medium is not None else nxt[4])
+            sectors.append((width, medium, row[2]))
+        walls = [i for i, row in enumerate(rows) if row[2]]
+        arcs = []
+        if not walls:
+            arcs.append((False, [(w, m) for w, m, _ in sectors]))
+        else:
+            for j, first in enumerate(walls):
+                stop = walls[(j + 1) % len(walls)]
+                run, i = [], first
+                while True:
+                    run.append(sectors[i][:2])
+                    i = (i + 1) % len(rows)
+                    if i == stop:
+                        break
+                if all(m is not None for _, m in run):
+                    arcs.append((True, run))
+        nu = 1.0
+        for walled, run in arcs:
+            for freq in frequencies:
+                for pol, slot in (("TM", 0), ("TE", 1)):
+                    nu = min(nu, _wedge_exponent(
+                        [(w, k_values(m, freq)[slot]) for w, m in run], walled, pol))
+        if nu < SHARP_GRADING_MAX_EXPONENT - 1.0e-9:
+            result[key] = (nu, scale)
+    return result
+
+
+def _outgoing(edge, at_start: 'bool') -> 'np.ndarray':
+    p0, p1, length = edge[0], edge[1], edge[2]
+    return (p1 - p0) / length if at_start else (p0 - p1) / length
+
+
+def _grade_primitive_ends(pts, junctions, sharp, wavelength=None):
+    """Junction grading plus sharp-vertex grading of one primitive's end panels."""
+
+    pts = [np.asarray(point, dtype=float) for point in pts]
+    start_sharp = sharp.at(pts[0]) if sharp else None
+    end_sharp = sharp.at(pts[-1]) if sharp else None
+    if start_sharp is None and end_sharp is None:
+        return _grade_toward_junctions(pts, junctions, wavelength) if junctions else pts
+    if isinstance(junctions, _JunctionVertices):
+        start_j, end_j = junctions.at(pts[0]), junctions.at(pts[-1])
+    else:
+        start_j = bool(junctions) and _linear_node_snap_key(pts[0]) in junctions
+        end_j = bool(junctions) and _linear_node_snap_key(pts[-1]) in junctions
+
+    def levels(junction, vertex, end_panel):
+        count = _junction_grading_levels(end_panel, wavelength) if junction else 0
+        if vertex is not None:
+            count = max(count, _sharp_grading_levels(vertex[0], end_panel, vertex[1], wavelength))
+        return count
+    if len(pts) == 2 and (start_j or start_sharp is not None) and (end_j or end_sharp is not None):
+        # One panel graded at both ends is halved first, as at junctions; a
+        # primitive too short to need levels from either half stays whole.
+        half = 0.5 * float(np.linalg.norm(pts[1] - pts[0]))
+        first, last = levels(start_j, start_sharp, half), levels(end_j, end_sharp, half)
+        if not (start_j and end_j or first or last):
+            return pts
+        pts = [pts[0], 0.5 * (pts[0] + pts[1]), pts[1]]
+    else:
+        first = levels(start_j, start_sharp, float(np.linalg.norm(pts[1] - pts[0])))
+        last = levels(end_j, end_sharp, float(np.linalg.norm(pts[-1] - pts[-2])))
+    if first:
+        pts = [pts[0]] + [pts[0] + (pts[1] - pts[0]) * JUNCTION_GRADING_RATIO ** level
+                          for level in range(first, 0, -1)] + pts[1:]
+    if last:
+        pts = pts[:-1] + [pts[-1] + (pts[-2] - pts[-1]) * JUNCTION_GRADING_RATIO ** level
+                          for level in range(1, last + 1)] + [pts[-1]]
+    return pts
+
 # A wavelength-controlled primitive may exceed the target panel length by this
 # fraction of a panel before it receives another one. A plain ceil doubled a
 # regular 128-gon from 128 to 256 panels between 3.05 and 3.06 GHz (primitive
@@ -1933,6 +2230,7 @@ def _build_panels(
         segments, meters_scale, law_library, frequencies_ghz)
     mesh_frequencies = _positive_frequencies(frequencies_ghz)
     panel_limit = max(1, int(max_panels))
+    plans = []
     for seg_idx, seg in enumerate(segments):
         material_wavelength = min_wavelength if segment_wavelengths is None else segment_wavelengths[seg_idx]
         seg_type, n_prop, ibc_flag, pos_mat, neg_mat = _segment_mesh_flags(seg)
@@ -1945,9 +2243,6 @@ def _build_panels(
 
         point_pairs = _normalize_segment_orientation(seg_type, point_pairs, meters_scale)
         point_pairs = _apply_user_convention_flip(seg_type, point_pairs)
-
-
-        seg_start_idx = len(panels)
 
         ends = []
         for prim_idx, pair in enumerate(point_pairs):
@@ -1969,15 +2264,27 @@ def _build_panels(
             ends.append((p0, p1, prim_len))
         lengths = [end[2] for end in ends]
 
+        fine_total = None
         if refinement_factor > 1.0:
             base_n_prop = _parse_int(base_segment_n[seg_idx], 0)
             base_counts = [_panel_count_from_n(base_n_prop, length, wavelength) for length in lengths]
             fine_total = max(sum(base_counts) + 1, int(math.ceil(sum(base_counts) * refinement_factor)))
-            if not hp and len(panels) + fine_total > panel_limit:
-                raise ValueError('Discretization exceeds the configured panel limit.')
             counts = _certification_fine_counts(base_counts, lengths, refinement_factor) if ends else []
         else:
             counts = [_panel_count_from_n(n_prop, length, wavelength) for length in lengths]
+        plans.append((seg, seg_type, n_prop, ibc_flag, pos_mat, neg_mat, name, wavelength,
+                      ends, lengths, counts, fine_total))
+    # The hp candidate grades toward its own protected vertices.
+    sharp = _SharpVertices() if hp else _sharp_vertices(
+        [(p0, p1, prim_len, prim_len / max(1, count), plan[1], plan[4], plan[5])
+         for plan in plans for (p0, p1, prim_len), count in zip(plan[8], plan[10])],
+        materials, mesh_frequencies)
+    for seg_idx, plan in enumerate(plans):
+        (seg, seg_type, n_prop, ibc_flag, pos_mat, neg_mat, name, wavelength,
+         ends, lengths, counts, fine_total) = plan
+        seg_start_idx = len(panels)
+        if fine_total is not None and not hp and len(panels) + fine_total > panel_limit:
+            raise ValueError('Discretization exceeds the configured panel limit.')
 
         local_wavelength = None
         sagitta = 0.0
@@ -2040,8 +2347,8 @@ def _build_panels(
                         "tolerance. Reduce N."
                     )
                 pts = _discretize_primitive(p0, p1, count)
-            if junctions:
-                pts = _grade_toward_junctions(pts, junctions, wavelength)
+            if junctions or sharp:
+                pts = _grade_primitive_ends(pts, junctions, sharp, wavelength)
                 count = len(pts) - 1
             if len(panels) + count > panel_limit:
                 raise ValueError('Discretization exceeds the configured panel limit.')

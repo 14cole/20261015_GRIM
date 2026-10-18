@@ -26,7 +26,8 @@ def _solve_fields(mesh, matrix, k0, angles, rhs_builder, diagnostics, label,
     from ghost_backend.linalg.hierarchical import factor_mode
     hierarchical = factor_mode() != 'dense'
     from ghost_backend.compressed.operator import StreamedOperator
-    compressed=isinstance(matrix,StreamedOperator)
+    # Tile and hierarchical compressed operators (compressed.hmatrix) alike.
+    compressed=isinstance(matrix,StreamedOperator) or getattr(matrix,'compressed_operator',False)
     if compressed:coordinates=matrix.coordinates
     if requested == 'gpu' and hierarchical:
         raise ValueError('Hierarchical factorization requires the CPU dense backend.')
@@ -43,7 +44,7 @@ def _solve_fields(mesh, matrix, k0, angles, rhs_builder, diagnostics, label,
             xy[list(element.node_ids)] = [mesh.nodes[i].xy for i in element.node_ids]
         coordinates = np.tile(xy, (len(matrix)//len(mesh.nodes), 1))
     from ghost_backend.compressed.factor import CompressedFactor
-    factor_class=CompressedFactor if compressed else DenseFactor
+    factor_class=getattr(matrix,'factor_class',CompressedFactor) if compressed else DenseFactor
     if checkpoint is not None:
         checkpoint()
     # Restore disk-backed TE coefficients into their owned buffer before the

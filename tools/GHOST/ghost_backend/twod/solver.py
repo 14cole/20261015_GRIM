@@ -2027,8 +2027,16 @@ def _dense_formulation_resources(
         "operator_matrices": int(operator_matrices),
         **storage,
     }
+    # Above its threshold the compressed backend assembles a hierarchical
+    # operator; its geometry-only forecast prices that backend everywhere.
+    from ghost_backend.compressed.memory import hmatrix_storage
+    model = None if storage.get('analytic_zero') else hmatrix_storage(
+        mesh, infos, formulation, system_dofs,
+        robin_layout if robin_layout is not None else locals().get('layout'))
+    if model is not None:
+        result['hmatrix_storage'] = model
     from ghost_backend.compressed.runtime import enabled as compressed_enabled
-    if sample_compression and compressed_enabled() and not storage.get('analytic_zero'):
+    if sample_compression and compressed_enabled() and not storage.get('analytic_zero') and model is None:
         from ghost_backend.compressed.memory import geometry_storage
         air_k = next((i.k_plus if i.plus_region == 0 else i.k_minus for i in infos
                       if i.plus_region == 0 or i.minus_region == 0), None)
@@ -4420,7 +4428,8 @@ def compute_boundary_densities(
         from ghost_backend.twod.formulations.dielectric import assemble_system, rhs_many
         matrix = assemble_system(mesh, coupled_infos, pol, k0)
         check_abort()
-        mu_nodes = DensityFactor(matrix, checkpoint=check_abort).solve(rhs_many(mesh, k0, elev_arr))[:nnodes, 0]
+        mu_nodes = getattr(matrix, 'factor_class', DensityFactor)(matrix, checkpoint=check_abort).solve(
+            rhs_many(mesh, k0, elev_arr))[:nnodes, 0]
         density = np.asarray([
             _polynomial_density_at_center(e, mu_nodes)
             for e in mesh.elements
@@ -4438,7 +4447,7 @@ def compute_boundary_densities(
             mesh, alpha_elements, pec_node, pol, k0, elev_arr
         )
         check_abort()
-        sigma_nodes = DensityFactor(a_sys, checkpoint=check_abort).solve(rhs)[:, 0]
+        sigma_nodes = getattr(a_sys, 'factor_class', DensityFactor)(a_sys, checkpoint=check_abort).solve(rhs)[:, 0]
         check_abort()
         density = np.asarray([
             _polynomial_density_at_center(e, sigma_nodes)

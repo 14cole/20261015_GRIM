@@ -782,19 +782,26 @@ def _touching_rule_for(order, d_o, d_s):
 def _acute_touching_derivative(k0, diff, normal, obs_normal_deriv):
     """(j/4) k H1(k r) (n . d)/r (sign as K or K') without distance floors.
 
-    The fixed rule's kernels drop samples within EPS = 1e-12 m of the corner
-    and floor k r at 1e-12. Graded nodes lie much closer to the near-singular
-    line than that, where the integrand (n . d)/r**2 stays bounded, so the
-    floors cost 1e-9..1e-6 of the block; z H1(z) -> 2j/pi is evaluated instead.
+    Graded nodes lie far closer to the near-singular line than any distance
+    floor, where the integrand (n . d)/r**2 stays bounded; z H1(z) -> 2j/pi is
+    evaluated below |k r| = 1e-8 instead. A coincident sample (r = 0) is
+    dropped, as in ``_near_kernel_values``.
     """
     distance = np.linalg.norm(diff, axis=-1)
     z = np.asarray(complex(k0) * distance, dtype=np.complex128)
     small = np.abs(z) < 1e-8
     zh1 = np.full(z.shape, 2j / np.pi, dtype=np.complex128)
     zh1[~small] = z[~small] * _hankel2_1_array(z[~small])
-    value = 0.25j * zh1 * (diff @ np.asarray(normal, dtype=float) if np.ndim(normal) == 1
-                           else np.sum(diff * normal, axis=-1)) / (distance * distance)
+    projection = (diff @ np.asarray(normal, dtype=float) if np.ndim(normal) == 1
+                  else np.sum(diff * normal, axis=-1))
+    value = 0.25j * zh1 * _divide_nonzero(projection, distance * distance)
     return -value if obs_normal_deriv else value
+
+
+def _divide_nonzero(numerator, denominator):
+    """numerator / denominator, and 0 where the denominator is exactly zero."""
+    return np.divide(numerator, denominator, out=np.zeros(np.broadcast(numerator, denominator).shape),
+                     where=denominator != 0)
 
 
 def _touching_frame(elem, interval, start_is_shared):
@@ -903,21 +910,22 @@ def _integrate_linear_touching_duffy_sk_vectorized(
     phi_obs = np.column_stack((1.0 - xi_obs, xi_obs))
     phi_src = np.column_stack((1.0 - xi_src, xi_src))
 
+    distance = np.linalg.norm(diff, axis=1)
+    g_vals, derivative = _near_kernel_values(k0, distance, bool(compute_single_layer),
+                                             bool(compute_double_layer) and not acute)
     if compute_single_layer:
-        g_vals = _green_2d_array(k0, np.linalg.norm(diff, axis=1))
         s_block = np.einsum(
             'q,q,qa,qb->ab', weights, g_vals, phi_obs, phi_src
         )
 
     if compute_double_layer:
+        normal = obs_elem.normal if obs_normal_deriv else src_elem.normal
         if acute:
-            dk_vals = _acute_touching_derivative(
-                k0, diff, obs_elem.normal if obs_normal_deriv else src_elem.normal, obs_normal_deriv)
-        elif obs_normal_deriv:
-            dk_vals = _dgreen_dn_obs_array(k0, diff, obs_elem.normal)
+            dk_vals = _acute_touching_derivative(k0, diff, normal, obs_normal_deriv)
         else:
-            src_normals = np.broadcast_to(src_elem.normal, diff.shape)
-            dk_vals = _dgreen_dn_src_array(k0, diff, src_normals)
+            dk_vals = derivative * _divide_nonzero(diff @ np.asarray(normal, dtype=float), distance)
+            if obs_normal_deriv:
+                dk_vals = -dk_vals
         k_block = np.einsum(
             'q,q,qa,qb->ab', weights, dk_vals, phi_obs, phi_src
         )
@@ -977,36 +985,28 @@ def acute_touching_report(mesh, k0):
 
 
 def _near_kernel_values(k0, distance, with_green, with_derivative, table=None):
-    """(j/4) H0(k r) and (j/4) k H1(k r) at near-pair sample distances.
+    """(j/4) H0(k r) and (j/4) k H1(k r) at touching-rule sample distances, without floors.
 
-    A validated kernel table (the solve's far table: native Horner, 2e-13
-    relative) gives both channels in one pass; samples outside the table, and
-    all samples without one, use the exact evaluators. Distances are floored at
-    EPS as the exact routines floor them.
+    The kernels are the polynomial rules' (``polynomial_quadrature._kernels``:
+    real Bessel functions, a validated lossy-medium ``table`` with exact
+    fallbacks outside it, else scaled Hankel functions); none floors the
+    distance or k r. The rule's nodes come within about 1e-10 element lengths
+    of the corner, so the former floors (samples within EPS = 1e-12 m dropped
+    from K, r and k r floored at 1e-12) cost 1e-9 of a K block for millimetre
+    panels and 1e-6 for micrometre ones. A sample at exactly r = 0 (only on
+    the singular line of panels folding back at zero angle) gets zero for
+    both kernels: one point of an integrable singularity carries no weight.
     """
-    green = derivative = None
-    if table is not None:
-        values = table.evaluate(distance)
-        green = values[..., 0].copy() if with_green else None
-        derivative = values[..., 1].copy() if with_derivative else None
-        bad = ~np.isfinite(values).all(axis=-1)
-        if not np.any(bad):
-            return green, derivative
-        rest = distance[bad]
-        if with_green:
-            green[bad] = _green_2d_array(k0, rest)
-        if with_derivative:
-            kr = np.asarray(complex(k0) * rest, complex)
-            kr[np.abs(kr) <= 1e-12] = 1e-12 + 0j
-            derivative[bad] = (0.25j * complex(k0)) * _hankel2_1_array(kr)
-        return green, derivative
-    if with_green:
-        green = _green_2d_array(k0, distance)
-    if with_derivative:
-        kr = np.asarray(complex(k0) * distance, complex)
-        kr[np.abs(kr) <= 1e-12] = 1e-12 + 0j
-        derivative = (0.25j * complex(k0)) * _hankel2_1_array(kr)
-    return green, derivative
+    from ghost_backend.twod.polynomial_quadrature import _kernels
+    coincident = distance == 0
+    any_coincident = bool(np.any(coincident))
+    green, derivative = _kernels(k0, np.where(coincident, 1.0, distance) if any_coincident else distance,
+                                 with_derivative, table)
+    if any_coincident:
+        green[coincident] = 0.0
+        if derivative is not None:
+            derivative[coincident] = 0.0
+    return (green if with_green else None), derivative
 
 
 def _touching_geometry_arrays(prepared_geometry, obs_ids, src_ids, obs_normal_deriv):
@@ -1053,19 +1053,17 @@ def _integrate_linear_touching_pairs_sk_batched(pairs, shared, k0,
         y = np.where(src_start[pick], y0[None, :], 1.0 - y0[None, :])
         po, ps = np.stack((1-x, x), axis=-1), np.stack((1-y, y), axis=-1)
         dist = np.linalg.norm(diff, axis=-1)
-        safe = np.maximum(dist, EPS)
         s = k = np.zeros((len(diff), 2, 2), complex)
-        green, deriv = _near_kernel_values(k0, safe, compute_single_layer,
+        green, deriv = _near_kernel_values(k0, dist, compute_single_layer,
                                            compute_double_layer and not acute, table)
         if compute_single_layer:
             s = po.swapaxes(1, 2) @ ((weights[None, :] * green)[:, :, None] * ps)
         if compute_double_layer and acute:
             deriv = _acute_touching_derivative(k0, diff, normals[pick, None, :], obs_normal_deriv)
         elif compute_double_layer:
-            deriv *= np.sum(diff * normals[pick, None, :], axis=-1) / safe
+            deriv *= _divide_nonzero(np.sum(diff * normals[pick, None, :], axis=-1), dist)
             if obs_normal_deriv:
                 deriv = -deriv
-            deriv[dist <= EPS] = 0
         if compute_double_layer:
             k = po.swapaxes(1, 2) @ ((weights[None, :] * deriv)[:, :, None] * ps)
         scale = (obs_len[pick] * src_len[pick])[:, None, None]
@@ -1632,6 +1630,16 @@ def _near_map(function, jobs):
     return map_checked(function, jobs, workers, solve_checkpoint())
 
 
+def _box_hankel(kind, kr, groups):
+    """H^(2)_kind of (boxes, q, q) arguments, each group of boxes evaluated on one branch."""
+    if len(groups) == 1:
+        return _stable_hankel2_array(kind, kr.ravel()).reshape(kr.shape)
+    values = np.empty(kr.shape, dtype=np.complex128)
+    for group in groups:
+        values[group] = _stable_hankel2_array(kind, kr[group].ravel()).reshape(kr[group].shape)
+    return values
+
+
 def _integrate_linear_boxes_sk(geometry, pair, intervals, k0, obs_normal_deriv, order,
                                compute_single_layer, compute_double_layer):
     """`_integrate_linear_pair_box_sk_vectorized` for many (pair, box) rows, term for term.
@@ -1640,10 +1648,21 @@ def _integrate_linear_boxes_sk(geometry, pair, intervals, k0, obs_normal_deriv, 
     src p1 - p0, src length, derivative normal); ``intervals`` rows are (obs
     start, obs end, src start, src end). The elementwise operations and the
     contraction are the single box's, so every block is bitwise its value.
+    The native route (assembly.native.near) repeats that arithmetic around the
+    same Hankel evaluations, bit for bit.
     """
+    from ghost_backend.twod.assembly.native import near as native_near
     obs_p0, obs_seg, obs_length, src_p0, src_seg, src_length, normal = geometry
     qt, qw = _get_quadrature(max(2, int(order)))
     qt, qw = np.asarray(qt, dtype=float), np.asarray(qw, dtype=float)
+    native = native_near.box_arguments(geometry, pair, intervals, qt, k0)
+    if native is not None:
+        kr, real_box = native
+        groups = [g for g in (np.flatnonzero(real_box), np.flatnonzero(~real_box)) if g.size]
+        h0, h1 = (_box_hankel(kind, kr, groups) if wanted else None
+                  for kind, wanted in ((0, compute_single_layer), (1, compute_double_layer)))
+        coefficient = (-0.25j * complex(k0)) if obs_normal_deriv else (0.25j * complex(k0))
+        return native_near.box_blocks(geometry, pair, intervals, qt, qw, coefficient, h0, h1)
     oa, ob, sa, sb = intervals.T
     obs_scale = np.maximum(ob - oa, 0.0)
     src_scale = np.maximum(sb - sa, 0.0)
@@ -1665,12 +1684,7 @@ def _integrate_linear_boxes_sk(geometry, pair, intervals, k0, obs_normal_deriv, 
     groups = [g for g in (np.flatnonzero(real_box), np.flatnonzero(~real_box)) if g.size]
 
     def hankel(kind):
-        if len(groups) == 1:
-            return _stable_hankel2_array(kind, kr.ravel()).reshape(kr.shape)
-        values = np.empty(kr.shape, dtype=np.complex128)
-        for group in groups:
-            values[group] = _stable_hankel2_array(kind, kr[group].ravel()).reshape(kr[group].shape)
-        return values
+        return _box_hankel(kind, kr, groups)
 
     w_outer = np.outer(qw, qw)
     zero = np.zeros((len(pair), 2, 2), dtype=np.complex128)

@@ -310,6 +310,107 @@ where the LU copy did not fit the planner's margin on a 31 GB workstation and
 the compressed backend ran (90-92 s, 4.3 GB), the dense path is now admitted
 and takes 88 s (11.5 GB).
 
+## Hierarchical 2-D operator
+
+From 8,192 unknowns (`compressed.hmatrix.HMATRIX_MIN_UNKNOWNS`;
+`GHOST_HMATRIX_MIN_UNKNOWNS` overrides it, 0 disables it) the compressed
+backend assembles an H-matrix instead of evaluating every coefficient tile.
+Below the threshold, and whenever the automatic policy admits dense storage,
+nothing changes: results are bit-identical, and the automatic policy keeps
+dense LU/HODLR wherever it is admitted (the hierarchical backend is for the
+systems dense storage cannot hold). The threshold is where the tile operator
+stops being practical: at 10,000 PEC unknowns its retained payload exceeded the
+2-GiB default cap, while the hierarchical operator kept 15% of the dense
+storage (dense was 1.2 times faster there; from 15,000 unknowns the
+hierarchical solve of a PEC cylinder was faster than dense, 43 against 50 s).
+
+*Structure.* Unknowns are clustered by the bisection of `spatial_order`
+(the inverse tree's permutation), leaves holding about 128 distinct points
+times the number of densities sharing a point. Bounding boxes are inflated by
+each cluster's longest adjacent panel; two clusters at one level are
+admissible when `min(diam) <= dist`. Inadmissible leaf blocks are evaluated
+exactly by the formulation's coefficient oracle, so near, junction, thin-gap
+and acute-corner quadrature is unchanged. The admissible partners of one row
+cluster form its interaction list, compressed as one low-rank block: sampled
+columns (spread, random and high-weight), a pivoted-QR skeleton of the long
+rows, and a least-squares fit over more samples than the rank (an
+interpolating cross would fit the coefficients' rounding noise, about 3e-13
+of a block, into unseen rows), validated by fresh random rows and columns,
+then recompressed by QR/SVD. The target is a mean row-sum error of `1e-12
+||A||_inf` per list, estimated from probes. Lists of one level are compressed
+concurrently (single-threaded coefficient queries on all allocated logical
+CPUs; results do not depend on the thread count), finest level first, a pilot
+wave of eight lists calibrating each level's rank guess. TE and TM share one
+kernel traversal when both are built together; the TM operator is kept for
+its solve.
+
+*Error measurement.* No per-row deterministic bound is claimed. One exactly
+evaluated row per leaf cluster (at least 64, at most 256 MiB) is retained.
+After assembly the complete row errors `sum_j |A_ij - H_ij|` of these rows
+must stay below `1e-11 ||A||_inf` (measured 1-3e-12), otherwise the tile
+operator is used. Every field solve must then pass the backend's existing
+gates against the retained operator (refinement to 3e-15, 1e-12 physical
+bound) and, in addition, a normwise backward error within 1e-12 of the dense
+gate on the exact sample rows (measured 1e-14 to 3e-13). A failure rebuilds the
+operator at a tenth of its tolerance once, then rejects the solve. Field
+changes against dense LU are therefore conditioning limited: 2e-12 to 4e-12 of
+the peak on 5,000-20,000-unknown PEC cylinders, 1e-10 to 4e-10 on the
+6 GHz airfoil, 6e-9 on a dielectric of condition 6e3 (where the tile backend
+itself differs from LU by 1e-9) and 1.4e-8 on the 0.001-inch coat
+(condition 6e5).
+
+*Factorization.* The compressed backend's inverse tree (Woodbury HODLR at
+`1e-8`, refinement and GMRES) is built from range products with the
+retained factors (adaptive randomized sampling, ranks up to 2,048), so no
+coefficient is read twice. Condition estimates use exact one-pass
+equilibration over the retained blocks.
+
+*Planning.* Memory and work forecasts come from the cluster tree and
+interaction lists of the actual mesh with a calibrated rank model (12 +
+0.21 kD per density for lists; 0.25 kD at the inverse root and 0.09 kD below,
+plus margins), so no coefficient is evaluated. Both polarizations' operators,
+the inverse and concurrent assembly workspaces are priced, and the
+forecast is used by the solver's admission gate, the automatic planner, the
+HPC planner and the GUI setup. At the 2,048-MiB default (and at 0) the
+hierarchical storage cap is sized automatically from the solve RAM limit.
+
+*Coverage.* Every formulation reached through the compressed coefficient
+oracles is covered: closed PEC/IBC combined potentials, single dielectric
+bodies, coated and multi-region systems (both polarizations, lossy and
+magnetic media, two bodies, thin gaps, acute and reentrant corners), sheets.
+Thin layers with a magnetic contrast keep the tile operator (each coefficient
+column is a solve with the inverse mass matrix), as do the experimental
+`verified_cur` far method and the polynomial fine-to-coarse projection
+(those systems are assembled on the coarse mesh directly). The fallback is
+recorded as `hmatrix_fallback` in the factor evidence.
+
+*Measurements* (8-core Windows workstation, 91 angles, both polarizations):
+
+| case | unknowns | before | after |
+|---|---|---|---|
+| PEC cylinder | 20,000 | dense 129 s, 7.5 GB | dense unchanged; hierarchical 82 s, 2.8 GB |
+| PEC cylinder | 40,000 | dense refused (25.6 GB/matrix) | hierarchical 387 s, 8.5 GB |
+| airfoil 10 GHz (plain) | 28,466 | dense refused; tile backend over its cap | hierarchical 100 s, 2.5 GB |
+| airfoil 6 GHz (plain) | 17,120 | dense 26 s, 12.2 GB | dense unchanged; hierarchical 44 s, 1.4 GB |
+| 0.001-in coat, 20-in cylinder | 15,078 | dense 42 s, 11.1 GB | dense unchanged; hierarchical 95 s, 1.8 GB |
+
+In the high-frequency regime list ranks grow about linearly with cluster size
+(145 at 2,500 PEC unknowns per cluster at 10 GHz, 265 at 5,000), so the
+coarsest levels keep coefficient work near 14% of `N^2` and assembly time
+grows faster than `N^2 log N`; each coefficient query also costs several
+dense-assembly entries (no reciprocal reuse). Multi-region systems pay most:
+their dense assembly shares TE/TM and reciprocal kernels, so the hierarchical
+backend is 1.7-2.3 times slower than dense where dense fits, while it uses 6 to 9
+times less memory.
+
+The dense HODLR condition estimate now accepts probe solves at a normwise
+backward error of 1e-9, measured against the exact matrix (usually the
+unrefined factor: one exact product per probe instead of two), and repeats with
+fully refined probes when `kappa*1e-9` exceeds 1e-2, as the compressed backend
+does. On the certified coated cylinder (1280-gon, one angle) the condition
+estimate fell from 1.9 to 1.3 s of 29 s; fields are bit-identical and the
+estimate changed by 4e-6 relative.
+
 ## BoR formulations and geometry
 
 Closed uniform IBC dispatch selects CFIE for reactive and resistive impedance.
@@ -464,9 +565,10 @@ wrong by up to 1.1e-3 at `d/a = 1e-8` without an error (526 of 920 points of a
 tiny-element self cell above tolerance, worst 2.3e-2). The kernels now agree
 with independent references to 4e-14 for `d/a` from 1e-9 to 0.5.
 
-BoR self and adjacent meridian quadrature uses a fixed graded rule (quadtree
-cells toward the singular set, 4 x 5 Gauss points per cell, depth `near_depth`).
-Its self-term error was measured in the 22 September audit: the rule misses the
+BoR self and adjacent meridian quadrature used a fixed graded rule until
+17 October 2026 (quadtree cells toward the singular set, 4 x 5 Gauss points
+per cell, depth `near_depth`; every touching pair now uses the polar rule
+described below). Its self-term error was measured in the 22 September audit: the rule misses the
 model integral of `log|s - s'|` by 8e-3 and leaves about 6e-4 relative
 far-field error at 27 elements per wavelength, decreasing as O(h). A rule
 graded in `|s - s'|` only (each triangle mapped to `u = |s - s'|` and the
@@ -477,7 +579,8 @@ dielectric spheres at 10 to 80 elements per wavelength its end-to-end error was
 not smaller at practical densities, and mostly slightly larger (ka = 3 CFIE:
 0.0248 against 0.0199 dB at 20 elements per wavelength): the cell rule's
 integration error partly offsets the flat-segment geometry error. It also cost
-about 10% more, so the cell rule was kept.
+about 10% more, so the cell rule was kept then (see below for why it no
+longer is).
 
 Far element pairs (at least two element lengths apart), the plane-wave
 excitation and the far-field projection use `kernels.FAR_GAUSS_ORDER = 3`
@@ -493,8 +596,9 @@ symmetric to 3e-8 (4e-10 with four points): element pairs on the near/far
 routing boundary can be routed differently on the two sides by rounding, and
 the far rule's error on those pairs is what shows.
 
-Element pairs of two different surfaces that touch at a junction point have
-their own rule (`JUNCTION_CELL_ORDER = 10`, `JUNCTION_CELL_DEPTH = 7`). The
+Element pairs of two different surfaces that touch at a junction point had
+their own rule (`JUNCTION_CELL_ORDER = 10`, `JUNCTION_CELL_DEPTH = 7`, replaced
+by the polar rule below). The
 order-4, depth-4 cells they used before left 1.2e-3 relative far-field error at
 partial, layered-patch and banded junctions against an order-12, depth-8
 reference; the refined rule is within 2e-5 and costs nothing measurable (a
@@ -517,15 +621,71 @@ angle under 60 degrees, and steep elements within 30 degrees of the axis with
 polar rule graded dyadically toward the complex pole and the ring scale rho,
 with z taken relative to the touching point. Blocks agree with a deeper
 reference to 6e-8 (rims) and 7e-7 (needles) down to 0.25 degrees, and the rule
-is reciprocal to 1e-12. Other pairs keep the fixed cells, so ordinary bodies
-(spheres, cylinders, a 30 degree cone) are bit-identical.
+is reciprocal to 1e-12.
 
-Every solve re-integrates a sample of the routed pairs (every fourth plus the
-sharpest; all junction pairs) with a finer rule and records the result in
-`near_quadrature['sharp_pairs']` (`sharp_pair_quadrature` for material
-layouts); a difference above 1e-5 raises a warning. Included meridian corners
+Since 17 October every touching pair uses that rule: self, adjacent and
+junction pairs of ordinary bodies too, so no pair keeps the fixed cells (the
+former per-pair assembly fallbacks, which were unreachable, are removed).
+Against a deep reference (32 points per piece, every graded stop four times
+deeper, ring stops graded for the mode cap) the largest relative block error
+per category, modes to 8 / 30 / 60, went from the cells' to:
+
+| pairs | fixed cells | polar rule |
+| --- | --- | --- |
+| sphere self/adjacent | 3e-3 / 1e-2 / 2e-2 | 5e-9 / 5e-9 / 1e-8 |
+| corners 30..150 deg (incl. self) | 2e-3..5e-3 / to 2e-2 / to 4e-2 | 4e-8 max |
+| collinear (180 deg) | 6e-6 / 4e-5 / 2e-4 | 9e-8 / 2e-9 / 3e-9 |
+| sphere pole, cone tips, disc centre | 0.2..0.3 / 0.6 / 0.7 | 1e-8 / 3e-8 / 3e-8 |
+| junctions 45..180 deg (rotated PV) | to 8e-5; 3e-4 beside an L/8 element | 9e-8 max |
+| thin junction (steep, near the axis) | 1e-6 / 1e-5 / 6e-5 | 5e-9 |
+
+(maxima over 10 and 40 elements per wavelength, air, lossy `3 - 0.1j` and
+high-contrast `10 - 1j` media for the 8-mode column; EFIE, MFIE and IBC
+brackets). Self pairs use 16 Gauss points per piece, touching pairs 12; ring
+stops deepen above `m_max` = 16 (self) and 8 (touching). A self pair whose
+ring is at least an element length away is integrated by the two triangles
+about the diagonal in `|s - s'|` rather than about its end: same accuracy,
+40% cheaper near kernels (fewer samples at tiny separations). Junction pairs
+are classified like same-surface ones, so a steep element near the axis at
+a junction is `thin` by its geometry, whatever the angle.
+
+Ordinary results move by the old rule's error: 1e-4 to 1e-2 dB on spheres
+(0.025 dB on the coarse 30 degree cone-sphere), and against the exact series
+at a fixed coarse mesh not always toward it, as the 22 September audit found:
+ka = 1 PEC and the `ka = 1.5` dielectric sphere get closer (0.0157 to
+0.0149 dB, 0.0570 to 0.0472 dB), ka = 3 PEC, impedance and coated spheres
+farther (0.0068 to 0.0096 dB at 48 elements), ka = 10 is unchanged. Under
+refinement the new errors fall by 4.0 per halving and Richardson
+extrapolation lands on the series (ka = 1, 3, 10 PEC: 1e-6, 4e-6, 1e-5 dB;
+impedance 7e-5; dielectric 1e-5; coated 8.5e-4 from two meshes), where the
+cells' did not (5e-5, 5e-4 with a sign change of the error between 96 and
+192 elements, 8e-6; 4e-4; 3e-3; 5e-3): the cells added an error of lower
+order that partly cancelled the facet error on practical meshes (on the
+cone-sphere, cylinder and flat-based cone the change halves per halving of
+the mesh: 0.025, 0.012, 0.006, 0.003 dB). Near
+preparation dominates small solves, and the change costs 12-32% of the solve
+time (sphere ka = 10 at 320 elements +12%, coated sphere +32%), the self-check
+included.
+
+Every solve re-integrates a sample of the touching pairs with a finer rule
+(`CHECK_POINTS` more points per piece, every graded stop one level deeper):
+every fourth acute or thin pair, every sixteenth regular one
+(`REGULAR_CHECK_STRIDE`), and the most severe pair of each class (smallest
+angle; smallest ring ratio, which for regular pairs is the axis pole), in the
+same batch as their production blocks, in process workers too. The result is
+`near_quadrature['touching_pairs']` (`touching_pair_quadrature` for material
+layouts) and, when acute or thin pairs exist, `near_quadrature['sharp_pairs']`
+(`sharp_pair_quadrature`); a difference above 1e-5 raises a warning.
+Production measures 1e-9..3e-8. The EFIE near-block reciprocity diagnostic is
+now rounding (1e-15): the rule is reciprocal by construction. Included meridian corners
 below 0.25 degrees, the smallest angle validated, are rejected before solving
-(1e-6 degree rounding tolerance). What remains at a thin rim is ordinary first-
+(1e-6 degree rounding tolerance). A generatrix node other than the two end
+points lying on the axis is rejected too: an element on the axis sweeps no
+area and the system loses rank (LAPACK info = 1, condition 1e37 on graded
+needle tips whose inner nodes the mesher had snapped onto the axis within
+1e-6 of the body size). Kept off the axis, needle and cone tips graded by
+ten levels (innermost radius 1e-8 wavelengths) solve without warnings and
+agree with four levels to 0.002 dB. What remains at a thin rim is ordinary first-
 order mesh convergence (the edge current is singular), about 0.1 dB at N = 40,
 which mesh certification measures.
 

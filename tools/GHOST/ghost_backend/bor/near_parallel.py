@@ -307,11 +307,14 @@ class NearTask:
 
     def __init__(self, gp, gq, k, m_max, kinds, depth=4, pair_kind=None,
                  near_order=12, near_rtol=2e-5, near_max_order=192,
-                 mode_start=0, return_families=False):
+                 mode_start=0, return_families=False, check_pairs=frozenset()):
         self.gp, self.gq, self.k = gp, gq, k
         self.m_max, self.kinds, self.depth = m_max, kinds, depth
         self.mode_start, self.return_families = int(mode_start), bool(return_families)
         self.pair_kind = pair_kind
+        # Touching pairs whose blocks are also integrated by the self-check
+        # rule (their result carries the relative change instead of None).
+        self.check_pairs = frozenset(check_pairs)
         from ghost_backend.bor.options import current_options
         self.junction_refinement = current_options()['near_refinement']
         self.near_order, self.near_rtol, self.near_max_order = near_order, near_rtol, near_max_order
@@ -319,18 +322,30 @@ class NearTask:
     def __call__(self, pair):
         return self.run_batch([pair])[0]
 
+    def _points(self, e, f, cell, check=False):
+        from ghost_backend.bor.solver import _same_surface_points, _junction_points
+        from ghost_backend.bor.sharp_pairs import pair_points, junction_points
+        if self.pair_kind is None:
+            return (pair_points(self.gp, e, f, self.depth, self.m_max, check=True) if check else
+                    _same_surface_points(self.gp, e, f, self.kinds, self.depth, self.m_max))
+        if check:
+            return junction_points(self.gp, e, self.gq, f, cell, self.junction_refinement, self.m_max, check=True)
+        return _junction_points(self.gp, e, self.gq, f, cell, self.junction_refinement, self.m_max)
+
     def run_batch(self, pairs):
         """Results of every pair, in order, as separate calls would return them.
 
         Touching pairs are integrated together, and so are the disjoint pairs
         at each refinement level (``_contract_near_batch`` and
         ``_converged_disjoint_batch``): one graded-rule call per batch instead
-        of several per pair, bitwise the same blocks.
+        of several per pair, bitwise the same blocks.  Same-surface and
+        junction pairs use the same rules as the in-process path
+        (``_same_surface_points``, ``_junction_points``).
         """
-        from ghost_backend.bor.solver import (_same_surface_points, _junction_points,
-            _contract_near_batch, _converged_disjoint_batch)
+        from ghost_backend.bor.solver import _contract_near_batch, _converged_disjoint_batch
+        from ghost_backend.bor.sharp_pairs import relative_change
         results = [None] * len(pairs)
-        touching, disjoint = [], []
+        touching, disjoint, jobs = [], [], []
         for index, pair in enumerate(pairs):
             e, f = pair
             if self.pair_kind is None:
@@ -340,19 +355,19 @@ class NearTask:
             if cell is None:
                 disjoint.append((index, pair))
                 continue
-            # Cross-surface pairs (pair_kind given) touch at a junction and use
-            # the refined junction rule, exactly as the in-process path does.
-            points = (_same_surface_points(self.gp, e, f, self.kinds, self.depth, self.m_max)
-                      if self.pair_kind is None else
-                      _junction_points(self.gp, e, self.gq, f, cell, self.junction_refinement, self.m_max))
-            touching.append((index, (self.gp, e, self.gq, f, points)))
+            checked = tuple(pair) in self.check_pairs
+            touching.append((index, len(jobs), checked))
+            jobs.append((self.gp, e, self.gq, f, self._points(e, f, cell)))
+            if checked:
+                jobs.append((self.gp, e, self.gq, f, self._points(e, f, cell, check=True)))
         pick = ((lambda blocks: blocks[self.kinds[0]])
                 if self.pair_kind is None and not self.return_families else (lambda blocks: blocks))
         if touching:
-            outs = _contract_near_batch([job for _, job in touching], self.k, self.m_max,
-                                        self.kinds, signed=False, mode_start=self.mode_start)
-            for (index, _), blocks in zip(touching, outs):
-                results[index] = (pick(blocks), None)
+            outs = _contract_near_batch(jobs, self.k, self.m_max, self.kinds,
+                                        signed=False, mode_start=self.mode_start)
+            for index, job, checked in touching:
+                change = relative_change(outs[job], outs[job + 1]) if checked else None
+                results[index] = (pick(outs[job]), change)
         if disjoint:
             outs = _converged_disjoint_batch(self.gp, self.gq, [pair for _, pair in disjoint],
                 self.k, self.m_max, self.kinds, self.near_order, self.near_rtol, self.near_max_order,

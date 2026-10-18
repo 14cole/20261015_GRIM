@@ -6,7 +6,7 @@ execution-node scheduling use it.
 """
 import math
 
-MODEL = 'stage_work_v5'
+MODEL = 'stage_work_v6'
 BACKENDS = ('dense', 'compressed')
 
 
@@ -41,6 +41,19 @@ def stage_work(resources, n_angles, mode, assembly_threads=1, blas_threads=1):
     # a compressed speedup; local measured stages supersede the work prior.
     factor=(min(d,max(1,threshold))*d*d*max(1.,math.log2(d)/math.log2(max(2,threshold)))
             if hierarchical else d**3)
+    model=resources.get('hmatrix_storage')
+    from ghost_backend.compressed import hmatrix
+    if mode=='compressed' and model is not None and hmatrix.selected(d):
+        # Hierarchical operator (compressed.hmatrix): coefficient queries cost
+        # about 3.6 dense-assembly entries each (no reciprocal reuse), its
+        # inverse scales with the inverse rank, and solves read both factors
+        # about three times (one refinement step). Calibrated on the 20k-DOF
+        # PEC cylinder at 10 GHz (NUMERICAL_METHODS.md).
+        rank=max(1,int(model['inverse_rank']))
+        entries=float(model['retained_entries'])+float(model['inverse_bytes'])/16
+        return dict(assembly_far=3.6*float(model['coefficients'])/assembly_threads,assembly_near=0.,
+            compression=0.,factorization=3500.*d*rank*rank/blas_threads,rhs=3*entries*angles/blas_threads,other=1.,
+            factor_regime='compressed_hmatrix',assembly_threads=assembly_threads,blas_threads=blas_threads)
     return dict(assembly_far=far/assembly_threads,assembly_near=near/assembly_threads,
         compression=(d*d*min(d,512)/assembly_threads if mode=='compressed' else 0.),
         factorization=factor/blas_threads,rhs=d*d*angles/blas_threads,other=1.,
@@ -100,4 +113,9 @@ def rank_candidates(candidates, budget_gib, margin=.2):
     if not fitting:
         description=', '.join('{} {:.2f} GiB'.format(m,c['peak_gb']) for m,c in available.items())
         raise MemoryError('No compatible backend fits the {:.2f} GiB solve budget ({}).'.format(budget_gib,description))
-    return sorted(fitting,key=lambda m:(available[m]['cost'],BACKENDS.index(m)))
+    ranked=sorted(fitting,key=lambda m:(available[m]['cost'],BACKENDS.index(m)))
+    if 'dense' in ranked and available.get('compressed',{}).get('hmatrix'):
+        # The hierarchical compressed backend serves systems dense storage
+        # cannot hold; where dense is admitted, its result is kept unchanged.
+        ranked.remove('dense');ranked.insert(0,'dense')
+    return ranked

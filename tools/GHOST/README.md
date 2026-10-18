@@ -77,16 +77,19 @@ The [phase and quadrature guidance](NUMERICAL_METHODS.md) describes corrected
 checks. Read the phase-compatibility notes before combining legacy complex
 exports with newly generated results.
 
-2-D assembly supports two optional native libraries in
-`ghost_backend/twod/assembly/native/`: the kernel-table evaluator and the
-far-field block quadrature and scatter. Both match the NumPy path bit for bit
-wherever the kernel table covers the distance, and are skipped when they cannot
-load. Portable distributions include their C sources and build script;
+2-D assembly supports three optional native libraries in
+`ghost_backend/twod/assembly/native/`: the kernel-table evaluator, the
+far-field block quadrature and scatter, and the near-pair arithmetic of the
+close-pair box recursion and the thin-gap moments. The first two match the
+NumPy path bit for bit wherever the kernel table covers the distance; the
+near-pair library takes its Hankel, Bessel, logarithm and arctangent values
+from NumPy/SciPy and matches the NumPy path bit for bit everywhere. All are
+skipped when they cannot load. Portable distributions include their C sources and build script;
 development checkouts may also contain binaries built for their host. A release
 maintainer can use `scripts/build_distribution.py --native --output <folder>`
 to bundle checked kernels in a Windows or Linux wheel. Its recipients need no
 compiler; see [native releases](DISTRIBUTION.md#optional-native-releases).
-After editing `table.c` or `far.c`, run
+After editing `table.c`, `far.c` or `near.c`, run
 `py ghost_backend/twod/assembly/native/build.py`. Both native builders discover
 MSYS2 UCRT64 in its standard Windows location and accept `--compiler` and
 `--output-dir`. They compile to a temporary file, check it in a fresh process,
