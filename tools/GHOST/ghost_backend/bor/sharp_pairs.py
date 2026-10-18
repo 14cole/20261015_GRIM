@@ -400,7 +400,12 @@ def relative_change(production, refined):
     """Largest |refined - production| over max |refined| per family, of one pair."""
     worst = 0.0
     for kind, value in refined.items():
+        if not np.all(np.isfinite(value)) or not np.all(np.isfinite(production[kind])):
+            return float('inf')
         scale = float(np.max(np.abs(value)))
+        difference = float(np.max(np.abs(value - production[kind])))
         if scale > 0.0:
-            worst = max(worst, float(np.max(np.abs(value - production[kind]))) / scale)
+            worst = max(worst, difference / scale)
+        elif difference > 0.0:
+            return float('inf')
     return worst

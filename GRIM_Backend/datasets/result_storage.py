@@ -373,7 +373,11 @@ def _progression_slice(index, extent):
     if isinstance(index, int):
         return index
     if isinstance(index, range):
-        return slice(index.start, index.stop, index.step) if index.step > 0 or len(index) <= 1 else None
+        if len(index) == 0:
+            return slice(0, 0)
+        if len(index) == 1:
+            return slice(index.start, index.start + 1)
+        return slice(index.start, index.stop, index.step) if index.step > 0 else None
     if index.size == 0 or np.any(index < 0) or np.any(index >= extent):
         return None   # empty, negative or out of range: keep NumPy's own handling
     first = int(index[0])

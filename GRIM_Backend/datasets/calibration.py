@@ -405,7 +405,10 @@ class GridCalibrationMixin:
             block[~valid_output] = np.nan + 1j * np.nan
             output_amp[selection] = block
             usable_count += int(np.count_nonzero(valid_output))
-        if dut_known_count == 0:
+        # A known zero DUT is a valid result (e.g. an ideal cross-pol null).
+        # Only unknown nonzero power needs phase; zero standards above still
+        # cannot determine the instrument correction.
+        if dut_known_count == 0 and self.has_unknown_field_phase():
             raise ValueError(
                 "range calibration has no calibratable bins: the DUT has no "
                 "finite nonzero complex sample (unknown phase/magnitude-only "

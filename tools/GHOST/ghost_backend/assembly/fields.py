@@ -20,6 +20,8 @@ from ghost_backend.assembly.line_expansion import (
     GRAZING_TAPER_DEG,
     PSI_HH_DEG,
     PSI_VV_DEG,
+    NATIVE_2D_B,
+    line_phase_mapping,
     SeamCoefficients,
     _pol_unit_vectors,
     combine,
@@ -1043,6 +1045,7 @@ def _signed_seam(coefficients: 'SeamCoefficients', delta_sign: 'float'
         -coefficients.dA_tm,
         -coefficients.dA_te,
         label=coefficients.label,
+        convention=coefficients.convention,
     )
 
 
@@ -2990,8 +2993,8 @@ def sum_features(bor_result: 'Dict[str, Any]',
                  generatrix: 'Optional[np.ndarray]' = None,
                  mode: 'str' = "coherent",
                  perimeter_scale: 'float' = 1.0,
-                 psi_tm_deg: 'float' = PSI_HH_DEG,
-                 psi_te_deg: 'float' = PSI_VV_DEG,
+                 psi_tm_deg: 'Optional[float]' = None,
+                 psi_te_deg: 'Optional[float]' = None,
                  corners: 'Sequence[Dict[str, Any]]' = (),
                  points: 'Sequence[Dict[str, Any]]' = (),
                  occluder=None,
@@ -3141,8 +3144,8 @@ def sum_features(bor_result: 'Dict[str, Any]',
             None if segment_normals is not None else _placement_normal_fn(pl),
             dirs,
             frequency_ghz=frequency_ghz,
-            psi_tm_deg=float(pl.get("psi_tm_deg", psi_tm_deg)),
-            psi_te_deg=float(pl.get("psi_te_deg", psi_te_deg)),
+            psi_tm_deg=pl.get("psi_tm_deg", psi_tm_deg),
+            psi_te_deg=pl.get("psi_te_deg", psi_te_deg),
             grazing_taper_deg=float(pl.get("grazing_taper_deg", GRAZING_TAPER_DEG)),
             max_piece_length_m=pl.get("max_piece_length_m"),
             occluder=occluder,
@@ -3544,8 +3547,8 @@ def export_signature_grim(out_path: 'str', *,
                           axis: 'Sequence[float]' = (0.0, 0.0, 1.0),
                           mode: 'str' = "coherent",
                           perimeter_scale: 'float' = 1.0,
-                          psi_tm_deg: 'float' = PSI_HH_DEG,
-                          psi_te_deg: 'float' = PSI_VV_DEG,
+                          psi_tm_deg: 'Optional[float]' = None,
+                          psi_te_deg: 'Optional[float]' = None,
                           corners: 'Sequence[Dict[str, Any]]' = (),
                           points: 'Sequence[Dict[str, Any]]' = (),
                           occluder=None,
@@ -3886,8 +3889,8 @@ def export_radar_grim(out_path: 'str', *,
                       axis_el_deg: 'float' = 0.0,
                       roll_deg: 'float' = 0.0,
                       perimeter_scale: 'float' = 1.0,
-                      psi_tm_deg: 'float' = PSI_HH_DEG,
-                      psi_te_deg: 'float' = PSI_VV_DEG,
+                      psi_tm_deg: 'Optional[float]' = None,
+                      psi_te_deg: 'Optional[float]' = None,
                       corners: 'Sequence[Dict[str, Any]]' = (),
                       points: 'Sequence[Dict[str, Any]]' = (),
                       occluder=None,
@@ -5247,8 +5250,8 @@ def add_features_to_monostatic_grim(
     occluder=None,
     radar_grid: 'Optional[Dict[str, Any]]' = None,
     surface_normal_fn=None,
-    psi_tm_deg: 'float' = PSI_HH_DEG,
-    psi_te_deg: 'float' = PSI_VV_DEG,
+    psi_tm_deg: 'Optional[float]' = None,
+    psi_te_deg: 'Optional[float]' = None,
     declared_coherent_base: 'bool' = False,
     allow_legacy_base_metadata: 'bool' = True,
     feature_provenance: 'Optional[Dict[str, Any]]' = None,
@@ -5441,11 +5444,18 @@ def add_features_to_monostatic_grim(
         profile = load_body_profile_grim(
             base, require_feature_surface=bool(placements or points or corners))
 
+    def placement_phase(item):
+        convention = getattr(item.get("delta"), "convention", NATIVE_2D_B)
+        return line_phase_mapping(convention, item.get("psi_tm_deg", psi_tm_deg),
+                                  item.get("psi_te_deg", psi_te_deg))
+
+    default_tm, default_te = line_phase_mapping(NATIVE_2D_B, psi_tm_deg, psi_te_deg)
     line_settings = [
         {
             "line_id": str(item.get("line_id", index + 1)),
-            "psi_tm_deg": float(item.get("psi_tm_deg", psi_tm_deg)),
-            "psi_te_deg": float(item.get("psi_te_deg", psi_te_deg)),
+            "psi_tm_deg": placement_phase(item)[0],
+            "psi_te_deg": placement_phase(item)[1],
+            "coefficient_convention": getattr(item.get("delta"), "convention", NATIVE_2D_B),
             "grazing_taper_deg": float(item.get("grazing_taper_deg", GRAZING_TAPER_DEG)),
         }
         for index, item in enumerate(placements)
@@ -5462,12 +5472,13 @@ def add_features_to_monostatic_grim(
         "compact_feature_count": int(len(points)),
         "corner_estimate_count": int(len(corners)),
         "line_phase_mapping_deg": {
-            "TM": uniform_line_setting("psi_tm_deg", float(psi_tm_deg)),
-            "TE": uniform_line_setting("psi_te_deg", float(psi_te_deg)),
+            "TM": uniform_line_setting("psi_tm_deg", default_tm),
+            "TE": uniform_line_setting("psi_te_deg", default_te),
         },
         "line_grazing_taper_deg": uniform_line_setting("grazing_taper_deg", float(GRAZING_TAPER_DEG)),
         "line_response_settings": line_settings,
-        "line_default_phase_mapping_deg": {"TM": float(psi_tm_deg), "TE": float(psi_te_deg)},
+        "line_default_phase_mapping_deg": {"TM": default_tm, "TE": default_te},
+        "line_phase_mapping_mode": "coefficient_convention_with_explicit_overrides",
         "line_default_grazing_taper_deg": float(GRAZING_TAPER_DEG),
         "point_response_settings": [
             {"placement_id": str(item.get("placement_id", index + 1)),
@@ -5479,9 +5490,10 @@ def add_features_to_monostatic_grim(
             "body_feature_mutual_coupling": False,
             "multiple_scattering": False,
             "line_mapping_evidence": (
-                "166.9/-9.2 degree legacy preset is empirical; checked-in "
-                "validation of that preset covers the circumferential PEC "
-                "groove only. Per-line settings record the applied corrections."
+                "Native version-2 B converts with TM 180/TE 0 degrees; "
+                "already-converted electric-line coefficients use 0/0. "
+                "Explicit per-line rotations override conversion. Convention "
+                "conversion does not remove local-line model error."
             ),
             "point_pattern_requirement": (
                 "local installed-feature-minus-clean-skin complex Jones field"

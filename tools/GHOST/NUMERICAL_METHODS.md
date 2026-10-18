@@ -500,7 +500,134 @@ The desktop co-polarized workflow requires both VV (TE) and HH (TM), so the
 attached-sheet guard prevents that entire run, even though a standalone TM
 solve is supported. The solver selection tooltip explains this limitation.
 
+## 2-D to 3-D line phase investigation (2026-10-17)
+
+Production now converts native version-2 B with `psi_tm_deg=180` and
+`psi_te_deg=0`, consistently in low-level line expansion, Assembly and wing
+expansion. The investigation below establishes this convention mapping;
+it does not certify the local-line model for arbitrary features.
+
+For current GHOST amplitude-version-2 coefficients, the convention conversion
+is **TM: 180 degrees; TE: 0 degrees**. These are local section polarizations,
+not fixed global radar channel names. `PSI_HH_DEG` presently holds the TM
+setting because a 2-D file labels TM as HH; for a cylinder along global z
+viewed broadside, local TM instead contributes to radar VV.
+
+### Derivation
+
+Both solvers use `exp(+j*omega*t)`, with outgoing `exp(-j*k*r)` and coming-from
+look direction d. The 2-D kernel is `G2 = +j*H0^(2)(k*rho)/4`, and its stored
+coefficient B omits that kernel prefactor. The standard outgoing 3-D scalar
+kernel is `G3 = exp(-j*k*r)/(4*pi*r)`. Integrating G3 along an infinite axis
+gives `-j*H0^(2)(k*rho)/4 = -G2`. This follows by substituting
+`z = rho*sinh(t)` into the
+[Hankel integral representation, NIST DLMF 10.9.11](https://dlmf.nist.gov/10.9.E11).
+Consequently, extending the same scalar source density over length L gives
+the broadside amplitude `-L*B/(4*pi)` in the infinite-cylinder approximation.
+
+TM's scalar is axial electric field, so that minus sign is the electric-field
+mapping. TE's scalar is axial magnetic field: the incident wave travels along
+`-d`, while the scattered wave travels along `+d`. The Maxwell relation
+`H = propagation_direction x E / eta` therefore adds another minus sign when
+converting the normalized backscattered magnetic field to electric field in
+the same radar basis. Thus:
+
+```text
+F_TM = -B_TM * line_integral / (4*pi)
+F_TE = +B_TE * line_integral / (4*pi)
+line_integral = integral exp(+2j*k*d.r(s)) ds
+```
+
+There is no complex conjugation and no additional universal 45- or 90-degree
+offset. The Hankel spreading phase is already accounted for in the conversion.
+The legacy defaults differ by -13.1 degrees (TM) and -9.2 degrees (TE).
+Those residual rotations have no convention-based justification.
+
+### Numerical evidence and limits
+
+The local investigation compared analytic PEC-circle coefficients, actual
+exported 2-D circle coefficients, and CFIE BoR finite cylinders at 1 GHz. Ten
+finite-cylinder solves covered radii 0.15 and 0.30 wavelengths, lengths 2, 4,
+8 and 16 wavelengths, seven aspects from 80 to 100 degrees, and three mesh
+refinement pairs. All modal tails converged, all touching self-checks were
+below 2e-8 (limit 1e-5), and linear backward errors were below 2e-13.
+
+For radius 0.15 wavelengths, the absolute broadside phase discrepancy between
+the BoR field and the derived 180/0-degree line mapping decreased with length:
+
+| Length / wavelength | TM discrepancy | TE discrepancy |
+|---|---:|---:|
+| 2 | 1.101 degrees | 4.372 degrees |
+| 4 | 0.367 degrees | 2.377 degrees |
+| 8 | 0.112 degrees | 1.239 degrees |
+| 16 | 0.028 degrees | 0.633 degrees |
+
+The radius-0.30, length-16 case differed by 0.449 degrees TM and 0.166 degrees
+TE. Doubling the mesh density changed the two length-4 cases by less than
+0.033 degrees across all seven aspects. Refining the radius-0.15, length-16
+case changed broadside phase by less than 0.001 degrees. Exported 192-node
+2-D circles agreed with the analytic complex series within 0.020 degrees.
+Independent numerical integration of G3 reproduced `-G2` within 5e-11 relative
+error. Translation tests reproduced `exp(+2j*k*d.delta_r)` within 2.5e-9 for
+BoR and 4e-16 for line expansion.
+
+These comparisons validate the convention mapping, not a general finite-body
+approximation. At 10 degrees off broadside, the radius-0.15, length-8 line
+model still had phase discrepancies of about 15-16 degrees. The ordinary line
+path here used the original-frequency broadside section coefficient; it did
+not exercise the wing tool's optional reduced-frequency oblique correction.
+Finite-end diffraction, curvature and body-feature coupling are separate
+modeling issues and must not be folded into a universal phase constant.
+
+The existing curved groove fixture illustrates the distinction. Using 180/0
+instead of the legacy preset changed isolated-delta normalized complex RMS
+from 0.354 to 0.489 for VV and 0.737 to 0.558 for HH; combined RMS changed from
+0.392 to 0.494. Whole-body errors remained only about 1.4-3.5 percent, because
+the clean body dominates. A small whole-body error therefore does not certify
+the feature's phase. The preset happens to reduce one component of this
+fixture's model error; that is not evidence for a universal convention.
+Its existing regression allows 40 degrees of per-channel phase RMS, so passing
+that test cannot establish the correctness of a 9-13 degree convention offset.
+
+### Conversion and historical compatibility
+
+`SeamCoefficients.convention` defaults to `native_2d_B`. Native 2-D file loaders
+require the current B convention. For analytic or preconverted electric-line
+coefficients, construct with `convention="electric_line"`; automatic expansion
+then uses 0/0. `coefficients.as_electric_line()` changes TM's sign and marks the
+result; calling it again does nothing. It retains the line-integral/(4*pi)
+normalization. It does not rotate local polarizations into the radar basis.
+
+Low-level and public field APIs use `psi_tm_deg=None, psi_te_deg=None` for
+automatic conversion. Explicit numbers remain absolute rotations of the
+supplied coefficients, so historical calls with 166.9/-9.2 reproduce their
+previous behavior. To apply separate empirical calibration, first convert
+with `as_electric_line()`, then supply the residual TM/TE rotations. Automatic
+conversion and explicit conversion agree for co-pol and cross-pol fields.
+
+New GUI assemblies use the native 180/0 preset. The legacy empirical preset
+remains available. Recipe version 7 distinguishes these new defaults: loading
+version 5 or 6 preserves explicit settings and materializes missing settings
+as historical 166.9/-9.2, with a visible compatibility notice. Saved output
+provenance records each line's input coefficient convention and applied angles.
+
+Reproducible scripts and numerical JSON records from this investigation are
+local, git-ignored files under `audit_codex_review/phase_*`.
+
 ## Certification
+
+The certified BoR entry point checks the touching-pair integration diagnostics
+on both the base and fine meshes. Failed, nonfinite or unperformed reported
+self-checks reject certification even when mesh-to-mesh fields agree. Survey
+solves retain their numerical warnings without claiming mesh certification.
+
+Sharp-feature mesh grading is not a separate accuracy certificate. The 2-D
+material-interface angular problem uses positive-real coefficients `1/|mu|`
+and `1/|eps|`; for lossy or negative-index media this is a surrogate rather
+than the full complex-material eigenproblem. BoR conical tips use the root
+`P_nu_D(-cos(theta)) = 0` through the calibrated grading exponent
+`min(1, 2*nu_D)`, capped at eight levels. Independent mesh-convergence checks
+remain necessary for both choices.
 
 Mesh refinement checks discretization changes; it cannot detect an equation
 that converges to the wrong model. Quality gates check the solved linear system

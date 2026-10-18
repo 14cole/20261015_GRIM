@@ -70,7 +70,7 @@ UNIT_ABBREVIATIONS = {
 FEATURE_SELECTION_DISPLAY_ID_LIMIT = 8
 
 FEATURE_RECIPE_SCHEMA = "grim.feature-assembly-recipe"
-FEATURE_RECIPE_VERSION = 6
+FEATURE_RECIPE_VERSION = 7
 FEATURE_RECIPE_SUFFIX = ".assembly.json"
 # Hash normal placement/library inputs while keeping recipe saves responsive for
 # very large vehicle meshes and clean-body response files. Large inputs still

@@ -4,7 +4,7 @@ Form values and preflight policies are resolved lazily from the Qt-free model.
 """
 from __future__ import annotations
 
-from GRIM_Backend.assembly.values import FeatureAssemblyValues, LoadedFeatureAssemblyRecipe, normalize_response_settings
+from GRIM_Backend.assembly.values import FeatureAssemblyValues, LoadedFeatureAssemblyRecipe, normalize_response_settings, LEGACY_LINE_RESPONSE_DEFAULTS
 
 import json
 import os
@@ -305,10 +305,10 @@ def read_feature_assembly_recipe(
             f"Not a {FEATURE_RECIPE_SCHEMA!r} Assembly recipe."
         )
     version = payload.get("version")
-    if type(version) is not int or version not in (5, FEATURE_RECIPE_VERSION):
+    if type(version) is not int or version not in (5, 6, FEATURE_RECIPE_VERSION):
         raise ValueError(
             f"Unsupported Assembly recipe version {version!r}; this GRIM build "
-            f"supports versions 5 and {FEATURE_RECIPE_VERSION}."
+            f"supports versions 5, 6 and {FEATURE_RECIPE_VERSION}."
         )
     name = payload.get("name")
     variant = payload.get("variant")
@@ -408,10 +408,22 @@ def read_feature_assembly_recipe(
     line_paths = _recipe_string_mapping(
         raw_values["line_datasets"], "line_datasets"
     )
+    line_settings = raw_values.get("line_response_settings", {})
+    # Old recipes implicitly used empirical phase offsets, even if no response
+    # settings were saved. Materialize those values before using today's defaults.
+    if version < 7:
+        if not isinstance(line_settings, Mapping) or any(
+            not isinstance(item, Mapping) for item in line_settings.values()
+        ):
+            raise ValueError("Line response settings must map IDs to objects.")
+        line_settings = {
+            dataset_id: {**LEGACY_LINE_RESPONSE_DEFAULTS, **line_settings.get(dataset_id, {})}
+            for dataset_id in set(line_paths) | set(line_settings)
+        }
     recipe_dir = source.parent
     values = FeatureAssemblyValues(
         point_response_settings=normalize_response_settings(raw_values.get("point_response_settings", {}), "point"),
-        line_response_settings=normalize_response_settings(raw_values.get("line_response_settings", {}), "line"),
+        line_response_settings=normalize_response_settings(line_settings, "line"),
         base_grim=_recipe_absolute_path(raw_values["base_grim"], recipe_dir=recipe_dir),
         output_grim=_recipe_absolute_path(raw_values["output_grim"], recipe_dir=recipe_dir),
         coordinate_units=coordinate_units,
@@ -456,6 +468,8 @@ def read_feature_assembly_recipe(
         for role, dataset_id, path_value in _recipe_source_items(values)
     }
     warnings: list[str] = []
+    if version < 7 and line_settings:
+        warnings.append("Historical line phase settings were preserved (legacy defaults TM 166.9°, TE -9.2°). New assemblies use native TM 180°, TE 0°; review the response model to change this recipe.")
     raw_manifest = payload.get("source_manifest", [])
     if not isinstance(raw_manifest, list):
         raise ValueError("Assembly recipe source_manifest must be a list.")

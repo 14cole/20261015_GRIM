@@ -390,8 +390,10 @@ def _csv_numbers(values):
 def _csv_fields(fields, delimiter):
     """Render fields exactly as ``csv.writer`` does, without a line ending."""
     buffer = io.StringIO()
-    csv.writer(buffer, delimiter=delimiter, lineterminator="").writerow(fields)
-    return buffer.getvalue()
+    # Keep the normal terminator while quoting: csv.writer only treats CR/LF
+    # as special characters when they appear in its configured terminator.
+    csv.writer(buffer, delimiter=delimiter, lineterminator="\r\n").writerow(fields)
+    return buffer.getvalue()[:-2]
 
 
 def _write_flat_csv_block(stream, delimiter, grid, selection, power_block, phase_block, *,

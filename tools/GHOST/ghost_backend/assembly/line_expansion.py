@@ -20,8 +20,28 @@ _LINE_BATCH_MAX_DIRECTIONS = 128
 _LINE_BATCH_PAIR_BUDGET = 8_192
 
 
-PSI_VV_DEG = -9.2
-PSI_HH_DEG = 166.9
+NATIVE_2D_B = "native_2d_B"
+ELECTRIC_LINE = "electric_line"
+PSI_VV_DEG = 0.0   # 2-D TE (magnetic axial scalar) -> 3-D electric field
+PSI_HH_DEG = 180.0 # 2-D TM (electric axial scalar) -> 3-D electric field
+LEGACY_PHASE_MAPPING_DEG = (166.9, -9.2)  # Explicit historical reproduction only.
+
+
+def line_phase_mapping(convention=NATIVE_2D_B, psi_tm_deg=None, psi_te_deg=None):
+    """Return absolute coefficient rotations; explicit numbers override conversion.
+
+    Native version-2 B uses +i H_0^(2)/4, opposite the axis integral of the
+    outgoing 3-D Green function. TE's H-to-E backscatter reversal cancels that
+    minus sign. Already converted electric-line coefficients need no rotation.
+    """
+    if convention not in (NATIVE_2D_B, ELECTRIC_LINE):
+        raise ValueError(f"Unknown line coefficient convention: {convention!r}.")
+    defaults = (PSI_HH_DEG, PSI_VV_DEG) if convention == NATIVE_2D_B else (0.0, 0.0)
+    phases = tuple(float(default if value is None else value)
+                   for default, value in zip(defaults, (psi_tm_deg, psi_te_deg)))
+    if not all(math.isfinite(value) for value in phases):
+        raise ValueError("line phase mappings must be finite degrees.")
+    return phases
 
 
 @dataclass
@@ -37,8 +57,10 @@ class SeamCoefficients:
     dA_tm: 'np.ndarray'
     dA_te: 'np.ndarray'
     label: 'str' = ""
+    convention: 'str' = NATIVE_2D_B
 
     def __post_init__(self) -> 'None':
+        line_phase_mapping(self.convention)
         self.frequency_ghz = float(self.frequency_ghz)
         self.phi_deg = np.asarray(self.phi_deg, dtype=float)
         self.dA_tm = np.asarray(self.dA_tm, dtype=complex)
@@ -69,6 +91,17 @@ class SeamCoefficients:
             raise ValueError(
                 "SeamCoefficients: phi angles must be unique after sorting."
             )
+
+    def as_electric_line(self):
+        """Convert native B once; normalization remains integral/(4*pi).
+
+        An already converted coefficient is returned unchanged. This changes
+        the local TM/TE scalar convention, not the eventual radar VV/HH basis.
+        """
+        if self.convention == ELECTRIC_LINE:
+            return self
+        return SeamCoefficients(self.frequency_ghz, self.phi_deg,
+                                -self.dA_tm, self.dA_te, self.label, ELECTRIC_LINE)
 
     def sample(self, phi_deg: 'np.ndarray') -> 'Tuple[np.ndarray, np.ndarray]':
         """Interpolate on the COMPLEX coefficient (never on |A| and phase).
@@ -620,8 +653,8 @@ def expand_perimeter(segments: 'np.ndarray',
                      normal_fn: 'Optional[Callable[[np.ndarray], np.ndarray]]',
                      directions: 'np.ndarray',
                      frequency_ghz: 'Optional[float]' = None,
-                     psi_tm_deg: 'float' = 0.0,
-                     psi_te_deg: 'float' = 0.0,
+                     psi_tm_deg: 'Optional[float]' = None,
+                     psi_te_deg: 'Optional[float]' = None,
                      grazing_taper_deg: 'float' = GRAZING_TAPER_DEG,
                      max_piece_wavelengths: 'float' = 0.05,
                      max_piece_length_m: 'Optional[float]' = None,
@@ -642,16 +675,17 @@ def expand_perimeter(segments: 'np.ndarray',
                     ``normal_fn`` must be None.  The endpoint normals are
                     interpolated along each segment before normalization.
     ``directions``  (n_dir, 3) unit COMING-FROM look directions.
-    ``psi_tm_deg``  candidate inter-solver phase for the 2D TM coefficient
-                    (== PSI_HH_DEG, since phi-pol/HH is driven by TM). Applied
-                    to the COEFFICIENT so cross-pol is consistent too.
-    ``psi_te_deg``  same for the 2D TE coefficient (== PSI_VV_DEG).
+    ``psi_tm_deg`` / ``psi_te_deg``: None automatically converts native B
+                    with TM 180/TE 0 degrees, or uses 0/0 for ELECTRIC_LINE.
+                    Explicit numbers are absolute rotations of the supplied
+                    coefficients, preserving historical calibrated settings.
+                    Applied before projection so cross-pol is consistent too.
     ``grazing_taper_deg`` raised-cosine transition above the surface; zero
                     disables the taper while retaining front illumination.
 
-    Pass 0/0 when comparing against an independent reference to determine
-    whether any phase mapping is required. Do not treat the configured defaults as
-    certified without that comparison.
+    Convention conversion does not correct finite-length or local-line model
+    error. For separate empirical calibration, first use as_electric_line(),
+    then pass the desired residual phase rotations explicitly.
 
     Returns ``{"F_vv", "F_hh", "F_vh"}`` complex arrays over directions in the
     physical 3-D amplitude normalization (sigma = 4 pi |F|^2).
@@ -669,10 +703,7 @@ def expand_perimeter(segments: 'np.ndarray',
                          f"asked for {freq} GHz.")
     k = 2.0 * math.pi * freq * 1e9 / C0
     lam = C0 / (freq * 1e9)
-    phase_tm = float(psi_tm_deg)
-    phase_te = float(psi_te_deg)
-    if not math.isfinite(phase_tm) or not math.isfinite(phase_te):
-        raise ValueError("line phase mappings must be finite degrees.")
+    phase_tm, phase_te = line_phase_mapping(coefficients.convention, psi_tm_deg, psi_te_deg)
     cal_tm = np.exp(1j * math.radians(phase_tm))
     cal_te = np.exp(1j * math.radians(phase_te))
 

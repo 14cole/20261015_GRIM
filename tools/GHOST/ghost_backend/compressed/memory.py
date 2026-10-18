@@ -121,7 +121,7 @@ def hmatrix_storage(mesh, infos, formulation, system_dofs, layout=None):
     """
     from ghost_backend.compressed import hmatrix
     from ghost_backend.compressed.runtime import coordinates
-    if not system_dofs or not hmatrix.selected(system_dofs):
+    if not system_dofs or not hmatrix.selected(system_dofs) or hmatrix.configuration_unsupported() is not None:
         return None
     if formulation == 'thin_dielectric_layer' and system_dofs != len(mesh.nodes):
         return None

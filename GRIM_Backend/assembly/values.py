@@ -8,9 +8,13 @@ from typing import Any, Mapping
 
 
 LINE_RESPONSE_DEFAULTS = {
-    "psi_tm_deg": 166.9,
-    "psi_te_deg": -9.2,
+    "psi_tm_deg": 180.0,
+    "psi_te_deg": 0.0,
     "grazing_taper_deg": 10.0,
+}
+
+LEGACY_LINE_RESPONSE_DEFAULTS = {
+    "psi_tm_deg": 166.9, "psi_te_deg": -9.2, "grazing_taper_deg": 10.0,
 }
 
 

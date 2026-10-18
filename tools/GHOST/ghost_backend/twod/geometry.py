@@ -900,8 +900,11 @@ def _grade_toward_junctions(pts, junctions, wavelength=None):
 # exponent nu is the smallest positive eigenvalue of the static angular problem
 # around the vertex (TM: Dirichlet on conductors, u and u'/mu continuous across
 # interfaces; TE: Neumann on conductors, u and u'/eps continuous), taken over
-# both polarizations and every mesh frequency so both share one mesh; a lone
-# conductor sector of angle alpha gives nu = pi / alpha. The panels next to the
+# both polarizations and every mesh frequency so both share one mesh. For
+# material interfaces k_values uses 1/|mu| and 1/|eps|: a positive-real
+# surrogate, not the complex eigenproblem of lossy or negative-index media.
+# Its grading is heuristic and still requires independent mesh convergence.
+# A lone conductor sector of angle alpha gives nu = pi / alpha. The panels next to the
 # vertex are split geometrically (ratio 1/2, as at impedance junctions) down to
 #     t = s * 2**(-(1/nu - 1) * D),   D = max(JUNCTION_GRADING_LEVELS, log2(lambda / (2 s))),
 # where s is the longest end panel at the vertex: the singular term t**(2 nu)

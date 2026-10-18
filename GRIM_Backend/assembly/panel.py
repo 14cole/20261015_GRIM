@@ -546,7 +546,7 @@ if GUI_AVAILABLE:
             else:
                 self.preset = QComboBox(self)
                 self.preset.setMinimumHeight(26)
-                self.preset.addItems(["Legacy solver correction", "No phase correction", "Custom"])
+                self.preset.addItems(["Native 2-D → 3-D convention", "No phase correction", "Custom", "Legacy empirical correction"])
                 form.addRow("Phase preset:", self.preset)
                 for key, label in (("psi_tm_deg", "TM phase (deg):"), ("psi_te_deg", "TE phase (deg):"), ("grazing_taper_deg", "Grazing taper (deg; 0 = off):")):
                     field = QLineEdit(str(settings.get(key, LINE_RESPONSE_DEFAULTS[key])), self)
@@ -556,11 +556,12 @@ if GUI_AVAILABLE:
                     if key != "grazing_taper_deg":
                         field.textEdited.connect(lambda _text: self.preset.setCurrentIndex(2))
                 phase = tuple(float(self.fields[key].text()) for key in ("psi_tm_deg", "psi_te_deg"))
-                self.preset.setCurrentIndex(0 if phase == (166.9, -9.2) else 1 if phase == (0, 0) else 2)
+                self.preset.setCurrentIndex(0 if phase == (180, 0) else 3 if phase == (166.9, -9.2) else 1 if phase == (0, 0) else 2)
                 self.preset.currentIndexChanged.connect(self._apply_preset)
                 help_text = (
-                    "Phase offsets rotate each supplied TM/TE field before coherent summation. "
-                    "Use no correction when the response already shares the body's phase convention. "
+                    "Native GHOST 2-D B coefficients require TM 180° and TE 0° for 3-D electric fields. "
+                    "These are absolute rotations, applied before projection into radar VV/HH. "
+                    "No correction is for already-converted coefficients; legacy preserves historical results. "
                     "The taper adds attenuation near grazing; set 0 to keep the supplied angular response."
                 )
             help_label = QLabel(help_text, self)
@@ -575,9 +576,10 @@ if GUI_AVAILABLE:
             layout.addWidget(buttons)
 
         def _apply_preset(self, index):
-            if index in (0, 1):
-                for key in ("psi_tm_deg", "psi_te_deg"):
-                    self.fields[key].setText(str(LINE_RESPONSE_DEFAULTS[key] if index == 0 else 0.0))
+            if index in (0, 1, 3):
+                phases = {0: (180.0, 0.0), 1: (0.0, 0.0), 3: (166.9, -9.2)}[index]
+                for key, value in zip(("psi_tm_deg", "psi_te_deg"), phases):
+                    self.fields[key].setText(str(value))
 
         def settings(self):
             raw = ({"one_sided": bool(self.sidedness.currentData())} if self.kind == "point"
@@ -689,7 +691,7 @@ if GUI_AVAILABLE:
             else:
                 values = {**LINE_RESPONSE_DEFAULTS, **settings}
                 phase = (values["psi_tm_deg"], values["psi_te_deg"])
-                summary = "Legacy" if phase == (166.9, -9.2) else "No phase offset" if phase == (0, 0) else "Custom phase"
+                summary = "Native 2-D → 3-D" if phase == (180, 0) else "Legacy" if phase == (166.9, -9.2) else "No phase offset" if phase == (0, 0) else "Custom phase"
                 taper = values["grazing_taper_deg"]
                 summary += " / taper off" if taper == 0 else f" / {taper:g}°"
                 tooltip = f"TM {phase[0]:g}°, TE {phase[1]:g}°. Grazing taper {taper:g}° (0 = off)."

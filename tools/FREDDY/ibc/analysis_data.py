@@ -49,14 +49,16 @@ def impedance_result(frequencies, capture, metrics, backing, context):
     cases = np.asarray(capture['cases'], dtype=complex)
     reflection = reflection_from_impedance(cases)
     key = 'metal_loss_db' if backing == 'pec' else 'air_loss_db'
-    lower = {key: reflection.min(axis=0)[:, None]}
-    upper = {key: reflection.max(axis=0)[:, None]}
+    reflection_low, reflection_high = capture.get('reflection_bounds',
+                                                  (reflection.min(axis=0), reflection.max(axis=0)))
+    lower = {key: np.asarray(reflection_low)[:, None]}
+    upper = {key: np.asarray(reflection_high)[:, None]}
     return SweepResult(list(frequencies), [0.], 'Normal incidence', context,
                        {'TE': {k: np.asarray(v)[:, None] for k, v in metrics.items()}},
                        backing=backing, lower={'TE': lower}, upper={'TE': upper},
-                       impedance=nominal[:, None], impedance_bounds={
+                       impedance=nominal[:, None], impedance_bounds=capture.get('impedance_bounds', {
                            'real_min': cases.real.min(axis=0), 'real_max': cases.real.max(axis=0),
-                           'imag_min': cases.imag.min(axis=0), 'imag_max': cases.imag.max(axis=0)})
+                           'imag_min': cases.imag.min(axis=0), 'imag_max': cases.imag.max(axis=0)}))
 
 
 def extra_polarization(compute_grid, uncertainty):

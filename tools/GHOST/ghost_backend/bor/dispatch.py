@@ -2540,6 +2540,7 @@ def solve_monostatic_rcs_bor(
             "stream_sampling_backend": out.get("stream_sampling_backend"),
             "stream_far_compression": out.get("stream_far_compression"),
             "near_quadrature": out.get("near_quadrature"),
+            "touching_pair_quadrature": out.get("touching_pair_quadrature"),
             "mesh_elements_total": int(total_mesh_elements),
             "mesh_surface_count": int(len(surface_layout)),
             "mesh_elements_by_surface": [
@@ -2795,6 +2796,26 @@ def _bor_channel_result(
     return {"samples": samples}
 
 
+def _require_touching_quadrature(result, phase):
+    """Mesh convergence cannot override a failed integration self-check."""
+    for row in (result.get('metadata', {}) or {}).get('per_frequency', []):
+        near = row.get('near_quadrature') or {}
+        reports = [row.get('touching_pair_quadrature'), near.get('touching_pairs')]
+        for report in reports:
+            if report is None:
+                continue
+            error = float(report.get('self_check_max', math.nan))
+            limit = float(report.get('self_check_limit', math.nan))
+            checked = int(report.get('self_checked_pairs', 0))
+            if (not math.isfinite(error) or not math.isfinite(limit) or
+                    limit <= 0 or error < 0 or error > limit or checked <= 0):
+                raise RuntimeError(
+                    f"Certified BoR {phase} quadrature self-check failed at "
+                    f"{row.get('frequency_ghz')} GHz: error={error:.6g}, "
+                    f"limit={limit:.6g}, checked pairs={checked}. "
+                    "Refine the integration rule; mesh convergence cannot certify this result.")
+
+
 @profiled_solve
 @reserve_output
 @configured
@@ -2866,6 +2887,7 @@ def solve_monostatic_rcs_bor_certified(
         progress_callback=phase_progress(0),
         **common
     )
+    _require_touching_quadrature(base_result, 'base')
     fine_snapshot = scale_snapshot_panel_density(
         geometry_snapshot, policy["fine_factor"]
     )
@@ -2881,6 +2903,7 @@ def solve_monostatic_rcs_bor_certified(
         progress_callback=phase_progress(1),
         **common
     )
+    _require_touching_quadrature(fine_result, 'fine')
 
     base_frequency_meshes = {
         round(float(row.get("frequency_ghz", 0.0)), 12): row

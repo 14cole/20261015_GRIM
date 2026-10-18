@@ -49,9 +49,9 @@ frequency f*cos(tilt), which is the exact transverse problem for a PEC section
 of infinite length; it is not valid for coated or dielectric sections.
 CORNERS adds a physical-optics estimate of the wing-root double bounce whose
 phase against the other terms is rough.
-PSI_TM_DEG / PSI_TE_DEG are the uncertified 2-D-to-3-D phase constants used by
-the rest of Assembly; compare against an independent reference before relying
-on wing-body interference lobes.
+PSI_TM_DEG / PSI_TE_DEG convert native version-2 B to 3-D electric fields
+(TM 180, TE 0 degrees). Explicit settings remain absolute coefficient rotations.
+This convention conversion does not remove finite-span or wing-body model error.
 """
 
 if not __package__:
@@ -369,7 +369,7 @@ def _half_space_tables(geometry_path, solve_ghz, look_ghz, angles,
     lower = (upper + half) % len(angles)
     tables = tuple(
         SeamCoefficients(float(look_ghz), angles[upper], full.dA_tm[index],
-                         full.dA_te[index], label=full.label)
+                         full.dA_te[index], label=full.label, convention=full.convention)
         for index in (upper, lower)
     )
     cache[key] = tables

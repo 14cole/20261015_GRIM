@@ -23,7 +23,7 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIP_DIRS = {'__pycache__', '.pytest_cache', '.git', 'build', 'dist', 'results', 'generated'}
+SKIP_DIRS = {'__pycache__', '.pytest_cache', '.git', 'build', 'dist', 'results', 'generated', 'tests'}
 SKIP_SUFFIXES = {'.pyc', '.pyo', '.dll', '.so', '.dylib', '.grim', '.lock'}
 
 
@@ -32,6 +32,8 @@ def release_files(root):
         relative = path.relative_to(root)
         if (not path.is_file() or path.is_symlink()
                 or any(part in SKIP_DIRS or part.endswith('.egg-info') for part in relative.parts)
+                or any(part.lower().startswith('audit_') or part.lower().endswith('_audit')
+                       for part in relative.parts)
                 or path.suffix.lower() in SKIP_SUFFIXES or path.name == '.coverage'):
             continue
         yield relative

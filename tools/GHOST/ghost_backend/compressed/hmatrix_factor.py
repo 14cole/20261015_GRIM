@@ -103,7 +103,19 @@ class HMatrixFactor(CompressedFactor):
         if storage_budget_bytes is None:
             from ghost_backend.compressed.runtime import hmatrix_storage_budget
             storage_budget_bytes = hmatrix_storage_budget()
+        self.storage_allowance = int(storage_budget_bytes)
         super().__init__(operator, *args, storage_budget_bytes=storage_budget_bytes, **kwargs)
+
+    def _refresh_inverse_budget(self):
+        from ghost_backend.twod.assembly.polynomial_pair import retained_bytes
+        from ghost_backend.compressed.recycling import live_bytes, reserve_current_inverse
+        from ghost_backend.compressed.memory import inverse_storage
+        available = (self.storage_allowance - self.a.bytes
+                     - getattr(self.a, 'reserved_partner_bytes', 0) - retained_bytes('compressed'))
+        reserve_current_inverse(inverse_storage(self.a.n)[0], available)
+        self.budget = available - live_bytes()
+        if self.budget <= 0:
+            raise MemoryError('No compressed inverse storage remains after the operator rebuild.')
 
     def _build(self, tolerance):
         self.factor = None
@@ -134,7 +146,10 @@ class HMatrixFactor(CompressedFactor):
                     raise HMatrixRejected('Hierarchical solve failed its exact sample-row backward error '
                                           '({:.3g} > {:.3g}).'.format(float(np.max(errors)), limit))
                 self.tightened = True
+                self.factor = None
+                del x, residual
                 self.a.rebuild(self.a.tolerance/10)
+                self._refresh_inverse_budget()
                 self.matrix_inf = max(float(np.max(self.a.row_norm - self.a.row_error)), 0.)
                 self.event['compressed'] = self.a.evidence
                 self.event['tightened_operator_tolerance'] = self.a.tolerance

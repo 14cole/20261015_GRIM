@@ -3452,33 +3452,18 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         ]
         uncertainty_path: Path | None = None
         uncertainty_rows = None
+        uncertainty_note = None
         if envelope_enabled:
+            from .uncertainty import impedance_envelope
+            envelope = impedance_envelope(sweep, loaded_layers, backing, uncertainty, nominal=z_nom)
+            uncertainty_note = envelope['note']
+            if capture is not None:
+                capture.update(envelope)
             zr_nom = [z.real for z in z_nom]
             zi_nom = [z.imag for z in z_nom]
-            zr_min = zr_nom.copy()
-            zr_max = zr_nom.copy()
-            zi_min = zi_nom.copy()
-            zi_max = zi_nom.copy()
-            for t_scale, e_scale, m_scale in scales:
-                if is_nominal_scale(t_scale, e_scale, m_scale):
-                    continue
-                z_s = compute_stack_impedance_many(
-                    sweep,
-                    loaded_layers,
-                    backing,
-                    thickness_scale=t_scale,
-                    eps_scale=e_scale,
-                    mu_scale=m_scale,
-                )
-                if capture is not None:
-                    capture['cases'].append(list(z_s))
-                for i, z in enumerate(z_s):
-                    zr = z.real
-                    zi = z.imag
-                    zr_min[i] = min(zr_min[i], zr)
-                    zr_max[i] = max(zr_max[i], zr)
-                    zi_min[i] = min(zi_min[i], zi)
-                    zi_max[i] = max(zi_max[i], zi)
+            bounds = envelope['impedance_bounds']
+            zr_min, zr_max = bounds['real_min'], bounds['real_max']
+            zi_min, zi_max = bounds['imag_min'], bounds['imag_max']
 
             uncertainty_path = uncertainty_report_path(output_path)
             uncertainty_rows = [
@@ -3499,11 +3484,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             uncertainty_path,
             uncertainty_rows,
             backing=backing,
-            uncertainty_note=(
-                describe_uncertainty_sampling(uncertainty)
-                if uncertainty_rows is not None
-                else None
-            ),
+            uncertainty_note=uncertainty_note,
         )
 
         summary = self._summarize_frequency_run(
@@ -3515,7 +3496,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         )
         if uncertainty_path is not None:
             summary += f"\nUncertainty report: {uncertainty_path}"
-            summary += f"\n{describe_uncertainty_sampling(uncertainty)}"
+            summary += f"\n{uncertainty_note}"
         return len(sweep), summary
 
     def _compute_angle_mode(

@@ -174,15 +174,20 @@ frequency_hz,resistance_ohm,reactance_ohm
 1000000000,120,15
 ```
 
-Uncertainty bounds are written to a separate `_uncertainty.csv` analysis file
-so the nominal file remains directly readable by GHOST. The bounds are the
+Uncertainty envelope estimates are written to a separate `_uncertainty.csv` analysis file
+so the nominal file remains directly readable by GHOST. The seed envelope is the
 min/max over sampled tolerance cases: the corners of the ±δ thickness/ε/μ box
 plus 9 evenly spaced points along each scale axis across `[-δ, +δ]` (the other
-two scales nominal), so an interior extremum such as a quarter-wave resonance
-inside a ±10% thickness band is captured. One scale per axis applies to all
-layers together (fully correlated); off-axis interior points are not visited,
-so the envelope is a sampled bound, not a certified one. Leading `#` lines in
-the sidecar state the case count and sampling. The same case set drives
+two scales nominal). Impedance exports and plots additionally refine sampled
+axis extrema and susceptance zero crossings at each frequency. This catches
+narrow impedance resonances between seed points; resistance, reactance and
+reflection extrema are searched on both sides. Refinement is capped at 1,024
+additional evaluations per frequency; the report identifies incomplete searches.
+One scale per axis applies to all layers together (fully correlated).
+Off-axis interior extrema and unbracketed resonances can still be missed:
+these are sampled estimates, not certified worst-case bounds. Leading `#`
+lines in the sidecar state the seed count, refinement work and limitations.
+The fixed seed case set (without impedance-specific adaptive refinement) drives
 Off Angle/Thickness tolerance envelopes and the Inverse Design and Material
 Mix worst/average tolerance scores.
 

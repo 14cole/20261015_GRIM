@@ -90,11 +90,19 @@ def leaf_size(coordinates):
     return int(min(512, max(LEAF, round(LEAF*multiplicity(coordinates)))))
 
 
-def unsupported(oracle):
-    """Why a coefficient oracle keeps the tile operator, or None."""
+def configuration_unsupported():
+    """Configuration exclusion shared by execution and memory planning."""
     from ghost_backend.execution.options import option
     if option('compressed_far_method', 'full') != 'full':
         return 'experimental compressed_far_method requested'
+    return None
+
+
+def unsupported(oracle):
+    """Why a coefficient oracle keeps the tile operator, or None."""
+    reason = configuration_unsupported()
+    if reason is not None:
+        return reason
     if hasattr(oracle, 'oracles'):
         reasons = [unsupported(source) for source in oracle.oracles]
         return next((reason for reason in reasons if reason is not None), None)
@@ -1054,6 +1062,11 @@ class HMatrixOperator:
         self.ledger.bytes -= self.bytes
         self.bytes = 0
         self.near = self.far = self.dense_far = self.sample_values = None
+        # Each index also owns BlockRows. Drop them before allocating the
+        # replacement, not at _index() after the new assembly is complete.
+        self.groups = {}
+        self.group_index = {}
+        self.levels = []
         _assemble(self.oracle, [self])
 
     def balanced_scaling(self, row_scale, col_scale, starts):

@@ -78,7 +78,7 @@ def source_inventory(root: Path):
             relative = path.relative_to(root)
             if not path.is_file() or any(part in _EXCLUDED or part.startswith(".") for part in relative.parts):
                 continue
-            if any(_is_audit_folder(part) for part in relative.parts[:-1]):
+            if any(_is_audit_folder(part) for part in relative.parts):
                 continue
             suffix = path.suffix.lower()
             if (suffix in _SOURCE_SUFFIXES
