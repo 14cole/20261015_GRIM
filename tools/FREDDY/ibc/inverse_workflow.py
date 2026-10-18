@@ -13,7 +13,7 @@ from .compute import build_uncertainty_scales, make_frequency_sweep, make_sweep,
 from .sweep_admission import sweep_count, frequency_sweep_count, validate_inverse_grid
 from .io import read_material_table, save_project_file, constant_material_from_layer, CONSTANT_VALUE_FIELDS
 from .compute import layer_material_label
-from .ui_options import inverse_requirement_target, inverse_polarizations
+from .ui_options import inverse_requirement_target, inverse_polarizations, INVERSE_SCORE_MODE_OPTIONS
 from .compute import validate_sweep_coverage
 from .inverse_grid import DesignGrid, NumericChoices
 
@@ -257,6 +257,8 @@ class InverseWorkflowMixin:
         table = QTableWidget(len(self.layers), 6)
         table.setHorizontalHeaderLabels(['Layer / material', 'Mode', 'Current', 'Minimum', 'Maximum', 'Step'])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        from .range_controls import RangeControls
+        range_controls = []
         for i, layer in enumerate(self.layers):
             lo, hi, step = ((layer.inv_rs_min, layer.inv_rs_max, layer.inv_rs_accuracy) if layer.is_sheet
                             else (layer.inv_t_min_in, layer.inv_t_max_in, layer.inv_t_accuracy_in))
@@ -266,12 +268,11 @@ class InverseWorkflowMixin:
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 table.setItem(i, col, item)
-            mode = QComboBox()
-            mode.addItems(['Fixed', 'Vary'])
-            mode.setCurrentText('Vary' if lo is not None or hi is not None else 'Fixed')
-            table.setCellWidget(i, 1, mode)
-            for col, value in zip((3,4,5), (lo,hi,step)):
-                table.setItem(i, col, QTableWidgetItem('' if value is None else f'{value:g}'))
+            controls = RangeControls(dialog, (lo, hi, step), 'Ω/sq' if layer.is_sheet else 'in')
+            range_controls.append(controls)
+            table.setCellWidget(i, 1, controls.toggle)
+            for col, field in zip((3,4,5), controls.fields):
+                table.setCellWidget(i, col, field)
         layout.addWidget(table)
         from PySide6.QtWidgets import QLabel
         help_text = QLabel('Vary: set Minimum, Maximum, and Step. Values start at Minimum and advance by Step.\nAn off-step Maximum is not added. Fixed layers use their current value. Equal limits define one value.')
@@ -281,9 +282,7 @@ class InverseWorkflowMixin:
         layout.addWidget(buttons)
         def accept():
             try:
-                rows = [{'vary': table.cellWidget(i,1).currentText() == 'Vary',
-                         'minimum': table.item(i,3).text(), 'maximum': table.item(i,4).text(),
-                         'step': table.item(i,5).text()} for i in range(table.rowCount())]
+                rows = [controls.row() for controls in range_controls]
                 revised = configure_layers(self.layers, rows)
             except ValueError as exc:
                 QMessageBox.warning(dialog, 'Search parameters', str(exc))
@@ -300,7 +299,7 @@ class InverseWorkflowMixin:
         from .robust_design import manufacturing_case_count
         if self.inv_score_mode_var.get() in MANUFACTURING_OBJECTIVES:
             if cfg.enabled:
-                raise ValueError('Disable shared uncertainty for a per-layer objective; edit bounds in Sensitivity & Yield.')
+                raise ValueError('Per-layer manufacturing objectives replace shared stack variation; use Edit per-layer tolerance bounds.')
             return manufacturing_case_count(layers, self.robust_settings.capture(), self.inv_score_mode_var.get())
         return len(build_uncertainty_scales(cfg))
 
@@ -337,7 +336,7 @@ class InverseWorkflowMixin:
             layers, freqs, angles, cfg = self._inverse_setup_values()
             if int(self.inv_top_n_var.get()) <= 0:
                 raise ValueError('Keep best must be a positive integer.')
-            inverse_requirement_target(self.inv_score_mode_var.get(), self.inv_requirement_db_var.get(), self.robust_settings.capture())
+            inverse_requirement_target(self.inv_score_mode_var.get(), self.inv_requirement_db_var.get())
         except Exception as exc:
             self.inv_setup_status.setText(str(exc))
             return
@@ -382,7 +381,11 @@ class InverseWorkflowMixin:
                                                   self._read_inverse_uncertainty_config())
         except Exception as exc:
             text = 'Complete setup: ' + str(exc)
-        self.inv_work_count.setText(text)
+        freq = self.inv_freq_list_var.get() + ' GHz' if self.inv_freq_mode_var.get().lower().startswith('discrete') else f'{self.inv_target_start_var.get()}–{self.inv_target_stop_var.get()} GHz, step {self.inv_target_step_var.get()}'
+        summary = f'{freq} · incidence {self.inv_angle_start_var.get()}–{self.inv_angle_stop_var.get()}° · {self.inv_wave_pol_var.get()}\n{self.inv_score_mode_var.get()}'
+        if self.inv_score_mode_var.get() not in INVERSE_SCORE_MODE_OPTIONS[:2]:
+            summary += f' · reflection limit {self.inv_requirement_db_var.get()} dB'
+        self.inv_work_count.setText(summary + '\n' + text)
 
     def _inverse_can_resume(self):
         checkpoint = self._inverse_checkpoint

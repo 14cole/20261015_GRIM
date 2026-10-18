@@ -26,6 +26,8 @@ class AnalysisWorkflowMixin:
             self._analysis_page_indices[mode] = 0
 
     def _active_analysis_panel(self):
+        if self._active_left_tab_label() == 'Thickness':
+            return None  # Thickness owns its setup, envelopes and layer details.
         return getattr(self, 'analysis_panels', {}).get(self._active_left_tab_label())
 
     def _sync_analysis_chrome(self):
@@ -60,6 +62,10 @@ class AnalysisWorkflowMixin:
         self._open_analysis_results(mode)
 
     def _open_analysis_results(self, mode):
+        if mode == 'Thickness':
+            self.tolerance_workspace.tabs.setTabEnabled(2, True)
+            self.tolerance_workspace.tabs.setCurrentIndex(2)
+            return
         self._analysis_page_indices[mode] = 1
         if self._active_left_tab_label() == mode:
             self._sync_mode_chrome()

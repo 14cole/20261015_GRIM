@@ -22,6 +22,19 @@ from .tolerance_config import PARAMETERS, layer_parameters, validate_setup, vali
 
 
 from .tolerance_config import StopToleranceAnalysis
+from .requirements import REQUIREMENT_TOL_DB, requirement_margin
+
+
+def effective_material_hash(layers, properties):
+    """Fingerprint the inputs actually loaded, not files reread after loading."""
+    digest = hashlib.sha256()
+    for layer, props in zip(layers, properties):
+        digest.update(repr((layer.thickness_m, layer.sheet_resistance,
+                           layer.anisotropic, layer.polarization_deg)).encode())
+        if props:
+            for values in props:
+                digest.update(np.asarray(values, dtype='<c16').tobytes())
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -195,14 +208,14 @@ class PreparedStudy:
 def crossing_brackets(offsets, margins):
     """First outward pass/miss bracket in each direction; no monotonicity claim."""
     center = len(offsets) // 2
-    if margins[center] < 0:
+    if margins[center] < -REQUIREMENT_TOL_DB:
         return {'negative': None, 'positive': None, 'nominal_pass': False}
     result = {'nominal_pass': True}
     for direction, indices in [('negative', range(center - 1, -1, -1)), ('positive', range(center + 1, len(offsets)))]:
         last = 0.
         result[direction] = None
         for i in indices:
-            if margins[i] < 0:
+            if margins[i] < -REQUIREMENT_TOL_DB:
                 result[direction] = [last, float(offsets[i])]
                 break
             last = float(offsets[i])
@@ -219,10 +232,11 @@ def run_tolerance_study(layers, layer_configs, setup, *, stop_requested=lambda: 
     zero = np.zeros(len(params))
     target = float(setup['target'])
     nominal = engine.response(zero)
-    nominal_margin = target - float(nominal.max())
+    nominal_margin = requirement_margin(target, nominal.max())
     done = 1
     progress(done, workload['evaluations'], 'Nominal')
     offsets = np.linspace(-1, 1, int(setup['points']))
+    offsets[len(offsets)//2] = 0.0
     sensitivities = []
     for j, p in enumerate(params):
         margins = np.empty(len(offsets))
@@ -232,7 +246,7 @@ def run_tolerance_study(layers, layer_configs, setup, *, stop_requested=lambda: 
                 continue
             values = zero.copy()
             values[j] = offset
-            margins[i] = target - float(engine.response(values).max())
+            margins[i] = requirement_margin(target, engine.response(values).max())
             done += 1
             progress(done, workload['evaluations'], p.label)
         sensitivities.append(dict(label=p.label, parameter=vars(p), margins_db=margins.tolist(),
@@ -251,13 +265,13 @@ def run_tolerance_study(layers, layer_configs, setup, *, stop_requested=lambda: 
             for batch in sampled_deviations(params, int(setup['samples']), seed):
                 for values in batch:
                     response = engine.response(values)
-                    margin = target - float(response.max())
-                    counts += response > target
+                    margin = requirement_margin(target, response.max())
+                    counts += response > target + REQUIREMENT_TOL_DB
                     trial_margins[completed] = margin
                     completed += 1
                     passing += int(margin >= 0)
                     done += 1
-                    if completed & (completed - 1) == 0:
+                    if completed & (completed - 1) == 0 or completed % int(setup['samples']) == 0:
                         convergence.append([completed, 100 * passing / completed])
                     progress(done, workload['evaluations'], 'Statistical trials')
                     del response
@@ -265,15 +279,10 @@ def run_tolerance_study(layers, layer_configs, setup, *, stop_requested=lambda: 
     if stop_requested():
         raise StopToleranceAnalysis()
     nominal_worst = np.unravel_index(int(nominal.argmax()), nominal.shape)
-    source_hash = hashlib.sha256()
-    for layer, props in zip(layers, engine.properties):
-        source_hash.update(repr((layer.thickness_m, layer.sheet_resistance, layer.anisotropic, layer.polarization_deg)).encode())
-        if props:
-            for values in props:
-                source_hash.update(np.asarray(values, dtype='<c16').tobytes())
+    source_hash = effective_material_hash(layers, engine.properties)
     import scipy
     implementation = hashlib.sha256()
-    for name in ('tolerance_analysis.py', 'tolerance_config.py', 'compute.py'):
+    for name in ('tolerance_analysis.py', 'tolerance_config.py', 'compute.py', 'requirements.py'):
         implementation.update(Path(__file__).with_name(name).read_bytes())
     return dict(setup=copy.deepcopy(setup), frequencies_ghz=freqs, angles_deg=angles, polarizations=pols,
                 target_db=target, nominal_reflection_db=nominal, nominal_margin_db=nominal_margin,
@@ -281,7 +290,8 @@ def run_tolerance_study(layers, layer_configs, setup, *, stop_requested=lambda: 
                 offsets=offsets.tolist(), sensitivities=sensitivities, trial_margins_db=trial_margins,
                 failure_counts=counts, trials=nstat, passing=passing,
                 pass_fraction_pct=100 * passing / nstat if nstat else None, convergence=convergence,
-                evaluated=done, workload=workload, effective_material_sha256=source_hash.hexdigest(),
+                evaluated=done, workload=workload, effective_material_sha256=source_hash,
+                requirement_comparison_tolerance_db=REQUIREMENT_TOL_DB,
                 versions=dict(python=platform.python_version(), numpy=np.__version__, scipy=scipy.__version__,
                               method='freddy-tolerance-v2', implementation_sha256=implementation.hexdigest()),
                 repeatability=repeatability(repeat_pass_pct) if repeat_pass_pct else None,

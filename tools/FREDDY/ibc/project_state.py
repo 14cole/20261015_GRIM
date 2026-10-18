@@ -18,6 +18,8 @@ class ProjectStateMixin:
     """Translate between workspace controls and portable project dictionaries."""
 
     def _collect_project_state(self) -> dict[str, object]:
+        self.tolerance_workspace.commit_ranges()
+        self.robust_settings.capture()  # Validate active ranking settings only.
         controls: dict[str, object] = {
             "f_start": self.f_start_var.get(),
             "f_stop": self.f_stop_var.get(),
@@ -120,7 +122,7 @@ class ProjectStateMixin:
             "controls": controls,
             "mixes": {"components": [dict(c) for c in self.mix_components]},
             "tolerance_setup": self.tolerance_workspace.capture_setup(),
-            "robust_setup": self.robust_settings.capture(),
+            "robust_setup": self.robust_settings.stored_values(),
         }
         scales = {name: {key: list(limits) for key, limits in control.limits.items()}
                   for name, control in self._color_scale_controls().items() if control.limits}
@@ -161,8 +163,11 @@ class ProjectStateMixin:
             raise ValueError("Project layers must be a list.")
         if not isinstance(controls, dict):
             raise ValueError("Project controls must be an object.")
-        from .tolerance_config import validate_setup
-        tolerance_setup = validate_setup(state.get('tolerance_setup', {}))
+        from .tolerance_config import validate_setup, ENVELOPE_MODE
+        raw_tolerance = state.get('tolerance_setup', {})
+        if not isinstance(raw_tolerance, dict):
+            raise ValueError('Thickness setup must be an object.')
+        tolerance_setup = validate_setup(dict(raw_tolerance, mode=ENVELOPE_MODE))
         from .robust_design import validate_robust_setup
         robust_setup = validate_robust_setup(state.get('robust_setup', {}))
 
@@ -287,7 +292,7 @@ class ProjectStateMixin:
                 }:
                     # Migrate legacy HH/VV project values to unambiguous
                     # plane-wave TE/TM labels.
-                    value = ('Both' if key == 'inv_wave_pol' and len(inverse_polarizations(value))>1 else normalize_wave_polarization(value).upper())
+                    value = ('Both' if key in ('inv_wave_pol', 'wave_pol') and len(inverse_polarizations(value))>1 else normalize_wave_polarization(value).upper())
                 elif key == "backing":
                     value = normalize_backing(value)
                 elif key == "inv_score_mode":
@@ -342,6 +347,9 @@ class ProjectStateMixin:
         self.tolerance_workspace.restore_setup(tolerance_setup)
         self.robust_settings.restore(robust_setup)
         if hasattr(self, "_inverse_verification_dialog"):
+            for key, field in self._inverse_verification_dialog.fields.items():
+                field.setText(str(robust_setup[key]))
+            self._inverse_verification_dialog.sync_settings()
             self._inverse_verification_dialog.result = None
             self._inverse_verification_dialog.table.setRowCount(0)
             self._inverse_verification_dialog.export_button.setEnabled(False)
@@ -353,7 +361,9 @@ class ProjectStateMixin:
             for name, control in self._color_scale_controls().items():
                 control.limits = dict(color_scales.get(name, {}))
         self._refresh_layers()
-        self.angle_compare_both.setChecked(self._coerce_bool(controls.get('angle_compare_both', True)))
+        if self._coerce_bool(controls.get('angle_compare_both', False)):
+            self.wave_pol_var.set('Both')
+        self._sync_inverse_objective()
         # The Thickness layer choices are rebuilt from the restored stack, so
         # the saved selection is re-applied after the combo is repopulated.
         if "thk_layer" in controls:

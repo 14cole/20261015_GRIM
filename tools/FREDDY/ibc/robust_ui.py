@@ -15,6 +15,7 @@ from .ui_controls import messagebox, filedialog
 class RobustSettings(QWidget):
     def __init__(self, host):
         super().__init__(host)
+        self.host = host
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
         self.fields = {}
@@ -27,18 +28,43 @@ class RobustSettings(QWidget):
             if options: edit.addItems(options)
             (edit.setCurrentText if options else edit.setText)(str(ROBUST_DEFAULTS[key]))
             self.fields[key] = edit
+            edit.setToolTip({'samples': 'Number of joint manufacturing probes per candidate. These sample material tolerances; nominal design ranges still evaluate every defined combination.',
+                'seed': 'Integer seed for repeatable manufacturing samples shared across candidate designs.',
+                'repeats': 'Independent yield trials; configured in Verify candidates.',
+                'levels': 'Finer operating grids; configured in Verify candidates.'}[key])
             grid.addWidget(QLabel(label), i//2, 2*(i%2))
             grid.addWidget(edit, i//2, 2*(i%2)+1)
+            if key in ('repeats', 'levels'):
+                grid.itemAtPosition(i//2, 2*(i%2)).widget().hide()
+                edit.hide()  # Stored for project compatibility; edited in verification.
             (edit.currentTextChanged if options else edit.textChanged).connect(host._schedule_inverse_work_count)
-        note = QLabel('Per-layer objectives use bounds from Sensitivity & Yield. Worst-gap ranking samples the rectangular bounds; yield ranking uses the chosen distributions/groups. Shared uncertainty must be off. Verification uses fresh seeds and finer grids; sampled bounds are not guarantees.')
+        note = QLabel('Per-layer objectives use the manufacturing bounds edited below. These are separate from the exhaustive Thickness ranges. Worst-gap ranking samples the rectangular bounds; yield ranking uses the chosen distributions/groups. Shared stack variation is disabled in this mode. Verification uses fresh seeds and finer grids; sampled bounds are not guarantees.')
         note.setWordWrap(True)
         grid.addWidget(note, 2, 0, 1, 4)
         button = QPushButton('Edit per-layer tolerance bounds…')
-        button.clicked.connect(lambda: host._open_guide_workflow('Sensitivity & Yield'))
+        button.clicked.connect(lambda: host.tolerance_workspace.edit_manufacturing_bounds())
         grid.addWidget(button, 3, 0, 1, 4)
 
-    def capture(self):
-        return validate_robust_setup({k: v.currentText() if isinstance(v, QComboBox) else v.text() for k,v in self.fields.items()})
+    def capture(self, *, verification=False):
+        from .ui_options import MANUFACTURING_OBJECTIVES
+        values = dict(ROBUST_DEFAULTS)
+        stored = self.stored_values()
+        for key in ('repeats', 'levels'): values[key] = stored[key]
+        keys = self.fields if verification else ('samples', 'seed') if self.host.inv_score_mode_var.get() in MANUFACTURING_OBJECTIVES else ()
+        for k in keys:
+            v = self.fields[k]
+            values[k] = v.currentText() if isinstance(v, QComboBox) else v.text()
+        return validate_robust_setup(values)
+
+    def stored_values(self):
+        # Preserve valid preferences without allowing inactive unfinished edits
+        # to prevent saving an unrelated nominal study.
+        values = dict(ROBUST_DEFAULTS)
+        for k, v in self.fields.items():
+            raw = v.currentText() if isinstance(v, QComboBox) else v.text()
+            try: values[k] = validate_robust_setup({**values, k: raw})[k]
+            except ValueError: pass
+        return values
 
     def restore(self, values):
         for key, value in validate_robust_setup(values).items():
@@ -64,7 +90,21 @@ class VerificationDialog(QDialog):
         self.choice = QComboBox()
         self.choice.addItems(['All retained candidates', 'Selected candidate'])
         layout.addWidget(self.choice)
-        self.status = QLabel('Choose settings in Inverse Design Setup, then run verification.')
+        settings = QGridLayout()
+        self.fields = {}
+        self.field_labels = {}
+        for row, (key, label) in enumerate((('samples', 'Joint tolerance samples'), ('seed', 'Sampling seed'),
+                ('repeats', 'Independent yield repeats'), ('levels', 'Frequency/angle refinements'))):
+            field = QLineEdit(str(host.robust_settings.stored_values()[key]))
+            field.setToolTip({'samples': 'Joint tolerance cases per verification level; must be a supported power of two.',
+                'seed': 'Reproducible sampling seed. Verification uses fresh scenarios distinct from ranking.',
+                'repeats': 'Independent trials used to estimate variation in modeled manufacturing yield.',
+                'levels': 'Number of finer frequency/angle grids. Discrete frequency targets remain discrete.'}[key])
+            self.fields[key] = field
+            self.field_labels[key] = QLabel(label)
+            settings.addWidget(self.field_labels[key], row, 0); settings.addWidget(field, row, 1)
+        layout.addLayout(settings)
+        self.status = QLabel('Choose verification settings, then run verification. These do not change the search ranking.')
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.table = QTableWidget(0, 6)
@@ -95,6 +135,24 @@ class VerificationDialog(QDialog):
         self.timer = QTimer(self)
         self.timer.setInterval(100)
         self.timer.timeout.connect(self.update_progress)
+        self.sync_settings()
+
+    def sync_settings(self):
+        from .tolerance_config import validate_tolerances
+        has_parameters = any(any(v['bound'] > 0 for v in validate_tolerances(c.tolerances, c.is_sheet).values()) for c in self.host.layers)
+        try:
+            shared = self.host._read_inverse_uncertainty_config()
+            sampling = has_parameters or (shared.enabled and any((shared.thickness_pct, shared.eps_pct, shared.mu_pct)))
+        except ValueError:
+            sampling = True  # Run performs strict validation; keep corrections accessible.
+        self.applicable_fields = {'levels'} | ({'samples', 'seed'} if sampling else set()) | ({'repeats'} if has_parameters else set())
+        for key in self.fields:
+            self.fields[key].setVisible(key in self.applicable_fields)
+            self.field_labels[key].setVisible(key in self.applicable_fields)
+
+    def showEvent(self, event):
+        self.sync_settings()
+        super().showEvent(event)
 
     def reject(self):
         if self.active:
@@ -126,7 +184,11 @@ class VerificationDialog(QDialog):
             indices = list(range(len(all_candidates))) if self.choice.currentIndex()==0 else [self.host._selected_inverse_index()]
             if not indices or min(indices)<0: raise ValueError('Select a candidate first.')
             candidates = [all_candidates[i] for i in indices]
-            setup = self.host.robust_settings.capture()
+            self.sync_settings()
+            setup = validate_robust_setup({k: v.text() for k, v in self.fields.items() if k in self.applicable_fields})
+            # Save verification preferences without changing ranking controls.
+            for key in ('repeats', 'levels'):
+                self.host.robust_settings.fields[key].setCurrentText(str(setup[key]))
             target = self.host.inverse_result_metadata.get('requirement_db')
             if target is None: target = self.host.inv_target_db.value()
             pol = self.host.inv_wave_pol_var.get()

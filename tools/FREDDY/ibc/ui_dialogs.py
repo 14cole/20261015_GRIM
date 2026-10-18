@@ -159,6 +159,7 @@ class LayerDialog(QDialog):
         self.lbl_pol = QLabel("Selected principal axis (0 or 90 deg)")
         grid.addWidget(self.lbl_pol, 5, 0, Qt.AlignLeft)
         self.ent_pol = QLineEdit()
+        self.ent_pol.setToolTip('Select the measured material principal axis: 0 or 90 degrees. This material orientation is separate from the incident wave’s TE/TM polarization.')
         bind_line_edit(self.pol_var, self.ent_pol)
         grid.addWidget(self.ent_pol, 5, 1)
 
@@ -175,15 +176,18 @@ class LayerDialog(QDialog):
             Qt.AlignLeft,
         )
         grid.addWidget(QLabel("Minimum thickness (in)"), 8, 0, Qt.AlignLeft)
-        tmin_edit = QLineEdit()
+        from .range_controls import RangeControls
+        self.range_controls = RangeControls(self, (self.inv_t_min_var.get(), self.inv_t_max_var.get(), self.inv_t_acc_var.get()), 'in')
+        grid.addWidget(self.range_controls.toggle, 7, 3)
+        tmin_edit = self.range_controls.fields[0]
         bind_line_edit(self.inv_t_min_var, tmin_edit)
         grid.addWidget(tmin_edit, 8, 1)
         grid.addWidget(QLabel("Maximum thickness (in)"), 9, 0, Qt.AlignLeft)
-        tmax_edit = QLineEdit()
+        tmax_edit = self.range_controls.fields[1]
         bind_line_edit(self.inv_t_max_var, tmax_edit)
         grid.addWidget(tmax_edit, 9, 1)
         grid.addWidget(QLabel("Thickness step (in)"), 10, 0, Qt.AlignLeft)
-        tacc_edit = QLineEdit()
+        tacc_edit = self.range_controls.fields[2]
         bind_line_edit(self.inv_t_acc_var, tacc_edit)
         tacc_edit.setToolTip(
             "Required when varying thickness (for example 0.001 in). Values start "
@@ -233,6 +237,7 @@ class LayerDialog(QDialog):
         enabled = not constant and self.aniso_var.get()
         for widget in (self.lbl_90, self.ent_90, self.btn_90, self.lbl_pol, self.ent_pol):
             widget.setEnabled(enabled)
+            widget.setVisible(enabled)
 
     def _browse_0deg(self) -> None:
         p = filedialog.askopenfilename(title="Select 0 deg/isotropic property file", parent=self, filetypes=[("Material CSV (Hz)", "*.csv")])
@@ -282,10 +287,10 @@ class LayerDialog(QDialog):
             if anisotropic and not file_90deg:
                 raise ValueError("90 deg file is required for anisotropic layer.")
 
-            inv_t_min_in = _parse_optional_thickness(self.inv_t_min_var.get(), "inv_t_min")
-            inv_t_max_in = _parse_optional_thickness(self.inv_t_max_var.get(), "inv_t_max")
+            inv_t_min_in = _parse_optional_thickness(self.inv_t_min_var.get() if self.range_controls.toggle.isChecked() else "", "inv_t_min")
+            inv_t_max_in = _parse_optional_thickness(self.inv_t_max_var.get() if self.range_controls.toggle.isChecked() else "", "inv_t_max")
             inv_t_accuracy_in = _parse_optional_thickness(
-                self.inv_t_acc_var.get(), "thickness step"
+                self.inv_t_acc_var.get() if self.range_controls.toggle.isChecked() else "", "thickness step"
             )
             if (inv_t_min_in is None) != (inv_t_max_in is None):
                 raise ValueError("Set both minimum and maximum thickness, or leave both blank.")
@@ -312,7 +317,8 @@ class LayerDialog(QDialog):
             )
             if constant:
                 constant_material_from_layer(result)
-            self.result = result
+            from .inverse_workflow import configure_layers
+            self.result = configure_layers([result], [self.range_controls.row()])[0]
             self.accept()
         except Exception as exc:
             messagebox.showerror("Invalid Layer", str(exc), parent=self)
@@ -373,7 +379,7 @@ class SheetDialog(QDialog):
         sep.setFrameShadow(QFrame.Sunken)
         grid.addWidget(sep, 1, 0, 1, 2)
         grid.addWidget(
-            QLabel("Optimization range (leave minimum and maximum blank to keep fixed)"),
+            QLabel("Resistance range — unchecked Vary means Fixed"),
             2,
             0,
             1,
@@ -381,15 +387,18 @@ class SheetDialog(QDialog):
             Qt.AlignLeft,
         )
         grid.addWidget(QLabel("Minimum resistance (\u03a9/sq)"), 3, 0, Qt.AlignLeft)
-        rmin_edit = QLineEdit()
+        from .range_controls import RangeControls
+        self.range_controls = RangeControls(self, (self.inv_rs_min_var.get(), self.inv_rs_max_var.get(), self.inv_rs_acc_var.get()), 'Ω/sq')
+        grid.addWidget(self.range_controls.toggle, 2, 2)
+        rmin_edit = self.range_controls.fields[0]
         bind_line_edit(self.inv_rs_min_var, rmin_edit)
         grid.addWidget(rmin_edit, 3, 1)
         grid.addWidget(QLabel("Maximum resistance (\u03a9/sq)"), 4, 0, Qt.AlignLeft)
-        rmax_edit = QLineEdit()
+        rmax_edit = self.range_controls.fields[1]
         bind_line_edit(self.inv_rs_max_var, rmax_edit)
         grid.addWidget(rmax_edit, 4, 1)
         grid.addWidget(QLabel("Resistance step (\u03a9)"), 5, 0, Qt.AlignLeft)
-        racc_edit = QLineEdit()
+        racc_edit = self.range_controls.fields[2]
         bind_line_edit(self.inv_rs_acc_var, racc_edit)
         racc_edit.setToolTip(
             "Required when varying resistance (for example 1 ohm). Values start "
@@ -411,10 +420,10 @@ class SheetDialog(QDialog):
             rs = float(self.rs_var.get().strip())
             if rs <= 0:
                 raise ValueError("Sheet resistance must be > 0.")
-            inv_rs_min = _parse_optional_thickness(self.inv_rs_min_var.get(), "R min")
-            inv_rs_max = _parse_optional_thickness(self.inv_rs_max_var.get(), "R max")
+            inv_rs_min = _parse_optional_thickness(self.inv_rs_min_var.get() if self.range_controls.toggle.isChecked() else "", "R min")
+            inv_rs_max = _parse_optional_thickness(self.inv_rs_max_var.get() if self.range_controls.toggle.isChecked() else "", "R max")
             inv_rs_accuracy = _parse_optional_thickness(
-                self.inv_rs_acc_var.get(), "resistance step"
+                self.inv_rs_acc_var.get() if self.range_controls.toggle.isChecked() else "", "resistance step"
             )
             if (inv_rs_min is None) != (inv_rs_max is None):
                 raise ValueError("Set both R min and R max, or leave both blank.")
@@ -437,6 +446,8 @@ class SheetDialog(QDialog):
                 inv_rs_max=inv_rs_max,
                 inv_rs_accuracy=inv_rs_accuracy,
             )
+            from .inverse_workflow import configure_layers
+            self.result = configure_layers([self.result], [self.range_controls.row()])[0]
             self.accept()
         except Exception as exc:
             messagebox.showerror("Invalid Sheet", str(exc), parent=self)

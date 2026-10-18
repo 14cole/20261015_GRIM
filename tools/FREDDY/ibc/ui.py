@@ -613,10 +613,10 @@ def _uncertainty_group(enabled_var, t_var, eps_var, mu_var, sync_cb):
     dgrid.addWidget(QLabel("Thickness ±%"), 0, 0, Qt.AlignLeft)
     t_entry = _entry(t_var, 8)
     dgrid.addWidget(t_entry, 0, 1, Qt.AlignLeft)
-    dgrid.addWidget(QLabel("Eps ±%"), 0, 2, Qt.AlignLeft)
+    dgrid.addWidget(QLabel("εr ±%"), 0, 2, Qt.AlignLeft)
     eps_entry = _entry(eps_var, 8)
     dgrid.addWidget(eps_entry, 0, 3, Qt.AlignLeft)
-    dgrid.addWidget(QLabel("Mu ±%"), 0, 4, Qt.AlignLeft)
+    dgrid.addWidget(QLabel("μr ±%"), 0, 4, Qt.AlignLeft)
     mu_entry = _entry(mu_var, 8)
     dgrid.addWidget(mu_entry, 0, 5, Qt.AlignLeft)
     dgrid.setColumnStretch(6, 1)
@@ -672,7 +672,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self.angle_start_var = StringVar("0.0")
         self.angle_stop_var = StringVar("80.0")
         self.angle_step_var = StringVar("1.0")
-        self.wave_pol_var = StringVar("TE")
+        self.wave_pol_var = StringVar("Both")
         self.angle_output_var = StringVar("angle_out.csv")
         self.angle_uncertainty_var = BooleanVar(False)
         self.angle_unc_t_pct_var = StringVar("5.0")
@@ -902,7 +902,10 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
 
     def is_dirty(self) -> bool:
         clean = self._clean_project_state
-        return clean is not None and self._collect_project_state() != clean
+        try:
+            return clean is not None and self._collect_project_state() != clean
+        except ValueError:
+            return True  # Unfinished range edits may still be discarded on close.
 
     def request_close(self, parent: QWidget | None = None) -> bool:
         """Resolve unsaved native project state before a host closes."""
@@ -1059,10 +1062,6 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
 
         self._build_mix_tab(_add_mode)
 
-        from .tolerance_ui import ToleranceWidget
-        self.tolerance_workspace = ToleranceWidget(self)
-        _add_mode('Sensitivity & Yield', self.tolerance_workspace)
-
         # Material Explorer is informational and session-only. It deliberately
         # lives inside FREDDY so the same workspace appears in GRIM and in the
         # standalone launcher, while its file list stays out of project state.
@@ -1091,8 +1090,11 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self.layers_group = layers_group
         layers_layout = QHBoxLayout(layers_group)
         self.layer_list = QListWidget()
-        self.layer_list.setMinimumHeight(200)
-        layers_layout.addWidget(self.layer_list, 1)
+        self.layer_list.setMinimumHeight(140)
+        self.layer_list.setMinimumWidth(240)
+        stack_split = QSplitter(Qt.Vertical)
+        stack_split.addWidget(self.layer_list)
+        layers_layout.addWidget(stack_split, 1)
 
         preview_container = QWidget()
         preview_layout = QVBoxLayout(preview_container)
@@ -1100,7 +1102,8 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         preview_layout.addWidget(QLabel("Visual stack (real-time)"))
         self.layer_preview = LayerPreview(self._draw_layer_preview)
         preview_layout.addWidget(self.layer_preview, 1)
-        layers_layout.addWidget(preview_container, 1)
+        stack_split.addWidget(preview_container)
+        stack_split.setSizes([220, 300])
 
         btns = QWidget()
         btns_layout = QVBoxLayout(btns)
@@ -1175,6 +1178,8 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         save_plot_btn.clicked.connect(self._save_plot)
         opts_row.addWidget(save_plot_btn)
         right_layout.addWidget(plot_opts)
+        self.mix_color_widgets = [opts_row.itemAt(i).widget() for i in range(5)]
+        for widget in self.mix_color_widgets: widget.hide()
         self._sync_cbar_state()
 
         self.plot_frame = QGroupBox("Material Mix")
@@ -1211,6 +1216,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         work_split.setSizes([320, 380])
         self._build_inverse_results_workspace(work_split, root_layout)
         self._build_analysis_workspaces()
+        self.tolerance_workspace.attach_layer_details(self.analysis_panels['Thickness'])
 
         # Status text and the busy indicator live in the window status bar.
         self.status_label = QLabel(self.status_var.get())
@@ -1240,7 +1246,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         imp_layout = QVBoxLayout(imp_tab)
         _add_mode("Impedance", imp_tab)
 
-        imp_freq_group = QGroupBox("Frequency sweep")
+        imp_freq_group = QGroupBox("Frequency sweep (GHz, shared with IBC Batch)")
         imp_freq_grid = QGridLayout(imp_freq_group)
         imp_freq_grid.addWidget(QLabel("Start (GHz)"), 0, 0, Qt.AlignLeft)
         imp_freq_grid.addWidget(_entry(self.f_start_var, 10), 0, 1, Qt.AlignLeft)
@@ -1261,6 +1267,8 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         imp_freq_grid.addWidget(self.backing_combo, 1, 1, 1, 3, Qt.AlignLeft)
         imp_freq_grid.setColumnStretch(5, 1)
         imp_layout.addWidget(imp_freq_group)
+        from .operating_grid import copy_button
+        imp_layout.addWidget(copy_button(self, 'Impedance / IBC Batch'))
 
         (
             imp_unc_group,
@@ -1322,6 +1330,8 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         ibc_batch_freq_grid.addWidget(_entry(self.f_step_var, 10), 0, 5, Qt.AlignLeft)
         ibc_batch_freq_grid.setColumnStretch(5, 1)
         ibc_batch_layout.addWidget(ibc_batch_freq_group)
+        from .operating_grid import copy_button
+        ibc_batch_layout.addWidget(copy_button(self, 'Impedance / IBC Batch'))
 
         ibc_batch_sweep_group = QGroupBox("Selected-layer thickness sweep")
         ibc_batch_sweep_grid = QGridLayout(ibc_batch_sweep_group)
@@ -1355,6 +1365,10 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             Qt.AlignLeft,
         )
         ibc_batch_sweep_grid.setColumnStretch(5, 1)
+        use_range = QPushButton('Use current layer range')
+        use_range.setToolTip('Copy the selected layer’s shared minimum, maximum and step, converted to the selected export units.')
+        use_range.clicked.connect(self._copy_ibc_layer_range)
+        ibc_batch_sweep_grid.addWidget(use_range, 2, 2, 1, 4)
         ibc_batch_layout.addWidget(ibc_batch_sweep_group)
 
         ibc_batch_output_group = QGroupBox("Output naming")
@@ -1412,7 +1426,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         angle_layout = QVBoxLayout(angle_tab)
         _add_mode("Off Angle", angle_tab)
 
-        ang_freq_group = QGroupBox("Frequency sweep")
+        ang_freq_group = QGroupBox("Frequency sweep (GHz)")
         ang_freq_grid = QGridLayout(ang_freq_group)
         ang_freq_grid.addWidget(QLabel("Start (GHz)"), 0, 0, Qt.AlignLeft)
         ang_freq_grid.addWidget(_entry(self.angle_f_start_var, 10), 0, 1, Qt.AlignLeft)
@@ -1422,8 +1436,10 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         ang_freq_grid.addWidget(_entry(self.angle_f_step_var, 10), 0, 5, Qt.AlignLeft)
         ang_freq_grid.setColumnStretch(5, 1)
         angle_layout.addWidget(ang_freq_group)
+        from .operating_grid import copy_button
+        angle_layout.addWidget(copy_button(self, 'Off Angle'))
 
-        angle_group = QGroupBox("Angle sweep")
+        angle_group = QGroupBox("Incidence angle from normal (deg)")
         angle_grid = QGridLayout(angle_group)
         angle_grid.addWidget(QLabel("Start (deg)"), 0, 0, Qt.AlignLeft)
         angle_grid.addWidget(_entry(self.angle_start_var, 10), 0, 1, Qt.AlignLeft)
@@ -1431,14 +1447,16 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         angle_grid.addWidget(_entry(self.angle_stop_var, 10), 0, 3, Qt.AlignLeft)
         angle_grid.addWidget(QLabel("Step"), 0, 4, Qt.AlignLeft)
         angle_grid.addWidget(_entry(self.angle_step_var, 10), 0, 5, Qt.AlignLeft)
-        angle_grid.addWidget(QLabel("Wave pol"), 1, 0, Qt.AlignLeft)
-        angle_grid.addWidget(make_combo(("TE", "TM"), self.wave_pol_var, width=70), 1, 1, Qt.AlignLeft)
+        angle_grid.addWidget(QLabel("Polarization"), 1, 0, Qt.AlignLeft)
+        angle_grid.addWidget(make_combo(("TE", "TM", "Both"), self.wave_pol_var, width=90), 1, 1, Qt.AlignLeft)
         angle_grid.setColumnStretch(5, 1)
         angle_layout.addWidget(angle_group)
-        self.angle_compare_both = QCheckBox("Compute TE and TM comparison (adds a second polarization solve)")
+        # Hidden compatibility adapter for earlier integrations/project fields.
+        self.angle_compare_both = QCheckBox(self)
+        self.angle_compare_both.hide()
         self.angle_compare_both.setChecked(True)
-        self.angle_compare_both.setToolTip('Oblique TM is unavailable for the directional two-axis model. In that case a valid TE run is retained without a TM comparison.')
-        angle_layout.addWidget(self.angle_compare_both)
+        self.angle_compare_both.toggled.connect(lambda both: self.wave_pol_var.set('Both' if both else 'TE' if self.wave_pol_var.get() == 'Both' else self.wave_pol_var.get()))
+        self.wave_pol_var.valueChanged.connect(lambda *_: self.angle_compare_both.setChecked(self.wave_pol_var.get() == 'Both'))
 
         (
             ang_unc_group,
@@ -1463,63 +1481,9 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
 
 
     def _build_thickness_tab(self, _add_mode) -> None:
-        """Construct the layer-thickness sweep controls."""
-        thickness_tab = QWidget()
-        self.thickness_tab = thickness_tab
-        thk_layout = QVBoxLayout(thickness_tab)
-        _add_mode("Thickness", thickness_tab)
-
-        thk_freq_group = QGroupBox("Frequency sweep")
-        thk_freq_grid = QGridLayout(thk_freq_group)
-        thk_freq_grid.addWidget(QLabel("Start (GHz)"), 0, 0, Qt.AlignLeft)
-        thk_freq_grid.addWidget(_entry(self.thk_f_start_var, 10), 0, 1, Qt.AlignLeft)
-        thk_freq_grid.addWidget(QLabel("Stop"), 0, 2, Qt.AlignLeft)
-        thk_freq_grid.addWidget(_entry(self.thk_f_stop_var, 10), 0, 3, Qt.AlignLeft)
-        thk_freq_grid.addWidget(QLabel("Step"), 0, 4, Qt.AlignLeft)
-        thk_freq_grid.addWidget(_entry(self.thk_f_step_var, 10), 0, 5, Qt.AlignLeft)
-        thk_freq_grid.setColumnStretch(5, 1)
-        thk_layout.addWidget(thk_freq_group)
-
-        thk_group = QGroupBox("Thickness sweep")
-        thk_grid = QGridLayout(thk_group)
-        thk_grid.addWidget(QLabel("Layer"), 0, 0, Qt.AlignLeft)
-        self.thk_layer_combo = make_combo((), self.thk_layer_var, width=260)
-        thk_grid.addWidget(self.thk_layer_combo, 0, 1, 1, 5, Qt.AlignLeft)
-        thk_grid.addWidget(QLabel("Start (in)"), 1, 0, Qt.AlignLeft)
-        thk_grid.addWidget(_entry(self.thk_start_var, 10), 1, 1, Qt.AlignLeft)
-        thk_grid.addWidget(QLabel("Stop"), 1, 2, Qt.AlignLeft)
-        thk_grid.addWidget(_entry(self.thk_stop_var, 10), 1, 3, Qt.AlignLeft)
-        thk_grid.addWidget(QLabel("Step"), 1, 4, Qt.AlignLeft)
-        thk_grid.addWidget(_entry(self.thk_step_var, 10), 1, 5, Qt.AlignLeft)
-        thk_grid.addWidget(QLabel("Angle (deg)"), 2, 0, Qt.AlignLeft)
-        thk_grid.addWidget(_entry(self.thk_angle_var, 10), 2, 1, Qt.AlignLeft)
-        thk_grid.addWidget(QLabel("Wave pol"), 2, 2, Qt.AlignLeft)
-        thk_grid.addWidget(
-            make_combo(("TE", "TM"), self.thk_wave_pol_var, width=70), 2, 3, Qt.AlignLeft
-        )
-        thk_grid.setColumnStretch(5, 1)
-        thk_layout.addWidget(thk_group)
-
-        (
-            thk_unc_group,
-            self.thk_unc_details_frame,
-            self.thk_unc_t_entry,
-            self.thk_unc_eps_entry,
-            self.thk_unc_mu_entry,
-        ) = _uncertainty_group(
-            self.thk_uncertainty_var,
-            self.thk_unc_t_pct_var,
-            self.thk_unc_eps_pct_var,
-            self.thk_unc_mu_pct_var,
-            self._sync_thickness_uncertainty_state,
-        )
-        thk_layout.addWidget(thk_unc_group)
-        thk_layout.addWidget(_output_row(self.thk_output_var, self._browse_thickness_output))
-
-        self.thk_compute_btn = QPushButton("Compute")
-        self.thk_compute_btn.clicked.connect(self._compute_thickness)
-        thk_layout.addWidget(self.thk_compute_btn, 0, Qt.AlignLeft)
-        thk_layout.addStretch(1)
+        from .thickness_ui import ThicknessWidget
+        self.thickness_tab = self.tolerance_workspace = ThicknessWidget(self)
+        _add_mode('Thickness', self.thickness_tab)
 
     def _build_inverse_tab(self, _add_mode) -> None:
         """Construct the inverse-design setup controls."""
@@ -1544,8 +1508,10 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self.inv_parameter_summary_label.setObjectName("PreviewLabel")
         inv_layout.addWidget(self.inv_parameter_summary_label)
         self._build_inverse_workflow(inv_layout)
+        from .operating_grid import copy_button
+        inv_layout.addWidget(copy_button(self, 'Inverse Design'))
 
-        self.inv_freq_target_frame = CollapsibleFrame("Frequency target", expanded=True)
+        self.inv_freq_target_frame = CollapsibleFrame("Frequency target", expanded=False)
         inv_layout.addWidget(self.inv_freq_target_frame)
         freq_body = QGridLayout(self.inv_freq_target_frame.body)
         freq_body.addWidget(QLabel("Mode"), 0, 0, Qt.AlignLeft)
@@ -1556,7 +1522,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             on_change=self._sync_inverse_freq_mode_state,
         )
         freq_body.addWidget(freq_mode_combo, 0, 1, 1, 2, Qt.AlignLeft)
-        freq_body.addWidget(QLabel("Band start"), 1, 0, Qt.AlignLeft)
+        freq_body.addWidget(QLabel("Band start (GHz)"), 1, 0, Qt.AlignLeft)
         self.inv_target_start_entry = _entry(self.inv_target_start_var, 8)
         freq_body.addWidget(self.inv_target_start_entry, 1, 1, Qt.AlignLeft)
         freq_body.addWidget(QLabel("Stop"), 1, 2, Qt.AlignLeft)
@@ -1570,7 +1536,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         freq_body.addWidget(self.inv_freq_list_entry, 2, 1, 1, 5)
         freq_body.setColumnStretch(5, 1)
 
-        self.inv_angle_target_frame = CollapsibleFrame("Angle target", expanded=True)
+        self.inv_angle_target_frame = CollapsibleFrame("Incidence angle from normal (deg)", expanded=False)
         inv_layout.addWidget(self.inv_angle_target_frame)
         angle_body = QGridLayout(self.inv_angle_target_frame.body)
         angle_body.addWidget(QLabel("Start (deg)"), 0, 0, Qt.AlignLeft)
@@ -1579,11 +1545,11 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         angle_body.addWidget(_entry(self.inv_angle_stop_var, 8), 0, 3, Qt.AlignLeft)
         angle_body.addWidget(QLabel("Step"), 0, 4, Qt.AlignLeft)
         angle_body.addWidget(_entry(self.inv_angle_step_var, 8), 0, 5, Qt.AlignLeft)
-        angle_body.addWidget(QLabel("Wave pol"), 0, 6, Qt.AlignLeft)
+        angle_body.addWidget(QLabel("Polarization"), 0, 6, Qt.AlignLeft)
         angle_body.addWidget(make_combo(("TE", "TM", "Both"), self.inv_wave_pol_var, width=80), 0, 7, Qt.AlignLeft)
         angle_body.setColumnStretch(8, 1)
 
-        self.inv_search_frame = CollapsibleFrame("Analyze all combinations", expanded=True)
+        self.inv_search_frame = CollapsibleFrame("Results to retain", expanded=False)
         inv_layout.addWidget(self.inv_search_frame)
         search_body = QGridLayout(self.inv_search_frame.body)
         search_body.addWidget(QLabel("Keep best for comparison"), 0, 0, Qt.AlignLeft)
@@ -1597,20 +1563,21 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         search_body.addWidget(search_help, 1, 0, 1, 3)
         search_body.setColumnStretch(2, 1)
 
-        self.inv_score_frame = CollapsibleFrame("Objective and tolerances", expanded=True)
+        self.inv_score_frame = CollapsibleFrame("Objective and tolerances", expanded=False)
         inv_layout.addWidget(self.inv_score_frame)
         score_body = QGridLayout(self.inv_score_frame.body)
-        inv_unc_check = QCheckBox("Enable uncertainty corners")
+        inv_unc_check = QCheckBox("Shared stack variation (sampled corners and axis probes)")
+        self.inv_unc_check = inv_unc_check
         bind_check_box(self.inv_uncertainty_var, inv_unc_check)
         inv_unc_check.clicked.connect(self._sync_inverse_uncertainty_state)
         score_body.addWidget(inv_unc_check, 0, 0, 1, 6, Qt.AlignLeft)
-        score_body.addWidget(QLabel("T ±%"), 1, 0, Qt.AlignLeft)
+        score_body.addWidget(QLabel("Thickness ±%"), 1, 0, Qt.AlignLeft)
         self.inv_unc_t_entry = _entry(self.inv_unc_t_pct_var, 7)
         score_body.addWidget(self.inv_unc_t_entry, 1, 1, Qt.AlignLeft)
-        score_body.addWidget(QLabel("Eps ±%"), 1, 2, Qt.AlignLeft)
+        score_body.addWidget(QLabel("εr ±%"), 1, 2, Qt.AlignLeft)
         self.inv_unc_eps_entry = _entry(self.inv_unc_eps_pct_var, 7)
         score_body.addWidget(self.inv_unc_eps_entry, 1, 3, Qt.AlignLeft)
-        score_body.addWidget(QLabel("Mu ±%"), 1, 4, Qt.AlignLeft)
+        score_body.addWidget(QLabel("μr ±%"), 1, 4, Qt.AlignLeft)
         self.inv_unc_mu_entry = _entry(self.inv_unc_mu_pct_var, 7)
         score_body.addWidget(self.inv_unc_mu_entry, 1, 5, Qt.AlignLeft)
         score_body.addWidget(QLabel("Score"), 2, 0, Qt.AlignLeft)
@@ -1637,6 +1604,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         from .robust_ui import RobustSettings
         self.robust_settings = RobustSettings(self)
         score_body.addWidget(self.robust_settings, 5, 0, 1, 6)
+        self._sync_inverse_objective()
         self.inv_wave_pol_var.valueChanged.connect(self._schedule_inverse_work_count)
         self.inv_results_list = self._create_inverse_candidate_table()
 
@@ -1659,6 +1627,15 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
     def _sync_inverse_objective(self, *_args):
         mode = self.inv_score_mode_var.get()
         whole_band = mode in (INVERSE_SCORE_WHOLE_BAND, *MANUFACTURING_OBJECTIVES)
+        manufacturing = mode in MANUFACTURING_OBJECTIVES
+        if manufacturing:
+            self.inv_uncertainty_var.set(False)
+        self.inv_unc_check.setVisible(not manufacturing)
+        if hasattr(self, 'robust_settings'):
+            self.robust_settings.setVisible(manufacturing)
+        self._sync_inverse_uncertainty_state()
+        self.inv_requirement_entry.setVisible(whole_band)
+        self.inv_requirement_label.setVisible(whole_band)
         self.inv_requirement_entry.setEnabled(whole_band)
         self.inv_requirement_label.setEnabled(whole_band)
         self.inv_objective_note.setText(
@@ -1749,7 +1726,10 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         comp_body.addWidget(comp_btns)
 
         mix_freq_frame = CollapsibleFrame("3. Choose prediction band", expanded=True)
+        self.mix_freq_frame = mix_freq_frame
         mix_layout.addWidget(mix_freq_frame)
+        from .operating_grid import copy_button
+        mix_layout.addWidget(copy_button(self, 'Material Mix'))
         mix_freq_body = QGridLayout(mix_freq_frame.body)
         mix_freq_body.addWidget(QLabel("Mode"), 0, 0, Qt.AlignLeft)
         mix_freq_body.addWidget(
@@ -1804,24 +1784,24 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         mix_prop_body.addWidget(QLabel("ε'' (passive loss < 0)"), 1, 2, Qt.AlignLeft)
         eps_im_entry = _entry(self.mix_prop_eps_im_var, 8)
         mix_prop_body.addWidget(eps_im_entry, 1, 3, Qt.AlignLeft)
-        mix_prop_body.addWidget(QLabel("μ'"), 1, 4, Qt.AlignLeft)
+        mix_prop_body.addWidget(QLabel("μ'"), 2, 0, Qt.AlignLeft)
         mu_re_entry = _entry(self.mix_prop_mu_re_var, 8)
-        mix_prop_body.addWidget(mu_re_entry, 1, 5, Qt.AlignLeft)
-        mix_prop_body.addWidget(QLabel("μ'' (passive loss < 0)"), 1, 6, Qt.AlignLeft)
+        mix_prop_body.addWidget(mu_re_entry, 2, 1, Qt.AlignLeft)
+        mix_prop_body.addWidget(QLabel("μ'' (passive loss < 0)"), 2, 2, Qt.AlignLeft)
         mu_im_entry = _entry(self.mix_prop_mu_im_var, 8)
-        mix_prop_body.addWidget(mu_im_entry, 1, 7, Qt.AlignLeft)
+        mix_prop_body.addWidget(mu_im_entry, 2, 3, Qt.AlignLeft)
         self.mix_prop_const_entries = [eps_re_entry, eps_im_entry, mu_re_entry, mu_im_entry]
-        mix_prop_body.addWidget(QLabel("Target material CSV"), 2, 0, Qt.AlignLeft)
+        mix_prop_body.addWidget(QLabel("Target material CSV"), 3, 0, Qt.AlignLeft)
         self.mix_prop_file_entry = _entry(self.mix_prop_file_var)
-        mix_prop_body.addWidget(self.mix_prop_file_entry, 2, 1, 1, 6)
+        mix_prop_body.addWidget(self.mix_prop_file_entry, 3, 1, 1, 2)
         self.mix_prop_browse_btn = QPushButton("Browse…")
         self.mix_prop_browse_btn.clicked.connect(self._browse_mix_prop_file)
-        mix_prop_body.addWidget(self.mix_prop_browse_btn, 2, 7, Qt.AlignLeft)
-        mix_prop_body.addWidget(QLabel("Importance: ε"), 3, 0, Qt.AlignLeft)
-        mix_prop_body.addWidget(_entry(self.mix_prop_weps_var, 6), 3, 1, Qt.AlignLeft)
-        mix_prop_body.addWidget(QLabel("μ"), 3, 2, Qt.AlignLeft)
-        mix_prop_body.addWidget(_entry(self.mix_prop_wmu_var, 6), 3, 3, Qt.AlignLeft)
-        mix_prop_body.setColumnStretch(7, 1)
+        mix_prop_body.addWidget(self.mix_prop_browse_btn, 3, 3, Qt.AlignLeft)
+        mix_prop_body.addWidget(QLabel("Importance: ε"), 4, 0, Qt.AlignLeft)
+        mix_prop_body.addWidget(_entry(self.mix_prop_weps_var, 6), 4, 1, Qt.AlignLeft)
+        mix_prop_body.addWidget(QLabel("μ"), 4, 2, Qt.AlignLeft)
+        mix_prop_body.addWidget(_entry(self.mix_prop_wmu_var, 6), 4, 3, Qt.AlignLeft)
+        mix_prop_body.setColumnStretch(3, 1)
 
         self.mix_perf_frame = CollapsibleFrame(
             "4. Set target planar-stack performance", expanded=True
@@ -1846,13 +1826,13 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         mix_perf_body.addWidget(_entry(self.mix_perf_target_var, 9), 1, 1, Qt.AlignLeft)
         self.mix_perf_requirement_label = QLabel()
         mix_perf_body.addWidget(self.mix_perf_requirement_label, 1, 2, 1, 4, Qt.AlignLeft)
-        mix_perf_body.addWidget(QLabel("Angle start (deg)"), 2, 0, Qt.AlignLeft)
+        mix_perf_body.addWidget(QLabel("Incidence from normal (deg)"), 2, 0, Qt.AlignLeft)
         mix_perf_body.addWidget(_entry(self.mix_perf_angle_start_var, 8), 2, 1, Qt.AlignLeft)
         mix_perf_body.addWidget(QLabel("Stop"), 2, 2, Qt.AlignLeft)
         mix_perf_body.addWidget(_entry(self.mix_perf_angle_stop_var, 8), 2, 3, Qt.AlignLeft)
         mix_perf_body.addWidget(QLabel("Step"), 2, 4, Qt.AlignLeft)
         mix_perf_body.addWidget(_entry(self.mix_perf_angle_step_var, 8), 2, 5, Qt.AlignLeft)
-        mix_perf_body.addWidget(QLabel("Wave polarization"), 3, 0, Qt.AlignLeft)
+        mix_perf_body.addWidget(QLabel("Polarization"), 3, 0, Qt.AlignLeft)
         mix_perf_body.addWidget(
             make_combo(("TE", "TM"), self.mix_perf_wave_pol_var, width=80),
             3,
@@ -1869,7 +1849,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         mix_perf_body.setColumnStretch(5, 1)
 
         self.mix_search_frame = CollapsibleFrame(
-            "Inverse recipe search settings", expanded=False
+            "Sampled recipe search settings", expanded=False
         )
         mix_layout.addWidget(self.mix_search_frame)
         mix_search_body = QGridLayout(self.mix_search_frame.body)
@@ -1940,27 +1920,27 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         mix_results_body.addWidget(self.mix_summary_label)
 
         mix_actions = QWidget()
-        mix_actions_layout = QHBoxLayout(mix_actions)
+        mix_actions_layout = QGridLayout(mix_actions)
         mix_actions_layout.setContentsMargins(0, 0, 0, 0)
         self.mix_preview_btn = QPushButton("Calculate recipe")
         self.mix_preview_btn.clicked.connect(self._preview_mix)
-        mix_actions_layout.addWidget(self.mix_preview_btn)
+        mix_actions_layout.addWidget(self.mix_preview_btn, 0, 0)
         self.mix_run_btn = QPushButton("Find matching recipes")
         self.mix_run_btn.clicked.connect(self._run_mix_design)
-        mix_actions_layout.addWidget(self.mix_run_btn)
+        mix_actions_layout.addWidget(self.mix_run_btn, 0, 1)
         self.mix_stop_btn = QPushButton("Stop search")
         self.mix_stop_btn.setEnabled(False)
         self.mix_stop_btn.clicked.connect(self._stop_mix_search)
-        mix_actions_layout.addWidget(self.mix_stop_btn)
-        mix_actions_layout.addStretch(1)
-        mix_actions_layout.addWidget(QLabel("Stack-layer thickness (in)"))
-        mix_actions_layout.addWidget(_entry(self.mix_thickness_var, 7))
+        mix_actions_layout.addWidget(self.mix_stop_btn, 0, 2)
+        mix_actions_layout.setColumnStretch(3, 1)
+        mix_actions_layout.addWidget(QLabel("Stack-layer thickness (in)"), 1, 0)
+        mix_actions_layout.addWidget(_entry(self.mix_thickness_var, 7), 1, 1)
         self.mix_apply_btn = QPushButton("Add selected as layer…")
         self.mix_apply_btn.clicked.connect(self._apply_mix_as_layer)
-        mix_actions_layout.addWidget(self.mix_apply_btn)
+        mix_actions_layout.addWidget(self.mix_apply_btn, 1, 2)
         self.mix_export_btn = QPushButton("Export selected CSV…")
         self.mix_export_btn.clicked.connect(self._export_mix_material)
-        mix_actions_layout.addWidget(self.mix_export_btn)
+        mix_actions_layout.addWidget(self.mix_export_btn, 1, 3)
         mix_layout.addWidget(mix_actions)
         self._bind_mix_input_invalidation()
         mix_layout.addStretch(1)
@@ -2314,7 +2294,9 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self.thk_unc_mu_entry.setEnabled(enabled)
 
     def _sync_inverse_uncertainty_state(self) -> None:
-        enabled = self.inv_uncertainty_var.get()
+        enabled = self.inv_uncertainty_var.get() and self.inv_score_mode_var.get() not in MANUFACTURING_OBJECTIVES
+        if hasattr(self, 'inv_score_frame'):
+            self._show_grid_row(self.inv_score_frame.body.layout(), 1, enabled)
         if self.inv_unc_t_entry is not None:
             self.inv_unc_t_entry.setEnabled(enabled)
         if self.inv_unc_eps_entry is not None:
@@ -2322,9 +2304,20 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         if self.inv_unc_mu_entry is not None:
             self.inv_unc_mu_entry.setEnabled(enabled)
 
+    @staticmethod
+    def _show_grid_row(layout, row, visible):
+        for i in range(layout.count()):
+            r, _c, _rs, _cs = layout.getItemPosition(i)
+            widget = layout.itemAt(i).widget()
+            if r == row and widget is not None:
+                widget.setVisible(visible)
+
     def _sync_inverse_freq_mode_state(self) -> None:
         mode = self.inv_freq_mode_var.get().strip().lower()
         band_enabled = mode.startswith("band")
+        if hasattr(self, 'inv_freq_target_frame'):
+            self._show_grid_row(self.inv_freq_target_frame.body.layout(), 1, band_enabled)
+            self._show_grid_row(self.inv_freq_target_frame.body.layout(), 2, not band_enabled)
         for entry in (
             self.inv_target_start_entry,
             self.inv_target_stop_entry,
@@ -2397,6 +2390,9 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
     def _save_plot(self) -> None:
         panel = self._active_analysis_panel()
         figure = panel.figure if panel is not None else self.inv_figure if self._is_inverse_tab_active() else self.fig
+        if self._is_tolerance_active():
+            workspace = self.tolerance_workspace
+            figure = workspace.detail_panel.figure if workspace.tabs.currentIndex() == 2 else workspace.figure
         if not MPL_AVAILABLE or figure is None:
             messagebox.showerror("Plot", "Matplotlib is not available.")
             return
@@ -3114,13 +3110,14 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self._select_mode(self._mode_labels.index('About & Guide'))
 
     def _open_guide_workflow(self, mode) -> None:
+        if mode == 'Sensitivity & Yield': mode = 'Thickness'
         if mode not in MODE_TOPICS:
             return
         if mode in self._analysis_page_indices:
             self._analysis_page_indices[mode] = 0
         if mode == 'Inverse Design':
             self._inverse_page_index = 0
-        if mode == 'Sensitivity & Yield':
+        if mode == 'Thickness':
             self.tolerance_workspace.tabs.setCurrentIndex(0)
         self._select_mode(self._mode_labels.index(mode))
 
@@ -3194,7 +3191,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         return self._active_left_tab_label() == "About & Guide"
 
     def _is_tolerance_active(self) -> bool:
-        return self._active_left_tab_label() == 'Sensitivity & Yield'
+        return self._active_left_tab_label() == 'Thickness'
 
     def _sync_mode_chrome(self) -> None:
         """Show the Material Mix plot band or a mode's own results workspace."""
@@ -4068,6 +4065,9 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
     def _sync_mix_freq_mode_state(self) -> None:
         mode = self.mix_freq_mode_var.get().strip().lower()
         band_enabled = mode.startswith("band")
+        if hasattr(self, 'mix_freq_frame'):
+            self._show_grid_row(self.mix_freq_frame.body.layout(), 1, band_enabled)
+            self._show_grid_row(self.mix_freq_frame.body.layout(), 2, not band_enabled)
         for entry in (
             self.mix_target_start_entry,
             self.mix_target_stop_entry,
@@ -4080,6 +4080,14 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
 
     def _sync_mix_uncertainty_state(self) -> None:
         enabled = self.mix_uncertainty_var.get()
+        if self.mix_search_frame is not None:
+            layout = self.mix_search_frame.body.layout()
+            self._show_grid_row(layout, 3, enabled)
+            self._show_grid_row(layout, 4, enabled)
+            self._show_grid_row(layout, 5, enabled)
+            for column in (0, 1):
+                item = layout.itemAtPosition(3, column)
+                if item is not None: item.widget().setVisible(enabled and self._mix_objective_is_performance())
         for entry in (self.mix_unc_t_entry, self.mix_unc_eps_entry, self.mix_unc_mu_entry):
             if entry is not None:
                 entry.setEnabled(enabled)
@@ -4129,12 +4137,17 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
                 )
             self.mix_workflow_help_label.setText(help_text)
         self._sync_mix_prop_source_state()
+        self._sync_mix_uncertainty_state()
         self._on_mix_performance_metric_changed()
         self._on_mix_model_changed()
 
     def _sync_mix_prop_source_state(self) -> None:
         prop = self._mix_objective_is_property()
         use_file = self.mix_prop_source_var.get().strip().lower().startswith("material")
+        if self.mix_prop_frame is not None:
+            self._show_grid_row(self.mix_prop_frame.body.layout(), 1, not use_file)
+            self._show_grid_row(self.mix_prop_frame.body.layout(), 2, not use_file)
+            self._show_grid_row(self.mix_prop_frame.body.layout(), 3, use_file)
         for entry in self.mix_prop_const_entries:
             entry.setEnabled(prop and not use_file)
         if self.mix_prop_file_entry is not None:
@@ -4591,7 +4604,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             score_mode = self.mix_score_mode_var.get().strip()
             uncertainty_cfg = self._read_uncertainty_config(
                 self.mix_uncertainty_var,
-                self.mix_unc_t_pct_var,
+                StringVar("0") if property_mode else self.mix_unc_t_pct_var,
                 self.mix_unc_eps_pct_var,
                 self.mix_unc_mu_pct_var,
             )
@@ -4990,6 +5003,8 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             data = self.mix_preview
             subtitle = "preview"
 
+        for widget in getattr(self, 'mix_color_widgets', []):
+            widget.setVisible(data is not None and data.get('performance') is not None)
         if data is None:
             self._draw_mix_placeholder(
                 "Preview a blend or run a search to view synthesized ε/μ."
@@ -5138,6 +5153,19 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             self.mix_summary_label.setText(summary)
 
         self.canvas.draw_idle()
+
+    def _copy_ibc_layer_range(self):
+        try:
+            self.tolerance_workspace.commit_ranges()
+            layer = self.layers[self._selected_ibc_batch_layer_index()]
+            values = (layer.inv_t_min_in, layer.inv_t_max_in, layer.inv_t_accuracy_in)
+            if values[0] is None or values[1] is None:
+                raise ValueError('Select Vary and define a range for this layer first.')
+            factor = 25.4 if self.ibc_batch_unit_var.get() == 'mm' else 1.
+            for var, value in zip((self.ibc_batch_start_var, self.ibc_batch_stop_var, self.ibc_batch_step_var), values):
+                var.set(f'{(value if value is not None else 1.) * factor:.12g}')
+        except (ValueError, IndexError) as exc:
+            messagebox.showerror('Copy layer range', str(exc))
 
     def _export_ibc_batch(self) -> None:
         try:
@@ -5392,7 +5420,8 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             f_stop = float(self.angle_f_stop_var.get().strip())
             f_step = float(self.angle_f_step_var.get().strip())
             nf = frequency_sweep_count(f_start, f_stop, f_step)
-            wave_pol = normalize_wave_polarization(self.wave_pol_var.get())
+            pols = inverse_polarizations(self.wave_pol_var.get())
+            wave_pol = pols[0]
 
             a_start = float(self.angle_start_var.get().strip())
             a_stop = float(self.angle_stop_var.get().strip())
@@ -5405,7 +5434,9 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             else:
                 a_step = float(self.angle_step_var.get().strip())
                 na = sweep_count(a_start, a_stop, a_step)
-            compare_both = self.angle_compare_both.isChecked()
+            compare_both = len(pols) > 1
+            if 'tm' in pols and any(layer.anisotropic for layer in layer_snapshot) and a_stop > 1e-12:
+                raise ValueError('Oblique TM is not supported by the directional two-axis material model. Select TE or use isotropic layers.')
             validate_analysis_grid(nf, na, layer_count=len(layer_snapshot),
                                    uncertainty=uncertainty.enabled,
                                    polarizations=2 if compare_both else 1, label="Off Angle")
@@ -5415,50 +5446,34 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             messagebox.showerror("Error", str(exc))
             return
 
+        from .export_paths import polarization_paths
+        paths = polarization_paths(output_path, pols)
         if not self._confirm_output_replacements(
-            [output_path], operation="Off-Angle"
+            list(paths.values()), operation="Off-Angle"
         ):
             return
 
         def worker() -> dict[str, object]:
             loaded_layers = self._load_layers(layer_snapshot)
-            other_pol = 'tm' if wave_pol == 'te' else 'te'
-            secondary = None
-            comparison_note = ''
-            if compare_both and any(layer.anisotropic for layer in loaded_layers) and max(angles) > 1e-12:
-                comparison_note = 'TM comparison unavailable for this directional stack at oblique angles. TE remains supported.'
-            elif compare_both:
-                secondary = extra_polarization(lambda t, e, m: self._compute_heatmap_data(
-                    loaded_layers, other_pol, angles, freqs=freqs,
-                    thickness_scale=t, eps_scale=e, mu_scale=m), uncertainty)
-            n, out, env_min, env_max, summary = self._compute_angle_mode(
-                output_path,
-                loaded_layers,
-                uncertainty,
-                angles,
-                freqs,
-                wave_pol,
-            )
-            pol = wave_pol.upper()
-            analysis = SweepResult(list(freqs), list(angles), 'Incidence angle (deg)',
+            metrics, lower, upper = {}, {}, {}
+            summaries = []
+            n = 0
+            for current_pol in pols:
+                pol = current_pol.upper()
+                count, out, env_min, env_max, summary = self._compute_angle_mode(
+                    paths[pol], loaded_layers, uncertainty, angles, freqs, current_pol)
+                n += count
+                metrics[pol] = grid_metrics(out)
+                if env_min:
+                    lower[pol], upper[pol] = grid_metrics(env_min), grid_metrics(env_max)
+                summaries.append(summary + f'\nExport: {paths[pol].resolve()} ({pol}).')
+            summary = '\n'.join(summaries)
+            analysis = SweepResult(list(freqs), list(angles), 'Incidence angle from normal (deg)',
                 f'Off Angle · {freqs[0]:g}–{freqs[-1]:g} GHz · {angles[0]:g}–{angles[-1]:g}° · ' +
-                ('TE and TM' if secondary is not None else pol) + ' · ' + tolerance_description(uncertainty)
-                + (' · TM comparison unavailable' if comparison_note else ''),
-                {pol: grid_metrics(out)}, polarization=pol,
-                lower={pol: grid_metrics(env_min)} if env_min else {},
-                upper={pol: grid_metrics(env_max)} if env_max else {},
-                summary=summary + f'\nExport: {output_path.resolve()} ({pol} only). Comparison polarization remains in Results.\n' + comparison_note,
-                layers=stack_description(layer_snapshot))
-            if secondary is not None:
-                analysis.metrics[other_pol.upper()] = secondary[0]
-                if secondary[1]:
-                    analysis.lower[other_pol.upper()] = secondary[1]
-                    analysis.upper[other_pol.upper()] = secondary[2]
-            return {
-                "analysis": analysis,
-                "count": n,
-                "summary": summary,
-            }
+                '/'.join(metrics) + ' · ' + tolerance_description(uncertainty),
+                metrics, polarization=wave_pol.upper(), lower=lower, upper=upper,
+                summary=summary, layers=stack_description(layer_snapshot))
+            return {"analysis": analysis, "count": n, "summary": summary}
 
         def on_success(result: dict[str, object]) -> None:
             self._show_analysis_result('Off Angle', result['analysis'])

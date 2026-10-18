@@ -54,6 +54,8 @@ PARAMETER_HELP = (
 
 
 class ToleranceWidget(QWidget):
+    retain_layer_metrics = False
+    study_name = 'Sensitivity & Yield'
     def __init__(self, host):
         super().__init__(host)
         self.host = host
@@ -249,7 +251,7 @@ class ToleranceWidget(QWidget):
     def use_inverse_setup(self):
         discrete = self.host.inv_freq_mode_var.get() != 'Band sweep'
         if discrete:
-            messagebox.showwarning('Sensitivity setup', 'This workspace uses a frequency band. Enter the desired band here for a discrete-frequency inverse study.')
+            messagebox.showwarning(self.study_name + ' setup', 'This workspace uses a frequency band. Enter the desired band here for a discrete-frequency inverse study.')
             return
         mapping = {'f_start': 'inv_target_start', 'f_stop': 'inv_target_stop', 'f_step': 'inv_target_step',
                    'a_start': 'inv_angle_start', 'a_stop': 'inv_angle_stop', 'a_step': 'inv_angle_step',
@@ -401,7 +403,7 @@ class ToleranceWidget(QWidget):
         try:
             if envelopes:
                 setup = validate_setup(self.capture_setup())
-                w = envelope_workload(self.host.layers,setup)
+                w = envelope_workload(self.host.layers,setup,retain_layer_metrics=self.retain_layer_metrics)
                 params = range(w['active_thicknesses'])
             else:
                 params = parameters_from_layers(self.host.layers)
@@ -432,7 +434,7 @@ class ToleranceWidget(QWidget):
             done, total, phase = self._progress
             text = f'{done:,} / {total:,} · {phase}'
             self.progress_label.setText(text)
-            self.host.status_var.set('Sensitivity & Yield: ' + text)
+            self.host.status_var.set(self.study_name + ': ' + text)
             self.host.status_progress.setRange(0, 1000)
             self.host.status_progress.setValue(int(1000 * done / max(total, 1)))
 
@@ -441,11 +443,11 @@ class ToleranceWidget(QWidget):
         try:
             setup = validate_setup(self.capture_setup())
             snapshot = self.host._snapshot_layers()
-            if setup['mode']==ENVELOPE_MODE: envelope_workload(snapshot,setup)
+            if setup['mode']==ENVELOPE_MODE: envelope_workload(snapshot,setup,retain_layer_metrics=self.retain_layer_metrics)
             else: parameters_from_layers(snapshot)
             captured_layers = [layer_config_to_dict(layer) for layer in snapshot]
         except ValueError as exc:
-            messagebox.showerror('Sensitivity setup', str(exc))
+            messagebox.showerror(self.study_name + ' setup', str(exc))
             return
         self._stop.clear()
         self._progress = None
@@ -457,17 +459,18 @@ class ToleranceWidget(QWidget):
             try:
                 loaded = self.host._load_layers(snapshot)
                 analysis = run_thickness_envelopes if setup['mode']==ENVELOPE_MODE else run_tolerance_study
-                result = analysis(loaded, snapshot, setup, stop_requested=self._stop.is_set, progress=progress)
+                options = dict(retain_layer_metrics=self.retain_layer_metrics) if setup['mode']==ENVELOPE_MODE else {}
+                result = analysis(loaded, snapshot, setup, stop_requested=self._stop.is_set, progress=progress, **options)
                 result['layers'] = captured_layers
                 return result
             except StopToleranceAnalysis:
-                raise StopToleranceAnalysis('Sensitivity study stopped; previous results retained.') from None
+                raise StopToleranceAnalysis(self.study_name + ' study stopped; previous results retained.') from None
         def success(result):
             self.result = result
             self.publish()
             self.progress_label.setText(f'Completed {result["evaluated"]:,} evaluations')
             self.tabs.setCurrentIndex(1)
-        self.host._run_background_task('Sensitivity & Yield', worker, success, 'Sensitivity analysis error')
+        self.host._run_background_task(self.study_name, worker, success, self.study_name + ' error')
 
     def clear_result(self):
         self.result = None
@@ -649,15 +652,19 @@ class ToleranceWidget(QWidget):
     def export(self):
         if self.result is None or self.host.job_is_running(): return
         result = self.result  # The report belongs to these captured results, not live Setup.
-        path = filedialog.asksaveasfilename(title='Export sensitivity study', defaultextension='.json', filetypes=[('JSON report', '*.json')])
+        path = filedialog.asksaveasfilename(title='Export ' + self.study_name + ' study', defaultextension='.json', filetypes=[('JSON report', '*.json')])
         if not path: return
-        self.host._run_background_task('Export sensitivity study', lambda: export_tolerance_report(Path(path), result),
-                                       lambda _: self.host.status_var.set(f'Saved sensitivity study: {path}'), 'Export error')
+        self.host._run_background_task('Export ' + self.study_name + ' study', lambda: export_tolerance_report(Path(path), result),
+                                       lambda _: self.host.status_var.set(f'Saved {self.study_name} study: {path}'), 'Export error')
 
     def export_csv(self):
         if self.host.job_is_running() or self.result is None: return
         result = self.result
         path = filedialog.asksaveasfilename(title='Export thickness envelope curves', defaultextension='.csv', filetypes=[('CSV','*.csv')])
         if not path: return
-        self.host._run_background_task('Export thickness envelopes', lambda: export_envelope_csv(path,result),
-            lambda _: self.progress_label.setText('Captured envelope curves exported.'), 'Envelope export error')
+        from .export_paths import polarization_paths
+        from .thickness_envelopes import export_envelope_files
+        paths = list(polarization_paths(path, result['polarizations']).values())
+        if not self.host._confirm_output_replacements(paths, operation='Thickness envelope export'): return
+        self.host._run_background_task('Export thickness envelopes', lambda: export_envelope_files(path,result),
+            lambda files: self.progress_label.setText('Exported: ' + ', '.join(str(p) for p in files)), 'Envelope export error')

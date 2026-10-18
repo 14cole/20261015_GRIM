@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 from typing import Sequence
+from .requirements import REQUIREMENT_TOL_DB
 
 
 @dataclass(frozen=True)
@@ -55,9 +56,12 @@ def band_performance(frequencies: Sequence[float], curve: Sequence[float],
     if any(a[0] == b[0] for a, b in zip(pairs, pairs[1:])):
         raise ValueError('Frequencies must be unique.')
     values = [v for _, v in pairs]
+    # Snap comparisons, not reported extrema or stored reflection curves.
+    pairs = [(f, threshold_db if abs(v-threshold_db) <= REQUIREMENT_TOL_DB else v)
+             for f, v in pairs]
     if not continuous or len(pairs) == 1:
         return BandPerformance(min(values), max(values),
-                               100 * sum(v <= threshold_db for v in values) / len(values),
+                               100 * sum(v <= threshold_db for _, v in pairs) / len(values),
                                None, ())
     bands: list[tuple[float, float]] = []
     for (a, va), (b, vb) in zip(pairs, pairs[1:]):

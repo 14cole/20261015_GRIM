@@ -51,6 +51,10 @@ def validate_setup(raw):
     if state['mode'] == ENVELOPE_MODE:
         from .thickness_envelopes import validate_envelope_setup
         return validate_envelope_setup(state)
+    # Dormant statistical controls must not invalidate an individual study.
+    if state['mode'] == 'Sensitivity only':
+        for key in ('samples', 'seed', 'repeats'):
+            state[key] = SETUP_DEFAULTS[key]
     try:
         nums = {k: float(state[k]) for k in ('f_start', 'f_stop', 'f_step', 'a_start', 'a_stop', 'a_step', 'target')}
         integers = {k: int(state[k]) for k in ('points', 'samples', 'seed', 'repeats')}

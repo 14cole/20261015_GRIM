@@ -96,7 +96,7 @@ class InverseResultsMixin:
         self.inv_percentile_entry.setMaximumWidth(50)
         self.inv_percentile_entry.setToolTip('Percentile across analyzed angles and tolerance corners. Lower percentiles are more optimistic; this is not manufacturing yield.')
         for widget in (QLabel('View'), self.inv_plot_view, self.inv_curve_mode,
-                       self.inv_percentile_entry, self.inv_inspect_angle, QLabel('Target'), self.inv_target_db):
+                       self.inv_percentile_entry, self.inv_inspect_angle, QLabel('Comparison limit (dB)'), self.inv_target_db):
             controls.addWidget(widget)
         controls.addStretch(1)
         self.inv_table_toggle = QPushButton('Show candidate table')

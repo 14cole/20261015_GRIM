@@ -13,6 +13,7 @@ from .analysis_data import band_metrics, passing_sample_ranges, write_comparison
 from .material_explorer import extrema_preserving_indices
 from .plot import data_range, format_readout, show_grid_value_on_hover, style_axis, style_colorbar
 from .ui_controls import ColorScaleControls
+from .requirements import requirement_margin
 
 METRICS = {
     'PEC reflection (dB)': 'metal_loss_db', 'PEC reflection phase (deg)': 'metal_phase_deg',
@@ -112,7 +113,7 @@ class SweepResultsPanel(QWidget):
         self.selected_picker = QComboBox()
         self.selected_picker.setMinimumWidth(115)
         self.selected_picker.setMaximumWidth(210)
-        for label, widget in [('Target', self.target), ('Band GHz', self.start), ('to', self.stop),
+        for label, widget in [('Comparison limit', self.target), ('Band GHz', self.start), ('to', self.stop),
                               ('Selected', self.selected_picker), ('Slice GHz', self.frequency)]:
             band.addWidget(QLabel(label))
             band.addWidget(widget)
@@ -241,12 +242,39 @@ class SweepResultsPanel(QWidget):
         upper = self.result.upper.get(pol, {}).get(key, nominal)
         return nominal, np.asarray(lower), np.asarray(upper)
 
+    def has_bounds(self, key=None, pol=None, bound=3):
+        if self.result is None: return False
+        key = key or METRICS.get(self.metric.currentText(), 'metal_loss_db')
+        pol = pol or self.polarization.currentText()
+        lower = key in self.result.lower.get(pol, {})
+        upper = key in self.result.upper.get(pol, {})
+        return upper if bound == 1 else lower if bound == 2 else lower and upper
+
+    def sync_bounds(self):
+        view = self.view.currentText()
+        key = (METRICS.get(self.metric.currentText(), 'metal_loss_db') if view in
+               ('Heatmap', 'Frequency curves', 'At selected frequency', 'Power balance') else self.reflection_key())
+        pols = ('TE', 'TM') if view == 'TE/TM comparison' else (self.polarization.currentText(),)
+        choices = {index: all(self.has_bounds(key, p, index) for p in pols) for index in (1,2,3)}
+        available = any(choices.values())
+        blocker = QSignalBlocker(self.bound)
+        for index in range(1, 4): self.bound.model().item(index).setEnabled(choices[index])
+        if self.bound.currentIndex() and not choices[self.bound.currentIndex()]: self.bound.setCurrentIndex(0)
+        self.bound.setVisible(available)
+        self.bound.setToolTip('Captured tolerance bounds for this metric and polarization.' if available else 'No tolerance bounds were calculated for this metric and polarization.')
+        del blocker
+        index = self.view.findText('Tolerance envelope')
+        if index >= 0:
+            self.view.model().item(index).setEnabled(self.has_bounds(self.reflection_key()))
+        return available
+
     def display_grid(self, nominal, lower, upper):
         index = self.bound.currentIndex()
         return upper - lower if index == 3 else (nominal, upper, lower)[index]
 
     def comparison_index(self):
-        return self.bound.currentIndex() if self.bound.currentIndex() < 3 else 0
+        index = self.bound.currentIndex()
+        return index if index in (1, 2) and self.has_bounds(self.reflection_key(), bound=index) else 0
 
     def performance(self):
         key = (id(self.result), self.polarization.currentText(), self.reflection_key(), self.start.value(), self.stop.value(), self.target.value())
@@ -260,6 +288,7 @@ class SweepResultsPanel(QWidget):
         return self._band_cache[1:]
 
     def refresh(self, *_):
+        self.sync_bounds()
         if self.result is None:
             self.draw()
             return
@@ -299,7 +328,7 @@ class SweepResultsPanel(QWidget):
             item = QTableWidgetItem(Path(path).name)
             item.setToolTip(str(path))
             self.table.setItem(index, 6, item)
-            margin = self.target.value() - metric.worst_db
+            margin = requirement_margin(self.target.value(), metric.worst_db)
             item = NumericItem(f'{margin:+.5g}')
             item.setData(Qt.UserRole + 1, margin)
             item.setToolTip('Passes the whole selected band' if margin >= 0 else 'Misses the whole-band requirement')
@@ -348,25 +377,37 @@ class SweepResultsPanel(QWidget):
     def export_comparison(self):
         if self.result is None or self.view.currentText().startswith('Coating') or self.host.job_is_running():
             return
+        self.sync_bounds()
+        result = self.result
+        key = self.reflection_key()
+        index = self.comparison_index()
+        options = dict(reflection_key=key,
+                       bound=('nominal', 'upper analyzed', 'lower analyzed')[index],
+                       target=self.target.value(), low=self.start.value(), high=self.stop.value())
+        # Capture every polarization, independent of which one is displayed.
+        captured = {}
         try:
-            metrics = self.performance()[self.comparison_index()]
+            for pol in result.metrics:
+                if index and not self.has_bounds(key, pol, index):
+                    raise ValueError(f'{pol} has no captured tolerance bounds. Select Nominal to export both polarizations.')
+                nominal, lower, upper = self.grids(key, pol)
+                grid = (nominal, upper, lower)[index]
+                metrics = band_metrics(result.frequencies, grid, options['target'], low=options['low'], high=options['high'])
+                captured[pol] = (grid, metrics)
         except ValueError as exc:
             QMessageBox.warning(self, 'Export comparison', str(exc))
             return
-        # Capture every display choice before opening a file dialog or worker.
-        result = self.result
-        nominal, lower, upper = self.grids(self.reflection_key())
-        grid = (nominal, upper, lower)[self.comparison_index()]
-        options = dict(polarization=self.polarization.currentText(), reflection_key=self.reflection_key(),
-                       bound=('nominal', 'upper analyzed', 'lower analyzed')[self.comparison_index()],
-                       target=self.target.value(), low=self.start.value(), high=self.stop.value())
-        filename, _filter = QFileDialog.getSaveFileName(self, 'Export reflection comparison',
+        filename, _filter = QFileDialog.getSaveFileName(self, 'Export reflection comparison (all analyzed polarizations)',
                                                        'freddy_comparison.csv', 'CSV files (*.csv)')
-        if not filename:
-            return
-        self.host._run_background_task('Comparison export',
-            lambda: write_comparison_report(filename, result, grid, metrics, **options),
-            lambda count: self.host.status_var.set(f'Exported {count:,} comparison rows to {filename}'),
+        if not filename: return
+        from .export_paths import polarization_paths
+        paths = polarization_paths(filename, captured)
+        if not self.host._confirm_output_replacements(list(paths.values()), operation='Comparison export'): return
+        def worker():
+            return sum(write_comparison_report(paths[pol], result, grid, metrics, polarization=pol, **options)
+                       for pol, (grid, metrics) in captured.items())
+        self.host._run_background_task('Comparison export', worker,
+            lambda count: self.host.status_var.set(f'Exported {count:,} comparison rows: ' + ', '.join(str(p) for p in paths.values())),
             'Comparison export')
 
     def set_coating(self, report, context):
@@ -389,6 +430,7 @@ class SweepResultsPanel(QWidget):
             self.frequency.setValue(self.result.frequencies[int(np.argmin(abs(np.asarray(self.result.frequencies) - event.ydata)))])
 
     def draw(self, *_):
+        has_bounds = self.sync_bounds()
         view = self.view.currentText()
         coating = view.startswith('Coating')
         if self.bound.currentIndex() == 3 and view not in ('Heatmap', 'Frequency curves', 'At selected frequency', 'TE/TM comparison'):
@@ -404,7 +446,7 @@ class SweepResultsPanel(QWidget):
             control.setEnabled(not coating)
         self.polarization.setEnabled(not coating and view != 'TE/TM comparison')
         self.frequency.setEnabled(view in ('Heatmap', 'At selected frequency', 'TE/TM comparison'))
-        self.bound.setEnabled(not coating and view not in ('Power balance', 'Resistance', 'Reactance', 'Tolerance envelope'))
+        self.bound.setEnabled(has_bounds and not coating and view not in ('Power balance', 'Resistance', 'Reactance', 'Tolerance envelope'))
         self.use_ibc.setEnabled(self.result is not None and not self.host.job_is_running())
         if hasattr(self, 'export_action'):
             self.export_action.setEnabled(self.result is not None and not coating and not self.host.job_is_running())
@@ -442,6 +484,7 @@ class SweepResultsPanel(QWidget):
                                   + (f'passing sampled ranges: {passed}.' if passing else 'no sampled choice passes the entire band.')
                                   + '\nRanges group passing samples; verify between them. Bandwidth interpolates frequencies; tolerance bounds are not yield.'
                                   + (' Span view: comparison uses nominal reflection.' if self.bound.currentIndex() == 3 else '')
+                                  + (' No tolerance bounds calculated for this metric/polarization.' if not has_bounds else '')
                                   + (' Curves are reduced for display only.' if len(self.result.frequencies) > 5000 else ''))
         except (ValueError, KeyError, IndexError) as exc:
             selection = ''
@@ -522,7 +565,7 @@ class SweepResultsPanel(QWidget):
             if 'TM comparison unavailable' in r.summary:
                 raise ValueError('TM comparison unavailable for this directional stack at oblique angles. Use TE or a full tensor material model.')
             if not all(p in r.metrics for p in ('TE', 'TM')):
-                raise ValueError('Enable “Compute TE and TM comparison” on Setup and run again.')
+                raise ValueError('Choose Polarization: Both in Setup and run again.')
             if len(r.frequencies) < 2 or len(r.values) < 2:
                 raise ValueError('TE/TM maps need at least two frequencies and two angles. Select a polarization and use Frequency curves.')
             self.figure.clear()
@@ -561,6 +604,8 @@ class SweepResultsPanel(QWidget):
             # This slice's axes are (thickness/angle, metric), so match the hover.
             selection = f'Selected (x, y) = ({r.values[self.selected]:g}, {format_readout(grid[index, self.selected])})'
         elif view == 'Tolerance envelope':
+            if not self.has_bounds(self.reflection_key()):
+                raise ValueError('Tolerance bounds were not calculated for this result. Use nominal frequency curves.')
             nominal, lower, upper = self.grids(self.reflection_key())
             ax.fill_between(f, lower[:, self.selected], upper[:, self.selected], color=PALETTE[0], alpha=.2, label='Analyzed tolerance range')
             ax.plot(f, nominal[:, self.selected], color=PALETTE[0], lw=2, label='Nominal')

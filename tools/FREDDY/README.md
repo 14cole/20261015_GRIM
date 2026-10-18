@@ -47,7 +47,7 @@ grim
 The embedded tab and standalone window use the same authoritative code in
 this directory. Inverse Design supports **Stop and keep best** and resume;
 Material Mix supports stopping with incomplete results discarded.
-**Sensitivity & Yield** supports stopping while retaining the previous completed study. Ordinary
+**Thickness** supports stopping while retaining the previous completed study. Ordinary
 analysis/export jobs run to completion. GRIM prevents closing while a job is running.
 
 **User-defined constant layers:** choose **Add Layer → Material source →
@@ -200,122 +200,93 @@ Phase uncertainty
 bounds are unwrapped about the nominal phase and can therefore lie outside
 `[-180, 180]`; this avoids false 360-degree spans at the phase branch cut.
 
-## Thickness-tolerance frequency envelopes
+## Exhaustive individual and combined thickness studies
 
-In **Sensitivity & Yield → Setup**, select **Thickness tolerance envelopes**.
-Define the current stack and use each bulk layer's existing **Minimum thickness,
-Maximum thickness, and Thickness step**, in inches. These are the same range
-settings used by Inverse Design. The setup table shows the shared ranges and
-value counts; **Edit selected layer range** opens the existing layer editor.
-Choose the frequency and incidence-angle start, stop, and step, and TE, TM, or
-Both. All three analysis modes use these sweeps; there are no separate list
-overrides. Incidence angles are measured from the surface normal, not rotation
-about it. Copy inverse settings supports band sweeps; for a discrete-frequency
-inverse study, enter the desired sweep here.
+**Thickness → Setup** is the single home for thickness sweeps and tolerance
+analysis. Check **Vary** on each selected bulk layer and enter **Minimum,
+Maximum, and Step**, in inches. Ranges are shared with Inverse Design and can
+also be changed in the layer editor. Unchecked layers stay nominal. Set the
+frequency and incidence-angle sweeps, polarization, and PEC reflection limit.
+Angles are measured from the surface normal. The former standalone Sensitivity
+only, Sensitivity + statistical trials, and thickness-envelope modes have been
+consolidated; there are no sampling-count controls in this workflow.
 
-Each range evaluates minimum + k × step without exceeding maximum. A maximum
-that does not fall on a step is excluded, exactly as in Inverse Design. For
-example, 0.090–0.110 in with a 0.005 in step defines five values; a 0.006 in step
-defines 0.090, 0.096, 0.102 and 0.108 in. There is no separate point-count control.
-The calculation creates one frequency-envelope plot per bulk layer, with only
-that layer varied, and a final plot over every independent combination of layer
-thicknesses. Layers with 3, 4 and 5 defined values produce 60 joint combinations.
-Layers without limits use their nominal thickness; equal minimum/maximum defines
-one value. Nominal is a separate reference and is added to bounds only when it
-is a defined grid value. If nominal is outside a layer's grid, the reference
-can lie outside the envelope, and joint bounds need not enclose individual
-panels that hold other layers nominal. Material ε/μ, ideal sheet resistances,
-and layer order remain nominal. Statistical ± tolerances, distributions and
-groups do not define or constrain this thickness grid.
+Every minimum + k × step value not exceeding maximum is evaluated. An off-step
+maximum is excluded: 0.090–0.110 in with step 0.006 gives 0.090, 0.096, 0.102,
+and 0.108 in. The table shows the count and actual last value. Equal limits
+define one value. Three layers with 3, 4, and 5 values give 60 joint stacks.
+The calculation covers every layer individually (others nominal), plus every
+joint combination, reusing shared evaluations. Material properties, sheet
+resistances, and layer order stay nominal. Manufacturing distributions do not
+restrict this grid. Nominal is a separate reference and is included in bounds
+only when it belongs to the defined grid; it can lie outside the bounds.
 
-Results show nominal and pointwise minimum/maximum **PEC reflection in dB**;
-more negative means less reflection. Choose **All plots** or an individual
-layer/all-layer panel, then the polarization and incidence angle. The default
-shows one angle to isolate thickness effects. **All selected angles** pools
-their bounds and also shows the nominal angle range. A bounding curve can come
-from different thickness combinations at different frequencies; it need not
-represent one realizable stack. These are sampled envelopes, not percentiles,
-statistical variance, or certified extrema over continuous tolerances. Increase
-thickness and frequency resolution by reducing the steps to check stability of
-resonant features. Every defined value is evaluated; unsampled intervals are
-not certified. Workload distinguishes joint combinations from total evaluations
-including individual sweeps and the nominal reference, reusing shared cases.
+Results include:
 
-The full selected thickness grid is evaluated without retaining every response.
-Preflight checks limit combinations to 250,000 and total response points to
-50 million, with additional array-memory limits. Stop preserves the previous
-completed result. **Export envelope CSV** captures every layer/all-layer panel,
-polarization, incidence angle, and frequency, regardless of display selection.
-**Export study JSON** additionally records setup, layer inputs, thickness values,
-source identity and implementation version. Projects save inputs, not results.
+- **Thickness envelopes:** pointwise minimum/maximum PEC reflection versus
+  frequency. More negative means less reflection. Choose a polarization and
+  one angle, or pool all selected angles. Click a point to inspect the actual
+  thickness combinations producing its bounds.
+- **Whole-band best/worst stacks:** realizable stacks ranked by their largest
+  reflection across all selected frequencies, angles, and polarizations. The
+  best minimizes that peak; the worst maximizes it. The plot displays those
+  fixed stacks at the chosen angle/polarization, or their worst-angle curves.
+  An envelope can use a different stack at every point; these curves cannot.
+- **Layer sensitivity:** largest whole-band margin loss from varying each
+  layer individually relative to nominal. This is not a variance decomposition.
+- **Layer details:** the existing single-layer heatmap, frequency curves,
+  phase, power balance, bandwidth and slice tools, using captured results at
+  the chosen angle. Other layers remain nominal.
 
-## Per-layer sensitivity and modeled yield
+A passing grid case meets the limit at every selected operating point. Counts
+are not manufacturing yield. Requirement comparisons allow 1e-10 dB for
+floating-point roundoff; the calculated reflection values remain unchanged.
+Every discrete grid case is evaluated, but extrema between thickness,
+frequency, or angle steps are not certified. Refine the steps to check narrow
+resonances. Preflight reports the work and rejects more than 250,000 joint
+combinations, 50 million response points, or excessive retained array storage;
+it never silently samples or skips cases. Individual metric grids are retained
+for the detailed viewer, while joint responses are reduced as they are computed.
 
-**Sensitivity & Yield** evaluates the current PEC-backed stack. To study an
-inverse candidate, first **Apply Selected** in Inverse Design. Define the
-frequency/angle grid, choose TE, TM, or Both, and enter a reflection limit.
-The inverse-copy button transfers the inverse Setup band, angles, polarization
-and requirement; it does not apply a candidate or copy completed results.
+**Export envelope CSV** includes every panel, polarization, angle, and frequency,
+with the actual thickness combinations attaining its lower and upper bounds.
+When both polarizations were analyzed, it writes separate `<name>_TE.csv` and
+`<name>_TM.csv` files. Each contains only its named polarization, including all
+individual/combined panels and bound witnesses. A single-polarization run keeps
+the chosen filename. JSON remains one complete report containing both.
+**Export study JSON** includes captured settings, layers, individual metrics,
+case indices, bounds, best/worst stacks, method version and a fingerprint of
+the material values actually loaded. Ties use the lowest captured case index.
+Editing inputs does not relabel results. Cancellation or error keeps the previous
+completed study. Projects save inputs, and loading a project clears results.
 
-Each layer has separate bounds for thickness, signed ε′, ε″, μ′, μ″, or sheet
-resistance. Zero disables a parameter. Bounds can be percentages of the
-nominal component's magnitude or absolute values (inches, Ω/sq, or relative
-properties). A trial uses the same normalized deviation across the full
-material curve. Directional layers use the selected principal-axis properties
-and retain the existing restrictions on oblique incidence.
+## Inverse manufacturing model
 
-Start with **Sensitivity only**. FREDDY varies one parameter at a time over
-an odd, evenly spaced grid including nominal and both tolerance endpoints.
-The **Sensitivity ranking** orders parameters by the largest loss of
-whole-region margin. **Parameter tolerance sweep** plots that margin against
-signed deviation. The table reports the first outward pass/miss bracket as
-a fraction of the entered bound. Refine these sweeps before treating a narrow
-feature as resolved; individual bounds are not joint tolerance guarantees.
+Inverse Design opens with its four settings sections collapsed. The visible
+summary shows the operating grid, objective, reflection limit and combination
+count. **Results to retain** controls storage only; every defined design is
+still evaluated. Layer Edit, Thickness and inverse layer selection share the
+same **Vary / Minimum / Maximum / Step** controls. Unchecked Vary means Fixed;
+inactive range fields are ignored.
 
-Choose **Sensitivity + statistical trials** to simulate all inputs together:
+**Copy operating grid from…** explicitly copies settings between workflows.
+Discrete frequency lists remain discrete and cannot be silently converted into
+a regular sweep. Copying inverse settings to Thickness also copies polarization
+and the reflection limit. IBC Batch's **Use current layer range** copies the
+selected layer's range in the chosen inch/mm units.
 
-- **Uniform:** values within the entered symmetric bounds.
-- **Truncated normal (±3σ):** underlying standard deviation is bound/3;
-  samples are truncated at the entered hard bounds.
-- **Shared group:** matching names share a Gaussian manufacturing factor.
-  The latent correlation of two inputs is the product of their loadings.
-  Loadings +1/+1 move together, +1/−1 move oppositely, and a blank group is
-  independent. Pearson correlations after bounded distribution transforms
-  can differ from those latent correlations. Groups supply a common-factor
-  model, not an arbitrary measured covariance matrix.
+Results offer upper/lower bounds only when those bounds were captured for the
+selected metric and polarization. Tolerance span/envelope requires both bounds;
+nominal-only results do not imply zero uncertainty. The editable **Comparison
+limit** affects display comparisons, not a captured inverse ranking or study.
 
-Statistical trials use seeded scrambled Sobol sequences with a power-of-two
-count per repeat (16–65,536), streamed in small batches without skipping or thinning.
-Choose 1–16 independent repeats, with at most 65,536 total trials. Multiple
-repeats report their yield range and the standard error of their mean in
-percentage points. This measures between-scramble sampling variability only;
-zero failures or zero repeat spread does not establish zero failure probability.
-Materials are interpolated once; each trial retains its margin while failure
-counts accumulate by frequency, angle and polarization. No trial-by-grid
-response cube is retained. Setup reports workload and an approximate analysis
-array allowance, excluding loaded files, Python/Qt, plotting and export overhead.
-
-**Margin distribution** shows each simulated stack's whole-region margin.
-Margin ≥0 passes every sampled frequency, angle and selected polarization.
-**Failure map** instead shows the percentage of trials failing at each point.
-**Yield convergence** tracks the modeled whole-region pass fraction as the
-sample count grows. This is conditional on the supplied distributions,
-correlations and sampled operating points; it is not measured production yield
-or a binomial confidence interval. Repeat seeds and refine the operating grid
-to assess stability.
-
-Bounds admitting gain, nonpositive thickness/resistance, or singular ε/μ are
-rejected before sampling. Percentage variation of a zero component is also
-rejected as ineffective. Symmetric absolute variation about zero imaginary
-loss would admit gain; use a justified nominal material and passive bounds.
-
-Inputs persist in projects and follow their layer through edits, reordering,
-and inverse-candidate application. **Export study JSON** atomically saves
-captured layer inputs, grid, requirement, sensitivities, trial margins, failure
-counts, seed, sampling model, versions and material/implementation fingerprints.
-Editing Setup does not relabel completed results. Stop or an error preserves
-the previous successful result; loading a project clears results, as in other
-FREDDY workflows. Figure export is available through the plot toolbar.
+The separate distribution-based inverse objectives and candidate verification
+remain available under **Inverse Design → Edit per-layer tolerance bounds**.
+They support thickness, sheet resistance, and signed ε/μ component bounds,
+uniform or truncated-normal distributions, and shared Gaussian factors.
+These assumptions estimate modeled yield; they do not change the exhaustive
+Thickness grid. Old project layer tolerance metadata is preserved. Retired
+standalone sample-count and seed settings do not affect Thickness runs.
 
 ## Thickness-batch IBC export
 
@@ -372,11 +343,15 @@ The inverse angle map has the same row. The Material Mix performance map uses
 the **Auto color scale**, **Min** and **Max** fields above it; press Enter in
 Min or Max to apply typed limits.
 
-Off Angle can compute **TE and TM comparison** with a shared map scale. This
-adds a second solve; the existing CSV continues to contain the selected primary
-polarization. The comparison choice is stored in the project. For a directional
-stack at oblique incidence, a valid TE run remains available when the model
-cannot support the optional TM comparison.
+Off Angle uses one **Polarization: TE / TM / Both** selector. Both computes two
+responses and writes `<name>_TE.csv` and `<name>_TM.csv`, with the same metric
+columns and full sample grids. Results compare them on a shared map scale.
+Comparison CSV exports also include every captured polarization in separate
+named files, regardless of which polarization is displayed. Existing destinations
+are checked before writing. Unsupported oblique TM for directional materials is
+rejected explicitly; select TE for the supported directional calculation.
+Broadside scalar IBC exports remain solver-compatible three-column files: those
+workflows compute one normal-incidence impedance, not two oblique polarizations.
 
 Impedance displays resistance/reactance, reflection, tolerance bounds, and
 nominal reflected/absorbed/transmitted power for its selected backing. The
@@ -459,10 +434,7 @@ worst-gap objectives take the worst of all requested polarizations; legacy mean
 objectives average both. Comparison curves/maps use the worse polarization at
 each angle/case, including their nominal curves and point percentiles.
 
-Two **Per-layer tolerances** objectives use the bounds entered in **Sensitivity
-& Yield** directly during exhaustive inverse ranking. Turn shared uncertainty
-off first: those common scale factors are an alternative uncertainty model,
-not an additional error silently applied to the same material.
+Two **Per-layer tolerances** objectives use the bounds entered through **Inverse Design → Edit per-layer tolerance bounds** directly during exhaustive inverse ranking. Selecting either automatically disables shared stack variation, since these are alternative uncertainty models.
 
 - **Worst sampled reflection gap** checks nominal, individual parameter ends,
   all box corners for up to eight parameters (the two all-low/all-high corners
@@ -482,7 +454,10 @@ the minimum allowed design value. New numerical implementation versions also
 invalidate older checkpoints; saved projects remain loadable.
 
 Use **Results → Verify candidates…** to check the selected candidate or all
-retained candidates independently. Verification bisects every frequency/angle
+retained candidates independently. Set verification samples/seed, independent
+yield repeats and frequency/angle refinements in that dialog; only applicable
+settings are shown. Ranking shows samples/seed only for manufacturing objectives.
+Unused sampling inputs do not block a nominal search. Verification bisects every frequency/angle
 interval at each configured level and doubles joint interior tolerance samples,
 while retaining previous samples, nominal and boundary probes. Discrete targets
 remain discrete in frequency; angle intervals are still refined. It uses either

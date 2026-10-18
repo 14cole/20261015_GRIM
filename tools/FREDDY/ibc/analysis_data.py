@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .compute import ETA0, build_uncertainty_scales, is_nominal_scale
 from .inverse_performance import band_performance
+from .requirements import requirement_margin
 
 
 @dataclass
@@ -114,7 +115,7 @@ def passing_sample_ranges(values, performance, threshold):
     ranges = []
     start = None
     for index, metric in enumerate(performance):
-        if metric.worst_db <= threshold:
+        if requirement_margin(threshold, metric.worst_db) >= 0:
             if start is None:
                 start = index
         elif start is not None:
@@ -150,8 +151,8 @@ def write_comparison_report(path, result, grid, performance, *, polarization,
             writer.writerow([index + 1, result.axis_label, result.values[index],
                              polarization, 'air' if reflection_key == 'air_loss_db' else 'pec',
                              bound, target, low, high, metric.widest_ghz,
-                             metric.coverage_pct, metric.worst_db, target - metric.worst_db,
-                             metric.worst_db <= target, nulls[index],
+                             metric.coverage_pct, metric.worst_db, requirement_margin(target, metric.worst_db),
+                             requirement_margin(target, metric.worst_db) >= 0, nulls[index],
                              str(result.files[index]) if index < len(result.files) else '',
                              result.context, '\n'.join(result.layers)])
     return len(performance)
