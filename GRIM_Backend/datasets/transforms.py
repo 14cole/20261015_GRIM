@@ -1257,8 +1257,8 @@ def _uniform_frequencies_hz(dataset: RcsGrid) -> np.ndarray:
         dataset._frequency_value_to_hz(np.asarray(dataset.frequencies, dtype=float)),
         dtype=float,
     )
-    if frequencies.size < 8:
-        raise ValueError("time gating needs at least 8 frequencies")
+    if frequencies.size < 2:
+        raise ValueError("time gating needs at least 2 frequencies")
     steps = np.diff(frequencies)
     step = float(np.mean(steps))
     if not np.all(np.isfinite(frequencies)) or step <= 0.0 or np.max(
@@ -1276,7 +1276,11 @@ def _gate_fft_size(count: int) -> int:
 
 
 def gate_geometry(dataset: RcsGrid) -> dict[str, float]:
-    """Down-range resolution and unambiguous range (meters) of a sweep."""
+    """Native DFT range-cell spacing and periodic range span, in meters.
+
+    ``resolution_m`` is also the minimum permitted gate width. It is not
+    the zero-padded display spacing or the windowed point-response width.
+    """
 
     from GRIM_Backend.datasets.constants import C0
 
@@ -1286,6 +1290,52 @@ def gate_geometry(dataset: RcsGrid) -> dict[str, float]:
         "resolution_m": C0 / (2.0 * step * frequencies.size),
         "unambiguous_m": C0 / (2.0 * step),
     }
+
+
+def gate_preview_limits(dataset: RcsGrid) -> dict:
+    """Actual preview window and its isolated-point half-power width.
+
+    Evaluate the centered discrete window response analytically, without
+    allocating a densely padded FFT. The width is not a guarantee that two
+    scatterers can be separated, especially with only a few frequencies.
+    """
+    frequencies = _uniform_frequencies_hz(dataset)
+    count = frequencies.size
+    geometry = gate_geometry(dataset)
+    rectangular = count < 4
+
+    def dirichlet(x):
+        return count * np.sinc(count * x) / np.sinc(x)
+
+    def response(x):
+        if rectangular:
+            return dirichlet(x) / count
+        offset = 1.0 / (count - 1)
+        return (0.5 * dirichlet(x) + 0.25 * (
+            dirichlet(x - offset) + dirichlet(x + offset)
+        )) / (0.5 * (count - 1))
+
+    low, high = 0.0, 1.0 / (count if rectangular else count - 1)
+    for _ in range(48):
+        middle = 0.5 * (low + high)
+        if response(middle) ** 2 > 0.5:
+            low = middle
+        else:
+            high = middle
+    return {
+        **geometry,
+        "frequency_count": int(count),
+        "bandwidth_hz": float(frequencies[-1] - frequencies[0]),
+        "window": "Rectangular" if rectangular else "Hann",
+        "point_width_m": (low + high) * geometry["unambiguous_m"],
+        "display_spacing_m": geometry["unambiguous_m"] / _gate_fft_size(count),
+    }
+
+
+def _gate_preview_window(count):
+    # Hann has no nonzero samples at N=2 and only one at N=3, erasing
+    # the range information. Retain all samples for these short sweeps.
+    return np.ones(count) if count < 4 else np.hanning(count)
 
 
 def _gate_window(ranges, start_m, stop_m, taper, mode):
@@ -1310,7 +1360,9 @@ def _gate_sweeps(sweeps, frequencies_hz, *, start_m, stop_m, taper, mode, compen
     count = frequencies_hz.size
     step = float(np.mean(np.diff(frequencies_hz)))
     size = _gate_fft_size(count)
-    ranges = np.fft.fftfreq(size, d=step) * (C0 / 2.0)
+    # Scale exact binary bin fractions by the same period used for validation.
+    # Computing 1/df first can put the -period/2 bin one ULP outside a full gate.
+    ranges = np.fft.fftfreq(size) * (C0 / (2.0 * step))
     gate = _gate_window(ranges, start_m, stop_m, taper, mode)
     gated = np.fft.fft(np.fft.ifft(sweeps, n=size, axis=-1) * gate, axis=-1)[..., :count]
     if compensate and mode == "keep":
@@ -1342,7 +1394,7 @@ def _validate_gate(dataset, start_m, stop_m, taper, mode):
     if stop_m - start_m < geometry["resolution_m"]:
         raise ValueError(
             f"the gate is narrower than the {geometry['resolution_m']:.4g} m "
-            "down-range resolution"
+            "native range-cell spacing (minimum gate width)"
         )
     return start_m, stop_m, taper
 
@@ -1450,11 +1502,12 @@ def down_range_profile(
     maximum_work_bytes: int = 32 * 1024**2,
     cancel_check=None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Median Hann-windowed down-range power over azimuth, for gate previews.
+    """Median windowed down-range power over azimuth, for gate previews.
 
     Returns ``(ranges_m, linear_power)`` sorted by range. ``gate`` (the
     ``time_gate`` keyword arguments) previews the gated result on the same
-    scale as the ungated profile.
+    scale as the ungated profile. Uses Hann for four or more frequencies;
+    two or three frequencies use a rectangular window to retain range information.
     """
 
     from GRIM_Backend.datasets.constants import C0
@@ -1470,7 +1523,7 @@ def down_range_profile(
     bytes_per_sweep = 48 * count + 80 * size
     sweeps_per_block = max(1, int(maximum_work_bytes) // max(1, bytes_per_sweep))
     profiles = workspace_array((len(azimuths), size), np.float64)
-    window = np.hanning(count)
+    window = _gate_preview_window(count)
     conjugate = _declared_time_sign(dataset) == "-jwt"
     read_field, _dtype = dataset._bounded_complex_slice_reader()
     complete_count = 0

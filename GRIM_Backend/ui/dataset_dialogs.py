@@ -1544,10 +1544,11 @@ class StatisticsDialog(QDialog):
 class TimeGateDialog(QDialog):
     """Choose a down-range gate with a live preview of the active dataset.
 
-    The preview is the median Hann-windowed down-range profile over azimuth
+    The preview is the median windowed down-range profile over azimuth
     for one elevation and polarization, before (gray) and after (color)
     gating, in dB relative to the ungated peak. The gate itself is applied
-    without a window so in-gate responses keep their calibrated level.
+    without a frequency window; optional compensation corrects its response
+    for a point at the gate center.
     """
 
     _METERS_PER_INCH = 0.0254
@@ -1558,7 +1559,7 @@ class TimeGateDialog(QDialog):
         from matplotlib.figure import Figure
         from PySide6.QtCore import QTimer
 
-        from GRIM_Backend.datasets.transforms import gate_geometry
+        from GRIM_Backend.datasets.transforms import gate_preview_limits
 
         super().__init__(parent)
         self.setWindowTitle("Time Gate")
@@ -1569,7 +1570,8 @@ class TimeGateDialog(QDialog):
         self._preview_before_cache = None
         self._preview_async_cells = 100_000
         self.finished.connect(self._close_preview)
-        geometry = gate_geometry(dataset)
+        geometry = gate_preview_limits(dataset)
+        self._preview_window_name = geometry["window"]
         self._half_range = 0.5 * geometry["unambiguous_m"]
         resolution = geometry["resolution_m"]
         display_scale = 1.0 / self._METERS_PER_INCH
@@ -1577,15 +1579,36 @@ class TimeGateDialog(QDialog):
         layout = QVBoxLayout(self)
         intro = QLabel(
             "Keep (or remove) scatterers inside a down-range window, measured in "
-            "inches from the phase reference, positive away from the radar. "
-            f"Resolution {resolution*display_scale:.4g} in; "
-            f"unambiguous range ±{self._half_range*display_scale:.4g} in."
+            "inches from the phase reference, positive away from the radar."
         )
         intro.setWordWrap(True)
         layout.addWidget(intro)
+        self.range_limits = QLabel(
+            f"{geometry['frequency_count']} frequencies; measured bandwidth "
+            f"{geometry['bandwidth_hz']/1e9:.4g} GHz. "
+            f"Unambiguous range: ±{self._half_range*display_scale:.4g} in.\n"
+            f"Native range cell / minimum gate width: {resolution*display_scale:.4g} in. "
+            f"Preview point-response width (−3 dB): {geometry['point_width_m']*display_scale:.4g} in "
+            f"({self._preview_window_name}).\n"
+            f"Preview spacing: {geometry['display_spacing_m']*display_scale:.4g} in. "
+            "Zero padding smooths the curve; it does not improve resolution. "
+            "Closely spaced scatterers may overlap."
+        )
+        self.range_limits.setWordWrap(True)
+        self.range_limits.setToolTip(
+            "Native cell = c/(2 N Δf); periodic range span = c/(2 Δf). "
+            "The point-response width is the full half-power width of a single "
+            "scatterer using the actual preview window. It is not a guarantee "
+            "of separating two scatterers. Two or three frequencies use a "
+            "rectangular window because Hann would erase their range information."
+        )
+        layout.addWidget(self.range_limits)
 
         grid = QGridLayout()
         default = min(self._half_range / 4.0, max(20.0 * resolution, 0.5))
+        # Keep the initial gate wider than one native cell even for N=2 or 3;
+        # leave margin for rounding the editors' inch values.
+        default = max(default, 0.55 * resolution)
 
         def inches(value_m: float) -> QDoubleSpinBox:
             spin = QDoubleSpinBox()
@@ -1802,7 +1825,7 @@ class TimeGateDialog(QDialog):
         self._figure.tight_layout()
         self.preview_status.setText(
             gate_error[:1].upper() + gate_error[1:] + "." if gate_error
-            else "Median over azimuth; Hann-windowed for display only."
+            else f"Median over azimuth; {self._preview_window_name} window for display only."
         )
         self._canvas.draw_idle()
 
