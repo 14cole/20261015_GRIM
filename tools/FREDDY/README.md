@@ -200,6 +200,42 @@ Phase uncertainty
 bounds are unwrapped about the nominal phase and can therefore lie outside
 `[-180, 180]`; this avoids false 360-degree spans at the phase branch cut.
 
+## Thickness-tolerance frequency envelopes
+
+In **Sensitivity & Yield → Setup**, select **Thickness tolerance envelopes**.
+Define the current stack and enter a separate thickness ± bound for each bulk
+layer, in percent or absolute inches. Choose the frequency sweep, incidence
+angles measured from the surface normal, and TE, TM, or Both. Optional frequency
+and incidence-angle lists override the corresponding sweeps; values are sorted
+and duplicates removed. These angles are not rotation about the surface normal.
+
+**Thickness grid points** selects an odd number of equally spaced thicknesses
+from each layer's lower bound through nominal to its upper bound (default 5).
+The calculation creates one frequency-envelope plot per bulk layer, with only
+that layer varied, and a final plot over every independent combination of layer
+thicknesses. For three varying layers and five points each, all 125 combinations
+are evaluated. Fixed layers still get a plot with coincident nominal and bounds.
+Material ε/μ, ideal sheet resistances, and layer order remain nominal; statistical
+distribution/group controls do not constrain this rectangular thickness grid.
+
+Results show nominal and pointwise minimum/maximum **PEC reflection in dB**;
+more negative means less reflection. Choose **All plots** or an individual
+layer/all-layer panel, then the polarization and incidence angle. The default
+shows one angle to isolate thickness effects. **All selected angles** pools
+their bounds and also shows the nominal angle range. A bounding curve can come
+from different thickness combinations at different frequencies; it need not
+represent one realizable stack. These are sampled envelopes, not percentiles,
+statistical variance, or certified extrema over continuous tolerances. Increase
+thickness and frequency resolution to check stability of resonant features.
+
+The full selected thickness grid is evaluated without retaining every response.
+Preflight checks limit combinations to 250,000 and total response points to
+50 million, with additional array-memory limits. Stop preserves the previous
+completed result. **Export envelope CSV** captures every layer/all-layer panel,
+polarization, incidence angle, and frequency, regardless of display selection.
+**Export study JSON** additionally records setup, layer inputs, thickness values,
+source identity and implementation version. Projects save inputs, not results.
+
 ## Per-layer sensitivity and modeled yield
 
 **Sensitivity & Yield** evaluates the current PEC-backed stack. To study an
@@ -235,8 +271,12 @@ Choose **Sensitivity + statistical trials** to simulate all inputs together:
   can differ from those latent correlations. Groups supply a common-factor
   model, not an arbitrary measured covariance matrix.
 
-Statistical trials use a seeded scrambled Sobol sequence with a power-of-two
-count (16–65,536), streamed in small batches without skipping or thinning.
+Statistical trials use seeded scrambled Sobol sequences with a power-of-two
+count per repeat (16–65,536), streamed in small batches without skipping or thinning.
+Choose 1–16 independent repeats, with at most 65,536 total trials. Multiple
+repeats report their yield range and the standard error of their mean in
+percentage points. This measures between-scramble sampling variability only;
+zero failures or zero repeat spread does not establish zero failure probability.
 Materials are interpolated once; each trial retains its margin while failure
 counts accumulate by frequency, angle and polarization. No trial-by-grid
 response cube is retained. Setup reports workload and an approximate analysis
@@ -344,8 +384,9 @@ value count and sampled limits, and frequency/angle/tolerance workload. Values
 start at Minimum and advance by Step without exceeding Maximum; an off-step
 Maximum is excluded. A varying range needs an explicit step.
 
-There is no seed, sample budget, short search, or local refinement in Inverse
-Design. Legacy project settings for those controls are ignored. **Keep best for
+The design grid is always exhaustive. Joint tolerance sample counts and seeds
+control the uncertainty analysis, not how many designs are searched. Legacy
+design-search budget/refinement settings remain ignored. **Keep best for
 comparison** limits displayed candidates only, not evaluations. **Stop and keep
 best** retains complete scores and marks an interrupted analysis incomplete.
 **Resume remaining** finishes the same grid without rescoring completed designs,
@@ -391,14 +432,61 @@ including work preserved by Resume. A complete run finds the best selected
 objective on the specified finite grid, not between grid values or under
 untested conditions. A partial run is explicitly incomplete.
 
-For a requirement over the full requested region, choose **Whole-band PEC
-reflection requirement (worst point)** under Score and enter **Reflection limit
+New workspaces default to **Whole-band PEC reflection requirement (worst point)**.
+For a requirement over the full requested region, select this Score and enter **Reflection limit
 (dB)**. The objective minimizes `max(reflection_dB) − target_dB` across every
 requested frequency, incidence angle, and nominal/tolerance case. Lower is
 better; **Gap ≤ 0 passes**, and **Req. margin = −Gap**. A flat −11 dB design
 therefore beats a −40/−1 dB narrow-null design against a −10 dB limit, even though
 the narrow-null design has a better mean. The original mean objectives remain
-available and keep their default behavior.
+available; existing projects preserve their saved objective.
+
+Choose **Both** to rank each design against TE and TM together. Whole-band and
+worst-gap objectives take the worst of all requested polarizations; legacy mean
+objectives average both. Comparison curves/maps use the worse polarization at
+each angle/case, including their nominal curves and point percentiles.
+
+Two **Per-layer tolerances** objectives use the bounds entered in **Sensitivity
+& Yield** directly during exhaustive inverse ranking. Turn shared uncertainty
+off first: those common scale factors are an alternative uncertainty model,
+not an additional error silently applied to the same material.
+
+- **Worst sampled reflection gap** checks nominal, individual parameter ends,
+  all box corners for up to eight parameters (the two all-low/all-high corners
+  otherwise), and joint Sobol interior samples. It minimizes the worst sampled
+  reflection minus the limit. These rectangular support probes ignore group and
+  distribution restrictions; they are conservative scenarios, not certified bounds.
+- **Modeled failure fraction (%)** minimizes the percentage of statistical
+  trials missing the limit at any sampled frequency, angle or polarization.
+  It uses the entered bounded distributions and groups. All designs share the
+  same normalized trials for a fair comparison. Nominal is shown separately
+  and does not enter the failure percentage. A zero score is not a guarantee.
+
+Bounds, distributions, groups, sample count and seed are captured in search
+identity; changes invalidate resume. Percentage bounds follow each candidate's
+nominal thickness/resistance. Absolute bounds must remain physically valid at
+the minimum allowed design value. New numerical implementation versions also
+invalidate older checkpoints; saved projects remain loadable.
+
+Use **Results → Verify candidates…** to check the selected candidate or all
+retained candidates independently. Verification bisects every frequency/angle
+interval at each configured level and doubles joint interior tolerance samples,
+while retaining previous samples, nominal and boundary probes. Discrete targets
+remain discrete in frequency; angle intervals are still refined. It uses either
+per-layer bounds or shared systematic scales and refuses ambiguous simultaneous
+models. For per-layer bounds it also estimates yield using fresh independent
+scrambles on the finest grid. Verification seeds differ from the ranking seed.
+
+The comparison table sorts by verified worst margin or modeled yield. It shows
+the final refinement change, repeat range and sampling standard error. A
+"sampled stable" result requires two successive changes of at most 0.05 dB;
+this is evidence of numerical stability, never a continuous guarantee. The
+details identify the worst sampled frequency, angle and polarization.
+**Export verification JSON** saves the designs, bounds, seeds, refinement history,
+worst condition and provenance. Stop discards incomplete verification and keeps
+the previous captured report. Settings persist in projects; verification results
+are exported separately. Verification compares retained candidates only and
+does not claim to find an optimum among discarded designs.
 
 The captured search requirement appears in Results. Its gap and margin remain
 fixed when the display target or percentile changes. Discrete targets apply the

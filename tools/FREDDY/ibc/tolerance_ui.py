@@ -14,16 +14,46 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 
 from .tolerance_config import (SETUP_DEFAULTS, DEFAULT_SPEC, PARAMETERS, DISTRIBUTIONS,
-                               MODES, layer_parameters, validate_setup)
+                               MODES, ENVELOPE_MODE, layer_parameters, validate_setup)
 from .tolerance_analysis import (parameters_from_layers, study_workload, run_tolerance_study,
                                  export_tolerance_report, StopToleranceAnalysis)
 from .compute import layer_material_label
+from .thickness_envelopes import envelope_workload, run_thickness_envelopes, export_envelope_csv
 from .io import layer_config_to_dict
 from .plot import show_grid_value_on_hover, style_axis, style_colorbar
 from .ui_controls import messagebox, filedialog
 
 VIEWS = ('Sensitivity ranking', 'Parameter tolerance sweep', 'Margin distribution',
          'Failure map', 'Yield convergence')
+
+SETTING_HELP = {
+    'mode': 'Sensitivity only varies one parameter at a time. Statistical trials also vary all active parameters together to estimate yield. Thickness envelopes plot minimum/maximum reflection versus frequency for each layer and the complete selected thickness grid.',
+    'f_start': 'First frequency in the sweep, in GHz; must be greater than zero. An optional frequency list overrides the sweep in thickness-envelope mode.',
+    'f_stop': 'Upper frequency limit in GHz. The sweep includes this value only when it falls on a step from the start frequency.',
+    'f_step': 'Frequency spacing in GHz; must be positive. Smaller steps help resolve narrow resonances but increase calculation time.',
+    'a_start': 'First incidence angle in degrees, measured from the surface normal: 0° is normal incidence. Use angles from 0° to less than 90°. An optional angle list overrides this sweep.',
+    'a_stop': 'Upper incidence-angle limit in degrees from the surface normal, less than 90°. Included only when it falls on a step from the start angle.',
+    'a_step': 'Incidence-angle spacing in degrees; must be positive. Smaller steps sample angular performance more closely.',
+    'polarization': 'TE has electric field perpendicular to the plane of incidence; TM has magnetic field perpendicular to it. Both evaluates both polarizations. Sensitivity/yield requires all selected points and polarizations to pass; thickness plots let you view TE and TM separately.',
+    'target': 'Maximum allowed PEC-backed reflection in dB. More negative means less reflection. Sensitivity/yield passes when every sampled frequency, angle and polarization meets this limit; thickness envelopes display it as a reference line.',
+    'points': 'Odd number of values (5–101) across each parameter’s ± tolerance, including nominal and both endpoints. Each sweep varies one parameter while holding all others nominal. More points can resolve nonmonotonic responses.',
+    'samples': 'Number of joint manufacturing trials in each independent repeat. Each trial evaluates the entire selected frequency/angle/polarization grid. Use a power of two; total trials = samples per repeat × repeats, limited to 65,536.',
+    'seed': 'Integer from 0 to 4,294,967,295 that controls statistical sampling. Identical inputs and seed reproduce a study; independent repeats use successive seeds.',
+    'repeats': 'Number of statistical studies (1–16) with different seeds. Reports the spread in modeled yield and, with multiple repeats, sampling standard error. This measures sampling variability, not material-model accuracy.',
+    'envelope_points': 'Odd number of thickness values (3–101) per varying layer, including nominal and both bounds. Five points across 0.100 ±0.010 in gives 0.090, 0.095, 0.100, 0.105 and 0.110 in. Three varying layers require 5³ = 125 combined stacks. Increase resolution to check sampled-bound stability.',
+    'frequency_list': 'Optional positive GHz values separated by commas, spaces or semicolons. Overrides frequency start/stop/step; values are sorted and duplicates removed. Leave blank to use the sweep.',
+    'angle_list': 'Optional incidence angles in degrees from the surface normal, from 0° to less than 90°, separated by commas, spaces or semicolons. Overrides angle start/stop/step; values are sorted and duplicates removed. Leave blank to use the sweep.',
+}
+
+PARAMETER_HELP = (
+    'Layer and parameter being varied. Layer numbers follow the current stack order.',
+    'Symmetric ± tolerance around the nominal value. Zero holds this parameter fixed. Thickness and resistance must remain positive throughout their bounds.',
+    'Percent uses the magnitude of the nominal value at each frequency. Absolute uses inches for thickness, Ω/sq for sheet resistance, or relative units for ε/μ components.',
+    'Statistical trials only: Uniform samples within the entered bounds. Truncated normal uses bound/3 as the underlying standard deviation and truncates at the bounds.',
+    'Statistical trials only: leave blank for independence. Matching group names share a manufacturing factor; the loading controls its strength and direction.',
+    'Statistical trials only: value from −1 to +1. Zero removes the shared factor. +1/+1 move together; +1/−1 move oppositely. Latent correlation equals the product of the two loadings; transformed-variable correlation can differ.',
+    'Physical unit used when Units is Absolute: inches, Ω/sq, or dimensionless relative ε/μ.',
+)
 
 
 class ToleranceWidget(QWidget):
@@ -61,18 +91,26 @@ class ToleranceWidget(QWidget):
         self.stack_summary.setWordWrap(True)
         layout.addWidget(self.stack_summary)
         self.fields = {}
-        grid = QGridLayout()
-        field_rows = [
+        self.field_labels = {}
+        self.setup_grid = grid = QGridLayout()
+        self._visible_fields = None
+        self.field_rows = field_rows = [
+            [('mode', 'Analysis')],
             [('f_start', 'Frequency start (GHz)'), ('f_stop', 'Stop (GHz)'), ('f_step', 'Step (GHz)')],
             [('a_start', 'Angle start (°)'), ('a_stop', 'Stop (°)'), ('a_step', 'Step (°)')],
-            [('polarization', 'Polarization'), ('target', 'Reflection limit (dB)'), ('points', 'Points per parameter')],
-            [('mode', 'Analysis'), ('samples', 'Statistical samples'), ('seed', 'Random seed')],
+            [('polarization', 'Polarization'), ('target', 'Reflection limit (dB)'), ('points', 'Points per parameter'), ('envelope_points', 'Thickness grid points')],
+            [('samples', 'Samples per repeat'), ('seed', 'Random seed'), ('repeats', 'Independent repeats')],
+            [('frequency_list', 'Frequencies (GHz; optional list)')],
+            [('angle_list', 'Incidence angles (°; optional list)')],
         ]
         options = {'polarization': ['TE', 'TM', 'Both'], 'mode': MODES,
-                   'samples': [str(2**i) for i in range(4, 17)]}
+                   'samples': [str(2**i) for i in range(4, 17)], 'repeats': [str(i) for i in range(1, 17)], 'envelope_points': [str(i) for i in range(3,102,2)]}
         for row, entries in enumerate(field_rows):
             for col, (key, label) in enumerate(entries):
-                grid.addWidget(QLabel(label), row, 2 * col)
+                caption = QLabel(label)
+                caption.setToolTip(SETTING_HELP[key])
+                self.field_labels[key] = caption
+                grid.addWidget(caption, row, 2 * col)
                 if key in options:
                     edit = QComboBox()
                     edit.addItems(options[key])
@@ -81,19 +119,27 @@ class ToleranceWidget(QWidget):
                 else:
                     edit = QLineEdit(SETUP_DEFAULTS[key])
                     edit.textChanged.connect(self.refresh_workload)
+                if key in ('frequency_list','angle_list'):
+                    edit.setPlaceholderText('Blank uses the sweep above; e.g. ' + ('8, 9.5, 12' if key=='frequency_list' else '0, 15, 35'))
+                    edit.setMinimumWidth(300)
+                edit.setToolTip(SETTING_HELP[key])
                 edit.setMinimumWidth(85)
                 self.fields[key] = edit
-                grid.addWidget(edit, row, 2 * col + 1)
+                grid.addWidget(edit, row, 2 * col + 1, 1, 5 if key in ('frequency_list','angle_list') else 1)
         layout.addLayout(grid)
-        self.copy_inverse = QPushButton('Copy inverse frequency band, angles and requirement')
+        self.copy_inverse = QPushButton('Copy inverse frequencies, angles and requirement')
+        self.copy_inverse.setToolTip('Copy the inverse setup frequencies, incidence angles, polarization and reflection limit. Discrete frequency lists are supported in thickness-envelope mode. Does not apply an inverse candidate or reuse calculated results.')
         self.copy_inverse.clicked.connect(self.use_inverse_setup)
         layout.addWidget(self.copy_inverse)
         note = QLabel('Set ± bounds below; zero disables a parameter. Absolute units: thickness in inches, resistance in Ω/sq, ε/μ relative units. '
                       'Percent bounds use the magnitude of the nominal component at each frequency. The same trial deviation spans the whole curve.')
         note.setWordWrap(True)
+        self.input_note = note
         layout.addWidget(note)
         self.parameters = QTableWidget(0, 7)
         self.parameters.setHorizontalHeaderLabels(['Layer / parameter', '± bound', 'Units', 'Distribution', 'Shared group', 'Loading', 'Absolute unit'])
+        for col, help_text in enumerate(PARAMETER_HELP):
+            self.parameters.horizontalHeaderItem(col).setToolTip(help_text)
         self.parameters.setMinimumHeight(245)
         self.parameters.setAlternatingRowColors(True)
         self.parameters.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -105,6 +151,7 @@ class ToleranceWidget(QWidget):
                             'Uniform or normal-distribution Pearson correlations can differ after the bounded transform. '
                             'Truncated normal uses nominal ±3σ as the entered hard bounds.')
         group_note.setWordWrap(True)
+        self.group_note = group_note
         layout.addWidget(group_note)
         self.workload = QLabel()
         self.workload.setWordWrap(True)
@@ -129,15 +176,26 @@ class ToleranceWidget(QWidget):
         results.addWidget(self.result_status)
         bar = QHBoxLayout()
         self.view = QComboBox()
+        self.view.setToolTip('Choose how to display the captured results. Changing a view does not rerun the analysis.')
         self.view.addItems(VIEWS)
         self.view.currentTextChanged.connect(self.draw)
         bar.addWidget(self.view)
         self.parameter_choice = QComboBox()
+        self.parameter_choice.setToolTip('Choose a captured parameter sweep or thickness-envelope panel. All plots shows every individual layer and the combined envelope.')
         self.parameter_choice.currentIndexChanged.connect(self.draw)
         bar.addWidget(self.parameter_choice, 1)
         self.pol_choice = QComboBox()
+        self.pol_choice.setToolTip('Choose the polarization to display from the captured study. Does not change which polarizations were evaluated.')
         self.pol_choice.currentIndexChanged.connect(self.draw)
         bar.addWidget(self.pol_choice)
+        self.angle_choice = QComboBox()
+        self.angle_choice.setToolTip('Select one incidence angle to isolate thickness effects. All selected angles pools their minimum/maximum bounds and shows the nominal angular range as well.')
+        self.angle_choice.currentIndexChanged.connect(self.draw)
+        bar.addWidget(self.angle_choice)
+        self.csv_button = QPushButton('Export envelope CSV…')
+        self.csv_button.clicked.connect(self.export_csv)
+        self.csv_button.setVisible(False)
+        bar.addWidget(self.csv_button)
         self.export_button = QPushButton('Export study JSON…')
         self.export_button.clicked.connect(self.export)
         self.export_button.setEnabled(False)
@@ -159,6 +217,8 @@ class ToleranceWidget(QWidget):
                         'first-miss brackets are sampled bounds, not guaranteed continuous limits. Statistical pass fraction depends on '
                         'the captured distributions and correlations. Refine the operating grid and repeat seeds to assess convergence.')
         caveat.setWordWrap(True)
+        self.caveat = caveat
+        self.standard_caveat = caveat.text()
         results.addWidget(caveat)
         self.timer = QTimer(self)
         self.timer.setInterval(100)
@@ -180,16 +240,20 @@ class ToleranceWidget(QWidget):
         self.refresh_workload()
 
     def use_inverse_setup(self):
-        if self.host.inv_freq_mode_var.get() != 'Band sweep':
+        envelope = self.fields['mode'].currentText() == ENVELOPE_MODE
+        discrete = self.host.inv_freq_mode_var.get() != 'Band sweep'
+        if discrete and not envelope:
             messagebox.showwarning('Sensitivity setup', 'This workspace uses a frequency band. Enter the desired band here for a discrete-frequency inverse study.')
             return
+        self.fields['frequency_list'].setText(self.host.inv_freq_list_var.get() if discrete else '')
+        self.fields['angle_list'].clear()
         mapping = {'f_start': 'inv_target_start', 'f_stop': 'inv_target_stop', 'f_step': 'inv_target_step',
                    'a_start': 'inv_angle_start', 'a_stop': 'inv_angle_stop', 'a_step': 'inv_angle_step',
                    'target': 'inv_requirement_db', 'polarization': 'inv_wave_pol'}
         for key, source in mapping.items():
             edit = self.fields[key]
             value = getattr(self.host, source + '_var').get()
-            edit.setCurrentText(value.upper()) if isinstance(edit, QComboBox) else edit.setText(value)
+            edit.setCurrentText('Both' if value.lower()=='both' else value.upper()) if isinstance(edit, QComboBox) else edit.setText(value)
 
     def refresh_layers(self):
         self._refreshing = True
@@ -203,6 +267,8 @@ class ToleranceWidget(QWidget):
                 row = self.parameters.rowCount()
                 self.parameters.insertRow(row)
                 item = QTableWidgetItem(f'{index+1}. {PARAMETERS[key]}')
+                item.setData(Qt.UserRole, key)
+                item.setToolTip(PARAMETER_HELP[0])
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 self.parameters.setItem(row, 0, item)
                 bound = QDoubleSpinBox()
@@ -223,9 +289,12 @@ class ToleranceWidget(QWidget):
                 loading.setDecimals(3)
                 loading.setValue(spec['loading'])
                 for col, widget in enumerate((bound, units, distribution, group, loading), 1):
+                    widget.setToolTip(PARAMETER_HELP[col])
                     self.parameters.setCellWidget(row, col, widget)
                 unit = 'in' if key == 'thickness' else ('Ω/sq' if layer.is_sheet else 'relative')
                 item = QTableWidgetItem(unit)
+                item.setToolTip(PARAMETER_HELP[6])
+                item.setData(Qt.UserRole, key)
                 item.setFlags(item.flags() & ~Qt.ItemIsEditable)
                 self.parameters.setItem(row, 6, item)
                 def changed(*_, layer=layer, key=key, widgets=(bound, units, distribution, group, loading)):
@@ -235,6 +304,7 @@ class ToleranceWidget(QWidget):
                     if value == DEFAULT_SPEC: layer.tolerances.pop(key, None)
                     else: layer.tolerances[key] = value
                     self.refresh_workload()
+                    self.host._schedule_inverse_work_count()
                 bound.valueChanged.connect(changed)
                 units.currentTextChanged.connect(changed)
                 distribution.currentTextChanged.connect(changed)
@@ -244,15 +314,63 @@ class ToleranceWidget(QWidget):
         self._refreshing = False
         self.refresh_workload()
 
+    def _refresh_setup_visibility(self, envelopes, statistical):
+        hidden = set()
+        if envelopes:
+            hidden.add('points')
+        else:
+            hidden.update(('envelope_points', 'frequency_list', 'angle_list'))
+        if not statistical:
+            hidden.update(('samples', 'seed', 'repeats'))
+        visible = tuple(key for key in self.fields if key not in hidden)
+        if visible == self._visible_fields:
+            return
+        self._visible_fields = visible
+        # Repack the visible label/control pairs so hidden modes leave no gaps.
+        for key, edit in self.fields.items():
+            caption = self.field_labels[key]
+            self.setup_grid.removeWidget(caption)
+            self.setup_grid.removeWidget(edit)
+            caption.setVisible(key not in hidden)
+            edit.setVisible(key not in hidden)
+        row = 0
+        for entries in self.field_rows:
+            keys = [key for key, _ in entries if key not in hidden]
+            if not keys:
+                continue
+            for col, key in enumerate(keys):
+                self.setup_grid.addWidget(self.field_labels[key], row, 2 * col)
+                self.setup_grid.addWidget(self.fields[key], row, 2 * col + 1, 1,
+                                          5 if key in ('frequency_list', 'angle_list') else 1)
+            row += 1
+
     def refresh_workload(self, *_):
         if self._refreshing or len(self.fields) != len(SETUP_DEFAULTS): return
-        statistical = self.fields['mode'].currentText() != MODES[0]
+        envelopes = self.fields['mode'].currentText() == ENVELOPE_MODE
+        statistical = self.fields['mode'].currentText() == MODES[1]
+        self._refresh_setup_visibility(envelopes, statistical)
+        self.group_note.setVisible(statistical)
+        self.parameters.verticalHeader().setVisible(not envelopes)
+        for col in (3,4,5): self.parameters.setColumnHidden(col,not statistical)
+        self.fields['points'].setEnabled(not envelopes)
+        for key in ('envelope_points','frequency_list','angle_list'):
+            self.fields[key].setEnabled(envelopes)
+        for row in range(self.parameters.rowCount()):
+            self.parameters.setRowHidden(row,envelopes and self.parameters.item(row,0).data(Qt.UserRole)!='thickness')
+            for col in (3,4,5): self.parameters.cellWidget(row,col).setEnabled(statistical)
+        self.input_note.setText('Thickness envelopes vary bulk-layer thickness only. Set each ± bound in percent or absolute inches. Material properties and sheets stay nominal. Every selected thickness combination is evaluated. Optional lists override the sweeps; angles are measured from the surface normal.' if envelopes else 'Set ± bounds below; zero disables a parameter. Absolute units: thickness in inches, resistance in Ω/sq, ε/μ relative units. Percent bounds use nominal magnitude.')
         self.fields['samples'].setEnabled(statistical)
         self.fields['seed'].setEnabled(statistical)
-        self.run_button.setText('Run sensitivity + statistical study' if statistical else 'Run sensitivity study')
+        self.fields['repeats'].setEnabled(statistical)
+        self.run_button.setText('Compute thickness envelopes' if envelopes else 'Run sensitivity + statistical study' if statistical else 'Run sensitivity study')
         try:
-            params = parameters_from_layers(self.host.layers)
-            w = study_workload(self.capture_setup(), len(params), len(self.host.layers))
+            if envelopes:
+                setup = validate_setup(self.capture_setup())
+                w = envelope_workload(self.host.layers,setup)
+                params = range(w['active_thicknesses'])
+            else:
+                params = parameters_from_layers(self.host.layers)
+                w = study_workload(self.capture_setup(), len(params), len(self.host.layers))
             self.workload.setText(f'{len(params)} active parameter(s) · {w["evaluations"]:,} stack evaluations · '
                                   f'{w["response_points"]:,} response points · about {w["array_mib"]:.2f} MiB of analysis arrays '
                                   '(excludes loaded files, GUI and Python overhead).')
@@ -266,6 +384,7 @@ class ToleranceWidget(QWidget):
             widget.setEnabled(not busy)
         self.stop_button.setEnabled(busy and self.active)
         self.export_button.setEnabled(not busy and self.result is not None)
+        self.csv_button.setEnabled(not busy and self.result is not None)
         if not busy:
             self.timer.stop()
             self.active = False
@@ -285,7 +404,8 @@ class ToleranceWidget(QWidget):
         try:
             setup = validate_setup(self.capture_setup())
             snapshot = self.host._snapshot_layers()
-            parameters_from_layers(snapshot)
+            if setup['mode']==ENVELOPE_MODE: envelope_workload(snapshot,setup)
+            else: parameters_from_layers(snapshot)
             captured_layers = [layer_config_to_dict(layer) for layer in snapshot]
         except ValueError as exc:
             messagebox.showerror('Sensitivity setup', str(exc))
@@ -299,7 +419,8 @@ class ToleranceWidget(QWidget):
         def worker():
             try:
                 loaded = self.host._load_layers(snapshot)
-                result = run_tolerance_study(loaded, snapshot, setup, stop_requested=self._stop.is_set, progress=progress)
+                analysis = run_thickness_envelopes if setup['mode']==ENVELOPE_MODE else run_tolerance_study
+                result = analysis(loaded, snapshot, setup, stop_requested=self._stop.is_set, progress=progress)
                 result['layers'] = captured_layers
                 return result
             except StopToleranceAnalysis:
@@ -324,9 +445,17 @@ class ToleranceWidget(QWidget):
 
     def result_summary(self):
         r = self.result
+        if r.get('kind')=='thickness_envelopes':
+            return (f'Thickness-only envelopes · {len(r["panels"])-1} layer plots + all layers · '
+                    f'{r["evaluated"]:,} combinations fully evaluated · '
+                    f'{len(r["frequencies_ghz"])} frequencies × {len(r["angles_deg"])} incidence angles · '
+                    + '+'.join(p.upper() for p in r['polarizations']))
         text = f'Captured PEC limit {r["target_db"]:g} dB · nominal margin {r["nominal_margin_db"]:+.3f} dB'
         if r['trials']:
             text += f' · modeled pass fraction {r["pass_fraction_pct"]:.2f}% ({r["passing"]:,}/{r["trials"]:,} trials)'
+            rep = r.get('repeatability')
+            if rep and len(rep['repeat_pass_pct'])>1:
+                text += f' · repeat range {rep["min_pass_pct"]:.2f}–{rep["max_pass_pct"]:.2f}% · sampling SE {rep["standard_error_percentage_points"]:.3f} percentage points (not a guaranteed bound)'
         else:
             text += ' · individual parameter sweeps only'
         text += (f'\n{r["frequencies_ghz"][0]:g}–{r["frequencies_ghz"][-1]:g} GHz '
@@ -335,6 +464,31 @@ class ToleranceWidget(QWidget):
         return text
 
     def publish(self):
+        envelope = self.result.get('kind')=='thickness_envelopes'
+        self.view.blockSignals(True)
+        self.view.clear()
+        self.view.addItems(['Thickness envelopes'] if envelope else VIEWS)
+        self.view.blockSignals(False)
+        if envelope:
+            self.parameter_choice.blockSignals(True)
+            self.parameter_choice.clear()
+            self.parameter_choice.addItems(['All plots']+[p['label'] for p in self.result['panels']])
+            if len(self.result['panels'])>6: self.parameter_choice.setCurrentIndex(1)
+            self.parameter_choice.blockSignals(False)
+            self.pol_choice.blockSignals(True)
+            self.pol_choice.clear(); self.pol_choice.addItems([p.upper() for p in self.result['polarizations']])
+            self.pol_choice.blockSignals(False)
+            self.angle_choice.blockSignals(True)
+            self.angle_choice.clear()
+            self.angle_choice.addItems(['All selected angles']+[f'{a:g}° incidence' for a in self.result['angles_deg']])
+            self.angle_choice.setCurrentIndex(1)
+            self.angle_choice.blockSignals(False)
+            self.result_status.setText(self.result_summary())
+            self.summary.setRowCount(0)
+            self.export_button.setEnabled(not self.host.job_is_running())
+            self.csv_button.setEnabled(not self.host.job_is_running())
+            self.draw()
+            return
         self.parameter_choice.blockSignals(True)
         self.parameter_choice.clear()
         self.parameter_choice.addItems([s['label'] for s in self.result['sensitivities']])
@@ -375,6 +529,18 @@ class ToleranceWidget(QWidget):
 
     def draw(self, *_):
         if not hasattr(self, 'figure'): return
+        envelope = self.result is not None and self.result.get('kind')=='thickness_envelopes'
+        self.angle_choice.setVisible(envelope)
+        self.csv_button.setVisible(envelope)
+        self.summary.setVisible(not envelope)
+        self.caveat.setText('Bounds are pointwise minima/maxima over the complete selected thickness grid, not percentiles or guaranteed continuous extrema. Other properties stay nominal. All selected angles pools their envelopes; select one incidence angle to isolate thickness variation from angular spread.' if envelope else self.standard_caveat)
+        if envelope:
+            from .thickness_envelope_plot import draw_envelopes
+            self.parameter_choice.setVisible(True);self.pol_choice.setVisible(True)
+            draw_envelopes(self.figure,self.result,max(0,self.parameter_choice.currentIndex()),
+                           self.pol_choice.currentIndex(),self.angle_choice.currentIndex(),self.colors)
+            self.canvas.draw_idle()
+            return
         self.figure.clear()
         ax = self.figure.add_subplot(111)
         r = self.result
@@ -450,3 +616,11 @@ class ToleranceWidget(QWidget):
         if not path: return
         self.host._run_background_task('Export sensitivity study', lambda: export_tolerance_report(Path(path), result),
                                        lambda _: self.host.status_var.set(f'Saved sensitivity study: {path}'), 'Export error')
+
+    def export_csv(self):
+        if self.host.job_is_running() or self.result is None: return
+        result = self.result
+        path = filedialog.asksaveasfilename(title='Export thickness envelope curves', defaultextension='.csv', filetypes=[('CSV','*.csv')])
+        if not path: return
+        self.host._run_background_task('Export thickness envelopes', lambda: export_envelope_csv(path,result),
+            lambda _: self.progress_label.setText('Captured envelope curves exported.'), 'Envelope export error')

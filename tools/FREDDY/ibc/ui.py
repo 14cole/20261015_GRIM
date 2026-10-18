@@ -436,7 +436,7 @@ UNCERTAINTY_VIEW_OPTIONS = [
 ]
 from .ui_options import (
     INVERSE_SCORE_MODE_OPTIONS,
-    INVERSE_SCORE_WHOLE_BAND,
+    INVERSE_SCORE_WHOLE_BAND, INVERSE_SCORE_YIELD, MANUFACTURING_OBJECTIVES, inverse_polarizations,
     inverse_requirement_target,
     MIX_OBJECTIVE_FORWARD,
     MIX_OBJECTIVE_OPTIONS,
@@ -715,7 +715,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self.inv_unc_t_pct_var = StringVar("5.0")
         self.inv_unc_eps_pct_var = StringVar("5.0")
         self.inv_unc_mu_pct_var = StringVar("5.0")
-        self.inv_score_mode_var = StringVar(INVERSE_SCORE_MODE_OPTIONS[0])
+        self.inv_score_mode_var = StringVar(INVERSE_SCORE_WHOLE_BAND)
         self.inv_requirement_db_var = StringVar('-10')
         self.inv_refine_var = BooleanVar(True)
         self.inv_seed_var = StringVar("1")
@@ -1580,7 +1580,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         angle_body.addWidget(QLabel("Step"), 0, 4, Qt.AlignLeft)
         angle_body.addWidget(_entry(self.inv_angle_step_var, 8), 0, 5, Qt.AlignLeft)
         angle_body.addWidget(QLabel("Wave pol"), 0, 6, Qt.AlignLeft)
-        angle_body.addWidget(make_combo(("TE", "TM"), self.inv_wave_pol_var, width=60), 0, 7, Qt.AlignLeft)
+        angle_body.addWidget(make_combo(("TE", "TM", "Both"), self.inv_wave_pol_var, width=80), 0, 7, Qt.AlignLeft)
         angle_body.setColumnStretch(8, 1)
 
         self.inv_search_frame = CollapsibleFrame("Analyze all combinations", expanded=True)
@@ -1634,6 +1634,10 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self._sync_inverse_objective()
         score_body.setColumnStretch(5, 1)
 
+        from .robust_ui import RobustSettings
+        self.robust_settings = RobustSettings(self)
+        score_body.addWidget(self.robust_settings, 5, 0, 1, 6)
+        self.inv_wave_pol_var.valueChanged.connect(self._schedule_inverse_work_count)
         self.inv_results_list = self._create_inverse_candidate_table()
 
         inv_actions = QWidget()
@@ -1653,12 +1657,16 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
 
 
     def _sync_inverse_objective(self, *_args):
-        whole_band = self.inv_score_mode_var.get() == INVERSE_SCORE_WHOLE_BAND
+        mode = self.inv_score_mode_var.get()
+        whole_band = mode in (INVERSE_SCORE_WHOLE_BAND, *MANUFACTURING_OBJECTIVES)
         self.inv_requirement_entry.setEnabled(whole_band)
         self.inv_requirement_label.setEnabled(whole_band)
         self.inv_objective_note.setText(
             'Minimize the worst reflection gap across every analyzed frequency, angle, and tolerance case. Gap ≤ 0 passes the limit. Verify between samples with a finer sweep.'
             if whole_band else 'Minimize mean reflection dB across frequency and angle, then take the worst or average tolerance corner. A good mean score can still miss a peak requirement.')
+        if mode in MANUFACTURING_OBJECTIVES:
+            self.inv_objective_note.setText('Per-layer bounds replace shared uncertainty. ' + ('Minimize modeled failure percentage under the entered distributions/groups. Zero sampled failures is not guaranteed acceptance.' if mode == INVERSE_SCORE_YIELD else 'Minimize worst reflection gap across joint rectangular support samples; distribution/group constraints are ignored for these conservative probes.'))
+        self._schedule_inverse_work_count()
 
     def _build_mix_tab(self, _add_mode) -> None:
         """Construct the material recipe and target controls."""
@@ -3014,6 +3022,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             self.inv_save_candidate_btn,
             self.inv_checkpoint_save_btn, self.inv_checkpoint_load_btn,
             self.inverse_recovery_path,
+            self.robust_settings,
             self.layer_add_btn,
             self.layer_add_sheet_btn,
             self.layer_edit_btn,
@@ -3836,6 +3845,8 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             requirement = self.inverse_result_metadata.get('requirement_db')
             score_description = (f'Gap: {cand.score_db:+.3f} dB ({"PASS" if cand.score_db <= 0 else "MISS"} at {requirement:g} dB)'
                                  if requirement is not None else f'Score: {cand.score_db:.3f} dB')
+            if self.inverse_result_metadata.get('score_mode') == INVERSE_SCORE_YIELD:
+                score_description = f'Modeled failure fraction: {cand.score_db:.3f}% (sampled estimate)'
             msg = (
                 f"Applied inverse candidate #{idx + 1}.\n"
                 f"{score_description} | Nominal mean: {cand.nominal_mean_db:.3f} dB | "
@@ -3853,7 +3864,8 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
                 raise ValueError("Add at least one layer before inverse design.")
 
             layer_snapshot = self._snapshot_layers()
-            wave_pol = normalize_wave_polarization(self.inv_wave_pol_var.get())
+            pols = inverse_polarizations(self.inv_wave_pol_var.get())
+            wave_pol = 'both' if len(pols)>1 else pols[0]
             freq_mode = self.inv_freq_mode_var.get().strip().lower()
             if freq_mode.startswith("discrete"):
                 target_freqs = self._parse_inverse_discrete_freqs(self.inv_freq_list_var.get())
@@ -3884,11 +3896,12 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             if score_mode not in INVERSE_SCORE_MODE_OPTIONS:
                 raise ValueError('Choose a supported inverse-design objective.')
             requirement_db = inverse_requirement_target(score_mode, self.inv_requirement_db_var.get())
+            robust_setup = self.robust_settings.capture()
             uncertainty_cfg = self._read_inverse_uncertainty_config()
             grid = DesignGrid(layer_snapshot)
             validate_inverse_grid(nf, na,
                                   layer_count=len(layer_snapshot),
-                                  case_count=len(build_uncertainty_scales(uncertainty_cfg)),
+                                  case_count=self._inverse_case_count(layer_snapshot, uncertainty_cfg)*len(pols),
                                   design_count=grid.total, top_n=top_n)
             if not freq_mode.startswith("discrete"):
                 target_freqs = make_frequency_sweep(f_start, f_stop, f_step)
@@ -3943,6 +3956,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             a_stop=a_stop,
             numpy_available=NUMPY_AVAILABLE,
             requirement_db=requirement_db,
+            robust_setup=robust_setup,
         )
 
         def worker():
@@ -3982,6 +3996,11 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
                 'complete': completed['next_index'] == grid.total,
                 'angles': list(target_angles),
                 'scales': build_uncertainty_scales(uncertainty_cfg),
+                'case_count': completed['case_count'],
+                'nominal_case_index': completed['nominal_case_index'],
+                'polarizations': list(pols),
+                'manufacturing': score_mode in MANUFACTURING_OBJECTIVES,
+                'robust_setup': request.robust_setup,
             }
             self._inverse_summary = msg
             if requirement_db is not None:

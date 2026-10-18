@@ -44,7 +44,9 @@ from .compute import (
     weight_fractions_from_volume,
 )
 from .io import read_material_table, constant_material_from_layer
-from .ui_options import inverse_requirement_target
+from .ui_options import inverse_requirement_target, inverse_polarizations, MANUFACTURING_OBJECTIVES, INVERSE_SCORE_YIELD
+from .robust_config import validate_robust_setup
+from .tolerance_config import StopToleranceAnalysis
 from .inverse_workflow import StopInverseSearch, search_identity
 from .inverse_grid import DesignGrid
 from .sweep_admission import validate_inverse_grid, validate_mix_grid, validate_grid
@@ -63,40 +65,42 @@ def score_inverse_candidate(target_freqs, target_angles, candidate_layers, wave_
     worst_point = -math.inf
     for t_scale, e_scale, m_scale in scales:
         values: list[float] = []
-        for angle_deg in target_angles:
-            if stop_requested():
-                raise StopInverseSearch()
-            prepared = (
-                prepared_wave_terms.get((angle_deg, e_scale, m_scale))
-                if prepared_wave_terms is not None
-                else None
-            )
-            if compute_metrics is compute_angle_metrics_many:
-                # The score reads only PEC reflection; skip the free-space
-                # cascade and transmission chain (bit-identical values).
-                loss_db = compute_metal_loss_db_many(
+        pols = inverse_polarizations(wave_pol)
+        for pol in pols:
+            for angle_deg in target_angles:
+                if stop_requested():
+                    raise StopInverseSearch()
+                prepared = (
+                    prepared_wave_terms.get((pol, angle_deg, e_scale, m_scale) if len(pols)>1 else (angle_deg, e_scale, m_scale))
+                    if prepared_wave_terms is not None
+                    else None
+                )
+                if compute_metrics is compute_angle_metrics_many:
+                    # The score reads only PEC reflection; skip the free-space
+                    # cascade and transmission chain (bit-identical values).
+                    loss_db = compute_metal_loss_db_many(
+                        target_freqs,
+                        angle_deg,
+                        candidate_layers,
+                        pol,
+                        thickness_scale=t_scale,
+                        eps_scale=e_scale,
+                        mu_scale=m_scale,
+                        prepared_wave_terms=prepared,
+                    )
+                    values.extend(loss_db.tolist() if hasattr(loss_db, "tolist") else loss_db)
+                    continue
+                metrics = compute_metrics(
                     target_freqs,
                     angle_deg,
                     candidate_layers,
-                    wave_pol,
+                    pol,
                     thickness_scale=t_scale,
                     eps_scale=e_scale,
                     mu_scale=m_scale,
                     prepared_wave_terms=prepared,
                 )
-                values.extend(loss_db.tolist() if hasattr(loss_db, "tolist") else loss_db)
-                continue
-            metrics = compute_metrics(
-                target_freqs,
-                angle_deg,
-                candidate_layers,
-                wave_pol,
-                thickness_scale=t_scale,
-                eps_scale=e_scale,
-                mu_scale=m_scale,
-                prepared_wave_terms=prepared,
-            )
-            values.extend(metrics["metal_loss_db"])
+                values.extend(metrics["metal_loss_db"])
         mean_db, _mn, _mx = statistics(values)
         worst_point = max(worst_point, _mx)
         corner_means.append(mean_db)
@@ -136,6 +140,7 @@ class InverseSearchRequest:
     a_stop: float
     numpy_available: bool
     requirement_db: float = -10.
+    robust_setup: dict | None = None
 
 
 def run_inverse_search(request: InverseSearchRequest, *, stop_requested, progress,
@@ -159,20 +164,30 @@ def run_inverse_search(request: InverseSearchRequest, *, stop_requested, progres
     a_stop = request.a_stop
     numpy_available = request.numpy_available
 
+    pols = inverse_polarizations(wave_pol)
+    manufacturing = score_mode in MANUFACTURING_OBJECTIVES
+    if manufacturing:
+        from .robust_design import manufacturing_scenarios, manufacturing_case_count, score_manufacturing, manufacturing_response
+    robust_setup = validate_robust_setup(request.robust_setup)
+    if manufacturing and uncertainty_cfg.enabled:
+        raise ValueError('Disable shared uncertainty for a per-layer objective. Set layer bounds in Sensitivity & Yield.')
+    case_count = (manufacturing_case_count(layer_snapshot, robust_setup, score_mode) if manufacturing
+                  else len(build_uncertainty_scales(uncertainty_cfg)))
     validate_inverse_grid(len(target_freqs), len(target_angles),
                           layer_count=len(layer_snapshot),
-                          case_count=len(build_uncertainty_scales(uncertainty_cfg)),
+                          case_count=case_count*len(pols),
                           design_count=grid.total, top_n=top_n)
     from array import array
     import heapq
     identity = search_identity(layer_snapshot, target_freqs, target_angles, wave_pol,
-                               uncertainty_cfg, score_mode, requirement_db)
+                               uncertainty_cfg, score_mode, requirement_db, robust_setup)
     if checkpoint and checkpoint['identity'] != identity:
         raise ValueError("Inputs or material files changed. Start a new analysis instead of resuming.")
     def check_stop():
         if stop_requested():
             raise StopInverseSearch()
     scales = build_uncertainty_scales(uncertainty_cfg)
+    params, scenarios = manufacturing_scenarios(layer_snapshot, robust_setup, score_mode) if manufacturing else (None, None)
     table_cache: dict[str, MaterialTable] = {}
 
     def get_table(path_str: str) -> MaterialTable:
@@ -248,26 +263,27 @@ def run_inverse_search(request: InverseSearchRequest, *, stop_requested, progres
     _coverage_ok, tables_0, tables_90 = prepare_material_combo(chosen_files)
     base_thick, base_rs = grid.design(0)
     prepared_inverse_wave_terms = {}
-    if numpy_available:
+    if numpy_available and not manufacturing:
         reference_layers = build_loaded_layers(base_thick, base_rs)
         prepared_properties = prepare_layer_properties_many(
             target_freqs, reference_layers
         )
-        for _t_scale, e_scale, m_scale in scales:
-            for angle_deg in target_angles:
-                key = (angle_deg, e_scale, m_scale)
-                if key not in prepared_inverse_wave_terms:
-                    prepared_inverse_wave_terms[key] = (
-                        prepare_layer_wave_terms_many(
-                            target_freqs,
-                            angle_deg,
-                            reference_layers,
-                            wave_pol,
-                            eps_scale=e_scale,
-                            mu_scale=m_scale,
-                            prepared_properties=prepared_properties,
+        for pol in pols:
+            for _t_scale, e_scale, m_scale in scales:
+                for angle_deg in target_angles:
+                    key = (pol, angle_deg, e_scale, m_scale) if len(pols)>1 else (angle_deg, e_scale, m_scale)
+                    if key not in prepared_inverse_wave_terms:
+                        prepared_inverse_wave_terms[key] = (
+                            prepare_layer_wave_terms_many(
+                                target_freqs,
+                                angle_deg,
+                                reference_layers,
+                                pol,
+                                eps_scale=e_scale,
+                                mu_scale=m_scale,
+                                prepared_properties=prepared_properties,
+                            )
                         )
-                    )
 
 
     # Store five scores per completed design, rather than millions of
@@ -289,7 +305,7 @@ def run_inverse_search(request: InverseSearchRequest, *, stop_requested, progres
         if not force and now - last_checkpoint < checkpoint_interval:
             return
         if search_identity(layer_snapshot, target_freqs, target_angles, wave_pol,
-                           uncertainty_cfg, score_mode, requirement_db) != identity:
+                           uncertainty_cfg, score_mode, requirement_db, robust_setup) != identity:
             raise ValueError('Material files changed during the analysis. Run again with stable inputs.')
         checkpoint_callback(dict(identity=identity, score_rows=score_rows,
                                  next_index=next_index, total=grid.total,
@@ -301,17 +317,21 @@ def run_inverse_search(request: InverseSearchRequest, *, stop_requested, progres
         while next_index < grid.total:
             check_stop()
             thicknesses, resistances = grid.design(next_index)
-            scores = score_candidate(
-                target_freqs, target_angles, build_loaded_layers(thicknesses, resistances),
-                wave_pol, scales, score_mode, prepared_inverse_wave_terms,
-                **({'requirement_db': requirement_db} if requirement_db is not None else {}))
+            if manufacturing:
+                scores = score_manufacturing(build_loaded_layers(thicknesses, resistances), target_freqs,
+                    target_angles, wave_pol, params, scenarios, score_mode, requirement_db, stop_requested)
+            else:
+                scores = score_candidate(
+                    target_freqs, target_angles, build_loaded_layers(thicknesses, resistances),
+                    wave_pol, scales, score_mode, prepared_inverse_wave_terms,
+                    **({'requirement_db': requirement_db} if requirement_db is not None else {}))
             if len(scores) != 5 or not all(math.isfinite(v) for v in scores):
                 raise ValueError(f'Combination {next_index + 1}: incomplete or nonfinite scores.')
             score_rows.extend(scores)
             next_index += 1
             progress(next_index, grid.total, 'Analyzing')
             publish_checkpoint()
-    except StopInverseSearch:
+    except (StopInverseSearch, StopToleranceAnalysis):
         pass
     top_candidates = []
     for index in heapq.nsmallest(min(top_n, next_index), range(next_index),
@@ -328,30 +348,34 @@ def run_inverse_search(request: InverseSearchRequest, *, stop_requested, progres
         for cand in top_candidates:
             cand_layers = build_loaded_layers(cand.thickness_in, cand.sheet_resistance_ohm)
             freq_samples = [[] for _ in target_freqs]
-            for t_scale, e_scale, m_scale in scales:
-                for angle_deg in target_angles:
-                    check_stop()
-                    metrics = compute_metrics(
-                        target_freqs,
-                        angle_deg,
-                        cand_layers,
-                        wave_pol,
-                        thickness_scale=t_scale,
-                        eps_scale=e_scale,
-                        mu_scale=m_scale,
-                        prepared_wave_terms=prepared_inverse_wave_terms.get(
-                            (angle_deg, e_scale, m_scale)
-                        ),
-                    )
-                    for fi, val in enumerate(metrics["metal_loss_db"]):
-                        freq_samples[fi].append(val)
+            if manufacturing:
+                engine = manufacturing_response(cand_layers, target_freqs, target_angles, wave_pol, params, stop_requested)
+                import numpy as npx
+                plot_cases = npx.vstack((npx.zeros((1, len(params))), scenarios)) if score_mode == INVERSE_SCORE_YIELD else scenarios
+                for case in plot_cases:
+                    values = engine.response(case).max(axis=0)
+                    for fi in range(len(target_freqs)):
+                        freq_samples[fi].extend(values[:, fi].tolist())
+            else:
+                for t_scale, e_scale, m_scale in scales:
+                    for angle_deg in target_angles:
+                        check_stop()
+                        pol_values = []
+                        for pol in pols:
+                            metrics = compute_metrics(target_freqs, angle_deg, cand_layers, pol,
+                                thickness_scale=t_scale, eps_scale=e_scale, mu_scale=m_scale,
+                                prepared_wave_terms=prepared_inverse_wave_terms.get(
+                                    (pol, angle_deg, e_scale, m_scale) if len(pols)>1 else (angle_deg, e_scale, m_scale)))
+                            pol_values.append(metrics['metal_loss_db'])
+                        for fi in range(len(target_freqs)):
+                            freq_samples[fi].append(max(v[fi] for v in pol_values))
             inverse_samples.append(freq_samples)
 
-    except StopInverseSearch:
+    except (StopInverseSearch, StopToleranceAnalysis):
         inverse_samples = []
     completed['plots_complete'] = len(inverse_samples) == len(top_candidates)
     if search_identity(layer_snapshot, target_freqs, target_angles, wave_pol,
-                       uncertainty_cfg, score_mode, requirement_db) != identity:
+                       uncertainty_cfg, score_mode, requirement_db, robust_setup) != identity:
         raise ValueError("Material files changed during the analysis. Run again with stable inputs.")
     complete = next_index == grid.total
     publish_checkpoint(force=True, plots_complete=completed['plots_complete'])
@@ -359,10 +383,11 @@ def run_inverse_search(request: InverseSearchRequest, *, stop_requested, progres
               'Stopped; analysis is incomplete. Resume to analyze the remaining combinations')
     if not completed['plots_complete']:
         status += '. Comparison plots unfinished; Resume completes them'
-    score_label = 'Best gap' if requirement_db is not None else 'Best score'
-    best_text = (f'{score_label}: {top_candidates[0].score_db:.3f} dB' if top_candidates
+    score_label = 'Best modeled failure fraction' if score_mode == INVERSE_SCORE_YIELD else 'Best gap' if requirement_db is not None else 'Best score'
+    score_unit = '%' if score_mode == INVERSE_SCORE_YIELD else 'dB'
+    best_text = (f'{score_label}: {top_candidates[0].score_db:.3f} {score_unit}' if top_candidates
                  else 'No combination was fully evaluated.')
-    if requirement_db is not None:
+    if requirement_db is not None and score_mode != INVERSE_SCORE_YIELD:
         passing = sum(score_rows[5*i] <= 0 for i in range(next_index))
         best_text += (f'\nRequirement: PEC reflection ≤ {requirement_db:g} dB at every analyzed frequency/angle/tolerance case.'
                       f'\nPassing designs: {passing:,} / {next_index:,} completed. Gap = worst reflection − target; ≤ 0 passes.')
@@ -370,12 +395,19 @@ def run_inverse_search(request: InverseSearchRequest, *, stop_requested, progres
            f'Evaluated: {next_index:,} of {grid.total:,} combinations\n'
            f'Objective: {score_mode}\n'
            f'Region: {target_freq_desc}, {a_start:g}-{a_stop:g} deg, pol={wave_pol.upper()}\n'
-           f'Tolerance/nominal cases per combination: {len(scales)}\n'
+           f'Tolerance/nominal cases per combination: {case_count}\n'
            f'Allowed values: {grid.description()}\n'
            'Values advance from each minimum by its step; an off-step maximum is excluded.\n'
            f'{best_text}\n'
            f'Retained {len(top_candidates)} best candidates for comparison. '
            'Keep best does not limit the combinations analyzed.')
+    completed['case_count'] = case_count
+    completed['nominal_case_index'] = 0 if manufacturing else scales.index((1., 1., 1.))
+    if manufacturing:
+        msg += ('\nPer-layer rectangular support samples; group/distribution restrictions do not constrain worst-case probes.'
+                if score_mode != INVERSE_SCORE_YIELD else
+                '\nModeled failure percentage uses shared statistical trials across designs. Nominal is plotted separately and excluded from the percentage. Zero sampled failures is not guaranteed acceptance.')
+        msg += '\nUse Verify candidates for fresh trials and grid/tolerance refinement.'
     return (top_candidates, msg, [float(v) for v in target_freqs], inverse_samples), completed
 
 

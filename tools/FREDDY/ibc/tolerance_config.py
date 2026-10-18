@@ -10,8 +10,10 @@ DISTRIBUTIONS = ('Uniform', 'Truncated normal (±3σ)')
 DEFAULT_SPEC = dict(bound=0., units='%', distribution=DISTRIBUTIONS[0], group='', loading=1.)
 SETUP_DEFAULTS = dict(f_start='8', f_stop='12', f_step='0.1', a_start='0', a_stop='30',
                       a_step='10', polarization='Both', target='-10', points='21',
-                      mode='Sensitivity only', samples='1024', seed='12345')
-MODES = ('Sensitivity only', 'Sensitivity + statistical trials')
+                      mode='Sensitivity only', samples='1024', seed='12345', repeats='1',
+                      envelope_points='5', frequency_list='', angle_list='')
+ENVELOPE_MODE = 'Thickness tolerance envelopes'
+MODES = ('Sensitivity only', 'Sensitivity + statistical trials', ENVELOPE_MODE)
 
 
 def layer_parameters(is_sheet):
@@ -47,9 +49,12 @@ def validate_setup(raw):
     if not isinstance(raw, dict):
         raise ValueError('Sensitivity setup must be an object.')
     state = {k: str(raw.get(k, v)) for k, v in SETUP_DEFAULTS.items()}
+    if state['mode'] == ENVELOPE_MODE:
+        from .thickness_envelopes import validate_envelope_setup
+        return validate_envelope_setup(state)
     try:
         nums = {k: float(state[k]) for k in ('f_start', 'f_stop', 'f_step', 'a_start', 'a_stop', 'a_step', 'target')}
-        integers = {k: int(state[k]) for k in ('points', 'samples', 'seed')}
+        integers = {k: int(state[k]) for k in ('points', 'samples', 'seed', 'repeats')}
     except (ValueError, TypeError):
         raise ValueError('Sensitivity setup requires numeric sweep/target values and integer counts/seed.') from None
     if not all(math.isfinite(v) for v in nums.values()):
@@ -67,6 +72,8 @@ def validate_setup(raw):
     n = integers['samples']
     if not 16 <= n <= 65536 or n & (n - 1):
         raise ValueError('Statistical samples must be a power of two from 16 to 65536.')
+    if not 1 <= integers['repeats'] <= 16 or integers['repeats']*n > 65536:
+        raise ValueError('Use 1–16 repeats and at most 65,536 total statistical trials.')
     if not 0 <= integers['seed'] < 2**32:
         raise ValueError('Seed must be an integer from 0 to 4294967295.')
     # Reject accidental huge grids before make_sweep allocates Python lists.
@@ -77,3 +84,7 @@ def validate_setup(raw):
     validate_grid(nf, na, label="Sensitivity", metric_count=2,
                   retained_grids=4 if state['polarization'] == 'Both' else 2)
     return state
+
+
+class StopToleranceAnalysis(Exception):
+    """No partial trial or incomplete statistical estimate is published."""

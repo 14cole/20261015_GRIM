@@ -6,7 +6,7 @@ from .compute import LayerConfig, normalize_backing, normalize_wave_polarization
 from .io import layer_config_from_dict, layer_config_to_dict
 from .plot import fixed_color_limits
 from .ui_options import (
-    inverse_requirement_target,
+    inverse_requirement_target, inverse_polarizations,
     INVERSE_SCORE_MODE_OPTIONS,
     MIX_OBJECTIVE_FORWARD,
     MIX_OBJECTIVE_PERFORMANCE,
@@ -120,6 +120,7 @@ class ProjectStateMixin:
             "controls": controls,
             "mixes": {"components": [dict(c) for c in self.mix_components]},
             "tolerance_setup": self.tolerance_workspace.capture_setup(),
+            "robust_setup": self.robust_settings.capture(),
         }
         scales = {name: {key: list(limits) for key, limits in control.limits.items()}
                   for name, control in self._color_scale_controls().items() if control.limits}
@@ -162,6 +163,8 @@ class ProjectStateMixin:
             raise ValueError("Project controls must be an object.")
         from .tolerance_config import validate_setup
         tolerance_setup = validate_setup(state.get('tolerance_setup', {}))
+        from .robust_design import validate_robust_setup
+        robust_setup = validate_robust_setup(state.get('robust_setup', {}))
 
         loaded_layers: list[LayerConfig] = []
         for idx, raw_layer in enumerate(layers_data, start=1):
@@ -284,7 +287,7 @@ class ProjectStateMixin:
                 }:
                     # Migrate legacy HH/VV project values to unambiguous
                     # plane-wave TE/TM labels.
-                    value = normalize_wave_polarization(value).upper()
+                    value = ('Both' if key == 'inv_wave_pol' and len(inverse_polarizations(value))>1 else normalize_wave_polarization(value).upper())
                 elif key == "backing":
                     value = normalize_backing(value)
                 elif key == "inv_score_mode":
@@ -337,6 +340,14 @@ class ProjectStateMixin:
 
         self.layers = loaded_layers
         self.tolerance_workspace.restore_setup(tolerance_setup)
+        self.robust_settings.restore(robust_setup)
+        if hasattr(self, "_inverse_verification_dialog"):
+            self._inverse_verification_dialog.result = None
+            self._inverse_verification_dialog.table.setRowCount(0)
+            self._inverse_verification_dialog.export_button.setEnabled(False)
+            self._inverse_verification_dialog.select_button.setEnabled(False)
+            self._inverse_verification_dialog.details.clear()
+            self._inverse_verification_dialog.status.setText('Project loaded; run verification for the new search.')
         self.mix_components = mix_components
         if color_scales is not None:
             for name, control in self._color_scale_controls().items():

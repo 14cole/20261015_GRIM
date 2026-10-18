@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .inverse_performance import band_performance, response_curve, search_progress
+from .ui_options import INVERSE_SCORE_YIELD
 
 
 class InverseResultsMixin:
@@ -62,6 +63,9 @@ class InverseResultsMixin:
         self.inv_result_status = QLabel('Analyze all combinations from Setup to compare candidates here.')
         self.inv_result_status.setWordWrap(True)
         top.addWidget(self.inv_result_status, 1)
+        verify = QPushButton('Verify candidates…')
+        verify.clicked.connect(self._open_inverse_verification)
+        top.addWidget(verify)
         details = QPushButton('Run details…')
         details.clicked.connect(self._show_inverse_run_details)
         top.addWidget(details)
@@ -161,6 +165,14 @@ class InverseResultsMixin:
         self.inv_table_toggle.toggled.connect(self._update_inverse_plot)
         self.inv_candidate_picker.currentIndexChanged.connect(self._select_inverse_from_picker)
 
+    def _open_inverse_verification(self):
+        if self.job_is_running(): return
+        from .robust_ui import VerificationDialog
+        if not hasattr(self, '_inverse_verification_dialog'):
+            self._inverse_verification_dialog = VerificationDialog(self)
+        self._inverse_verification_dialog.show()
+        self._inverse_verification_dialog.raise_()
+
     def _inverse_workspace_changed(self, index):
         if self._is_inverse_tab_active():
             self._inverse_page_index = index
@@ -198,8 +210,9 @@ class InverseResultsMixin:
         table.setSortingEnabled(False)
         table.setRowCount(len(self.inverse_candidates))
         requirement = self.inverse_result_metadata.get('requirement_db')
-        table.horizontalHeaderItem(2).setText('Gap (dB)' if requirement is not None else 'Score (dB)')
-        table.setColumnHidden(8, requirement is None)
+        yield_mode = self.inverse_result_metadata.get('score_mode') == INVERSE_SCORE_YIELD
+        table.horizontalHeaderItem(2).setText('Failure (%)' if yield_mode else 'Gap (dB)' if requirement is not None else 'Score (dB)')
+        table.setColumnHidden(8, requirement is None or yield_mode)
         percentile = self._current_inverse_percentile() if self.inv_curve_mode.currentIndex() else 100.
         self._inverse_curves, self._inverse_metrics = [], []
         continuous = self.inverse_result_metadata.get('band_sweep', False)
@@ -221,7 +234,7 @@ class InverseResultsMixin:
             values = [index + 1, candidate.score_db, metric.coverage_pct if metric else None,
                       metric.widest_ghz if metric else None, metric.deepest_db if metric else None,
                       metric.worst_db if metric else None, sum(candidate.thickness_in),
-                      -candidate.score_db if requirement is not None else None]
+                      -candidate.score_db if requirement is not None and not yield_mode else None]
             for col, value in enumerate(values, 1):
                 text = ('—' if value is None else f'#{value}' if col == 1 else
                         f'{value:.4g}' if col in (4, 7) else f'{value:.2f}')
@@ -233,6 +246,8 @@ class InverseResultsMixin:
                 elif col == 2:
                     item.setToolTip(f'Captured search gap = worst PEC reflection − ({requirement:g} dB) across every analyzed frequency/angle/tolerance case. Lower is better; ≤ 0 passes.'
                                     if requirement is not None else 'Original search objective: mean dB across frequency and angle, then worst or average across tolerance corners. Lower is better.')
+                    if yield_mode:
+                        item.setToolTip('Modeled percentage of shared manufacturing trials failing the captured limit at any sampled frequency, angle or polarization. Lower is better; zero is not a guarantee.')
                 elif col == 8:
                     item.setToolTip('Captured search requirement margin = −gap. Nonnegative passes every analyzed condition. This does not change with Results target or percentile.')
                 elif col == 3:
@@ -276,8 +291,9 @@ class InverseResultsMixin:
             name = labels[i] if i < len(labels) else Path(candidate.material_files[i]).name if candidate.material_files[i] else 'Sheet' if resistance > 0 else 'Constant material'
             layers.append(f'{name}: {resistance:g} Ω/sq' if resistance > 0 else f'{name}: {thickness:.4g} in')
         requirement = self.inverse_result_metadata.get('requirement_db')
+        yield_mode = self.inverse_result_metadata.get('score_mode') == INVERSE_SCORE_YIELD
         verdict = (f'{"PASS" if candidate.score_db <= 0 else "MISS"} · margin {-candidate.score_db:+.3f} dB · '
-                   if requirement is not None else '')
+                   if requirement is not None and not yield_mode else f'Modeled failure {candidate.score_db:.3f}% · ' if yield_mode else '')
         return f'#{index + 1} · ' + verdict + '; '.join(layers)
 
     def _show_inverse_run_details(self):
@@ -312,14 +328,17 @@ class InverseResultsMixin:
         self.inv_selected_description.setText(self._inverse_candidate_description(selected) if selected >= 0 else 'Select a candidate.')
         self.inv_selected_description.setToolTip(self.inv_selected_description.text())
         requirement = self.inverse_result_metadata.get('requirement_db')
+        yield_mode = self.inverse_result_metadata.get('score_mode') == INVERSE_SCORE_YIELD
         self.inv_requirement_status.setVisible(requirement is not None)
         self.inv_requirement_status.setText(
             f'Captured search requirement: PEC reflection ≤ {requirement:g} dB at every analyzed frequency, angle, and tolerance case. Gap ≤ 0 passes. Results target/percentile only changes comparison plots.'
             if requirement is not None else '')
+        if yield_mode:
+            self.inv_requirement_status.setText(f'Captured limit {requirement:g} dB. Failure (%) is a modeled statistical estimate, not a guaranteed margin. Comparison curves include nominal; verify with fresh trials before acceptance.')
         continuous = self.inverse_result_metadata.get('band_sweep', False) and len(self.inverse_plot_freqs) > 1
         note = ('Band widths use linear interpolation between samples; use a finer sweep to verify narrow features.' if continuous else
                 'Discrete targets: coverage counts passing frequencies; no bandwidth between targets is inferred.')
-        ranking = 'worst-point requirement gap' if requirement is not None else 'mean reflection dB'
+        ranking = 'modeled failure percentage' if yield_mode else 'worst-point requirement gap' if requirement is not None else 'mean reflection dB'
         self.inv_result_note.setText(f'History includes each completed combination. A completed run minimizes {ranking} on the configured grid; untested values between steps are not covered.' if is_history else
                                     note + f'\nComparison covers retained candidates. Analysis ranks {ranking}; increase Keep best to inspect more alternatives.')
         if self.inv_axis is None:
@@ -340,8 +359,8 @@ class InverseResultsMixin:
                 axis.plot(x, best, color=colors['plot_line_angle'], linewidth=2, label='Best so far')
                 axis.set_title(f'Combination scores · {len(scores):,} unique completed designs')
                 axis.set_xlabel('Completed combination (fixed grid order)')
-                axis.set_ylabel('Worst-point gap (dB; ≤ 0 passes)' if requirement is not None else 'Scoring objective (dB; lower is better)')
-                if requirement is not None:
+                axis.set_ylabel('Modeled failure (%; lower is better)' if yield_mode else 'Worst-point gap (dB; ≤ 0 passes)' if requirement is not None else 'Scoring objective (dB; lower is better)')
+                if requirement is not None and not yield_mode:
                     axis.axhline(0., color=colors['plot_text'], linestyle='--', linewidth=1, label='Requirement boundary')
                 axis.legend(fontsize=9)
             else:
@@ -374,8 +393,10 @@ class InverseResultsMixin:
         from .plot import data_range, show_grid_value_on_hover, style_colorbar
         angles = self.inverse_result_metadata.get('angles', [])
         scales = self.inverse_result_metadata.get('scales', [])
+        case_labels = (range(self.inverse_result_metadata['case_count'])
+                       if self.inverse_result_metadata.get('manufacturing') else scales)
         try:
-            cases = inverse_case_grid(self.inverse_plot_samples[selected], angles, scales)
+            cases = inverse_case_grid(self.inverse_plot_samples[selected], angles, case_labels)
             axis = self.inv_axis
             frequencies = self.inverse_plot_freqs
             if view == 3:
@@ -391,12 +412,14 @@ class InverseResultsMixin:
                     contour = axis.contour(angles, frequencies, grid, levels=[self.inv_target_db.value()], colors=['white'])
                     axis.clabel(contour, fmt=lambda value: f'{value:g} dB', fontsize=8)
                 axis.set(xlabel='Incidence angle (deg)', ylabel='Frequency (GHz)',
-                         title=f'Candidate #{selected + 1} · PEC reflection (dB) · worst analyzed tolerance at each angle',
+                         title=f'Candidate #{selected + 1} · PEC reflection (dB) · worst analyzed case/polarization at each angle',
                          xlim=(angles[0], angles[-1]), ylim=(frequencies[0], frequencies[-1]))
                 self.inv_result_note.setText('Uses the angles and tolerance cases captured with this run. Threshold boundaries interpolate the sampled grid.')
             else:
                 angle_index = max(0, self.inv_inspect_angle.currentIndex())
-                nominal_index = next(i for i, scale in enumerate(scales) if all(abs(v - 1) < 1e-12 for v in scale))
+                nominal_index = self.inverse_result_metadata.get('nominal_case_index')
+                if nominal_index is None:
+                    nominal_index = next(i for i, scale in enumerate(scales) if all(abs(v - 1) < 1e-12 for v in scale))
                 selected_cases = cases[:, :, angle_index]
                 axis.fill_between(frequencies, selected_cases.min(axis=1), selected_cases.max(axis=1), color=self._colors['plot_line_freq'], alpha=.2, label='Analyzed tolerance range')
                 axis.plot(frequencies, selected_cases[:, nominal_index], color=self._colors['plot_line_freq'], lw=2, label='Nominal')
@@ -404,7 +427,7 @@ class InverseResultsMixin:
                 axis.axhline(self.inv_target_db.value(), color=self._colors['plot_text'], ls='--', linewidth=1)
                 axis.set(xlabel='Frequency (GHz)', ylabel='PEC reflection (dB)', title=f'Candidate #{selected + 1} · {angles[angle_index]:g}° · tolerance envelope')
                 axis.legend(fontsize=8)
-                self.inv_result_note.setText('Systematic tolerance cases at the selected angle from this run. This is not a manufacturing-yield or confidence interval.')
+                self.inv_result_note.setText('Captured tolerance cases at this angle. For Both, each curve uses max(TE, TM). The envelope is sampled, not a confidence interval or guaranteed bound.')
         except (ValueError, IndexError, StopIteration) as exc:
             self.inv_color_scale.clear()  # no map was drawn
             self._inverse_plot_message(str(exc) or 'Labeled nominal tolerance data are unavailable. Analyze this setup to generate them.')

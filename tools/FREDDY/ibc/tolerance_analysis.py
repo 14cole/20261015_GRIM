@@ -21,8 +21,7 @@ from .sweep_admission import validate_grid
 from .tolerance_config import PARAMETERS, layer_parameters, validate_setup, validate_tolerances
 
 
-class StopToleranceAnalysis(Exception):
-    """No partial trial or incomplete statistical estimate is published."""
+from .tolerance_config import StopToleranceAnalysis
 
 
 @dataclass(frozen=True)
@@ -58,6 +57,9 @@ def parameters_from_layers(layers):
 
 def study_grid(setup):
     s = validate_setup(setup)
+    from .tolerance_config import ENVELOPE_MODE
+    if s['mode'] == ENVELOPE_MODE:
+        raise ValueError('Use run_thickness_envelopes/envelope_workload for thickness envelope studies.')
     return (make_frequency_sweep(float(s['f_start']), float(s['f_stop']), float(s['f_step'])),
             make_sweep(float(s['a_start']), float(s['a_stop']), float(s['a_step'])),
             ['te', 'tm'] if s['polarization'] == 'Both' else [s['polarization'].lower()])
@@ -66,7 +68,7 @@ def study_grid(setup):
 def study_workload(setup, parameter_count, layer_count):
     s = validate_setup(setup)
     freqs, angles, pols = study_grid(s)
-    nstat = int(s['samples']) if s['mode'] != 'Sensitivity only' else 0
+    nstat = int(s['samples'])*int(s['repeats']) if s['mode'] != 'Sensitivity only' else 0
     trials = 1 + parameter_count * (int(s['points']) - 1) + nstat
     points = len(freqs) * len(angles) * len(pols)
     # Conservative array allowance, not a whole-process or OS RAM prediction.
@@ -236,25 +238,30 @@ def run_tolerance_study(layers, layer_configs, setup, *, stop_requested=lambda: 
         sensitivities.append(dict(label=p.label, parameter=vars(p), margins_db=margins.tolist(),
                                   margin_loss_db=nominal_margin - float(margins.min()),
                                   crossings=crossing_brackets(offsets, margins)))
-    nstat = int(setup['samples']) if setup['mode'] != 'Sensitivity only' else 0
+    nstat = int(setup['samples'])*int(setup['repeats']) if setup['mode'] != 'Sensitivity only' else 0
     counts = np.zeros_like(nominal, dtype=np.uint32) if nstat else None
     trial_margins = np.empty(nstat)
     convergence = []
     completed = passing = 0
+    repeat_pass_pct = []
+    seeds = [(int(setup['seed'])+i) % 2**32 for i in range(int(setup['repeats']))]
     if nstat:
-        for batch in sampled_deviations(params, nstat, int(setup['seed'])):
-            for values in batch:
-                response = engine.response(values)
-                margin = target - float(response.max())
-                counts += response > target
-                trial_margins[completed] = margin
-                completed += 1
-                passing += int(margin >= 0)
-                done += 1
-                if completed & (completed - 1) == 0:
-                    convergence.append([completed, 100 * passing / completed])
-                progress(done, workload['evaluations'], 'Statistical trials')
-                del response
+        for seed in seeds:
+            before = passing
+            for batch in sampled_deviations(params, int(setup['samples']), seed):
+                for values in batch:
+                    response = engine.response(values)
+                    margin = target - float(response.max())
+                    counts += response > target
+                    trial_margins[completed] = margin
+                    completed += 1
+                    passing += int(margin >= 0)
+                    done += 1
+                    if completed & (completed - 1) == 0:
+                        convergence.append([completed, 100 * passing / completed])
+                    progress(done, workload['evaluations'], 'Statistical trials')
+                    del response
+            repeat_pass_pct.append(100*(passing-before)/int(setup['samples']))
     if stop_requested():
         raise StopToleranceAnalysis()
     nominal_worst = np.unravel_index(int(nominal.argmax()), nominal.shape)
@@ -276,8 +283,9 @@ def run_tolerance_study(layers, layer_configs, setup, *, stop_requested=lambda: 
                 pass_fraction_pct=100 * passing / nstat if nstat else None, convergence=convergence,
                 evaluated=done, workload=workload, effective_material_sha256=source_hash.hexdigest(),
                 versions=dict(python=platform.python_version(), numpy=np.__version__, scipy=scipy.__version__,
-                              method='freddy-tolerance-v1', implementation_sha256=implementation.hexdigest()),
-                sampling=dict(method='scrambled Sobol', seed=int(setup['seed']), trials=nstat,
+                              method='freddy-tolerance-v2', implementation_sha256=implementation.hexdigest()),
+                repeatability=repeatability(repeat_pass_pct) if repeat_pass_pct else None,
+                sampling=dict(repeat_seeds=seeds if nstat else [], samples_per_repeat=int(setup['samples']), method='scrambled Sobol', seed=int(setup['seed']), trials=nstat,
                               distribution_convention='Uniform within ±bound; truncated normal with underlying sigma=bound/3 and hard limits ±bound.',
                               correlation_model='Shared Gaussian factor per named group: z_i = loading_i*z_group + sqrt(1-loading_i**2)*z_independent. Within-group latent correlation is loading_i*loading_j; transformed Pearson correlations can differ. Blank groups are independent.'),
                 interpretation='Pass fraction is a model estimate under the captured distributions/group correlations and sampled frequencies/angles. It is not a manufacturing guarantee. Sensitivity is one parameter at a time; crossing brackets do not guarantee continuous or joint tolerance acceptance.')
@@ -292,3 +300,11 @@ def export_tolerance_report(path, result):
     with _atomic_text_file(path) as stream:
         json.dump(result, stream, default=encode, allow_nan=False, indent=2)
         stream.write('\n')
+
+
+def repeatability(fractions):
+    values = np.asarray(fractions, dtype=float)
+    return dict(repeat_pass_pct=values.tolist(), mean_pass_pct=float(values.mean()),
+                min_pass_pct=float(values.min()), max_pass_pct=float(values.max()),
+                standard_error_percentage_points=float(values.std(ddof=1)/np.sqrt(len(values))) if len(values)>1 else None,
+                interpretation='Between-scramble sampling variability only; not a guaranteed confidence bound. Zero observed failures or zero spread does not establish zero failure probability.')

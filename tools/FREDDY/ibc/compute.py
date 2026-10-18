@@ -105,7 +105,7 @@ class UncertaintyConfig:
 
 @dataclass
 class InverseCandidate:
-    score_db: float
+    score_db: float  # Legacy field name; modeled-yield objective stores failure percentage.
     nominal_mean_db: float
     worst_mean_db: float
     avg_mean_db: float

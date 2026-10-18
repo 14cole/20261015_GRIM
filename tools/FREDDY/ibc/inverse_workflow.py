@@ -13,7 +13,7 @@ from .compute import build_uncertainty_scales, make_frequency_sweep, make_sweep,
 from .sweep_admission import sweep_count, frequency_sweep_count, validate_inverse_grid
 from .io import read_material_table, save_project_file, constant_material_from_layer, CONSTANT_VALUE_FIELDS
 from .compute import layer_material_label
-from .ui_options import inverse_requirement_target
+from .ui_options import inverse_requirement_target, inverse_polarizations
 from .compute import validate_sweep_coverage
 from .inverse_grid import DesignGrid, NumericChoices
 
@@ -47,7 +47,7 @@ def configure_layers(layers, rows):
     return result
 
 
-def search_identity(layers, frequencies, angles, polarization, uncertainty, score_mode, requirement_db=-10.):
+def search_identity(layers, frequencies, angles, polarization, uncertainty, score_mode, requirement_db=-10., robust_setup=None):
     """Hash physics inputs, not run budget, display choices, or output paths."""
     sources = {}
     for index, layer in enumerate(layers,1):
@@ -63,10 +63,13 @@ def search_identity(layers, frequencies, angles, polarization, uncertainty, scor
             except OSError as exc:
                 raise ValueError(f'Layer {index}: cannot read material file {path}: {exc}') from exc
             sources[str(path)] = digest.hexdigest()
+    from .ui_options import MANUFACTURING_OBJECTIVES
+    manufacturing = score_mode in MANUFACTURING_OBJECTIVES
     serialized_layers = []
     for layer in layers:
         fields = asdict(layer)
-        fields.pop('tolerances', None)  # Manufacturing study controls do not change this search.
+        if not manufacturing:
+            fields.pop('tolerances', None)  # Legacy/systematic objectives are independent of manufacturing inputs.
         if layer.is_constant:
             constant_material_from_layer(layer)
             fields['file_0deg'] = fields['file_90deg'] = ''
@@ -79,6 +82,14 @@ def search_identity(layers, frequencies, angles, polarization, uncertainty, scor
              'angles': angles, 'polarization': polarization.strip().lower(), 'uncertainty': asdict(uncertainty),
              'score_mode': score_mode, 'sources': sources,
              'method': 'all-combinations-v1'}
+    if manufacturing:
+        from .robust_design import validate_robust_setup
+        import numpy
+        import scipy
+        import platform
+        setup = validate_robust_setup(robust_setup)
+        value['manufacturing'] = {k: setup[k] for k in ('samples', 'seed')}
+        value['sampling_versions'] = dict(python=platform.python_version(), numpy=numpy.__version__, scipy=scipy.__version__)
     requirement = inverse_requirement_target(score_mode, requirement_db)
     if requirement is not None:
         value['requirement_db'] = requirement
@@ -134,7 +145,7 @@ class InverseWorkflowMixin:
         for b in (self.inv_setup_btn, self.inv_check_btn):
             row.addWidget(b)
         layout.addLayout(row)
-        self.inv_setup_status = QLabel('All allowed design combinations are analyzed. Tolerance corners check systematic changes; they are not manufacturing yield.')
+        self.inv_setup_status = QLabel('Every configured design is evaluated at sampled conditions. Verify candidates with finer grids and fresh tolerance cases before acceptance.')
         self.inv_setup_status.setWordWrap(True)
         layout.addWidget(self.inv_setup_status)
         self.inv_setup_btn.clicked.connect(self._edit_inverse_layers)
@@ -284,6 +295,15 @@ class InverseWorkflowMixin:
         buttons.rejected.connect(dialog.reject)
         dialog.exec()
 
+    def _inverse_case_count(self, layers, cfg):
+        from .ui_options import MANUFACTURING_OBJECTIVES
+        from .robust_design import manufacturing_case_count
+        if self.inv_score_mode_var.get() in MANUFACTURING_OBJECTIVES:
+            if cfg.enabled:
+                raise ValueError('Disable shared uncertainty for a per-layer objective; edit bounds in Sensitivity & Yield.')
+            return manufacturing_case_count(layers, self.robust_settings.capture(), self.inv_score_mode_var.get())
+        return len(build_uncertainty_scales(cfg))
+
     def _inverse_setup_values(self):
         discrete = self.inv_freq_mode_var.get().lower().startswith('discrete')
         if discrete:
@@ -301,7 +321,7 @@ class InverseWorkflowMixin:
         layers = self._snapshot_layers()
         cfg = self._read_inverse_uncertainty_config()
         validate_inverse_grid(nf, na, layer_count=len(layers),
-                              case_count=len(build_uncertainty_scales(cfg)),
+                              case_count=self._inverse_case_count(layers, cfg)*len(inverse_polarizations(self.inv_wave_pol_var.get())),
                               design_count=DesignGrid(layers).total,
                               top_n=int(self.inv_top_n_var.get()))
         if not discrete:
@@ -317,7 +337,7 @@ class InverseWorkflowMixin:
             layers, freqs, angles, cfg = self._inverse_setup_values()
             if int(self.inv_top_n_var.get()) <= 0:
                 raise ValueError('Keep best must be a positive integer.')
-            inverse_requirement_target(self.inv_score_mode_var.get(), self.inv_requirement_db_var.get())
+            inverse_requirement_target(self.inv_score_mode_var.get(), self.inv_requirement_db_var.get(), self.robust_settings.capture())
         except Exception as exc:
             self.inv_setup_status.setText(str(exc))
             return
@@ -335,12 +355,12 @@ class InverseWorkflowMixin:
         if hasattr(self, '_inverse_count_timer'):
             self._inverse_count_timer.start()
 
-    @staticmethod
-    def _inverse_work_description(layers, frequency_count, angle_count, cfg):
+    def _inverse_work_description(self, layers, frequency_count, angle_count, cfg):
         grid = DesignGrid(layers)
-        cases = len(build_uncertainty_scales(cfg))
+        from .ui_options import inverse_polarizations
+        cases = self._inverse_case_count(layers, cfg)*len(inverse_polarizations(self.inv_wave_pol_var.get()))
         return (f'{grid.total:,} combinations × {frequency_count:,} frequencies × '
-                f'{angle_count:,} angles × {cases} nominal/tolerance cases = '
+                f'{angle_count:,} angles × {cases} case/polarization evaluations = '
                 f'{grid.total*frequency_count*angle_count*cases:,} response points. '
                 'Comparison plots add work.\n' + grid.description())
 
@@ -430,6 +450,6 @@ class InverseWorkflowMixin:
             raise ValueError('Run the search before applying or saving a candidate.')
         layers, freqs, angles, cfg = self._inverse_setup_values()
         identity = search_identity(layers, freqs, angles, self.inv_wave_pol_var.get(), cfg,
-                                   self.inv_score_mode_var.get(), self.inv_requirement_db_var.get())
+                                   self.inv_score_mode_var.get(), self.inv_requirement_db_var.get(), self.robust_settings.capture())
         if identity != self._inverse_result_identity:
             raise ValueError('Stack, targets, tolerances, or material files changed. Analyze the updated setup before using these candidates.')

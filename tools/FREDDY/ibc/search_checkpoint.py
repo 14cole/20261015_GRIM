@@ -23,7 +23,8 @@ def engine_identity():
     root = Path(__file__).resolve().parent
     digest = hashlib.sha256()
     for name in ('compute.py', 'design_search.py', 'inverse_grid.py',
-                 'inverse_workflow.py', 'ui_options.py', 'io.py', 'search_checkpoint.py'):
+                 'inverse_workflow.py', 'ui_options.py', 'io.py', 'search_checkpoint.py',
+                 'robust_design.py', 'robust_config.py', 'tolerance_analysis.py', 'tolerance_config.py'):
         digest.update(name.encode('ascii'))
         digest.update((root / name).read_bytes())
     return digest.hexdigest()
