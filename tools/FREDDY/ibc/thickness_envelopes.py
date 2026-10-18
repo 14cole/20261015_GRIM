@@ -10,7 +10,6 @@ import itertools
 import math
 from pathlib import Path
 import platform
-import re
 
 import numpy as np
 
@@ -24,25 +23,9 @@ MAX_COMBINATIONS = 250_000
 MAX_EVALUATED_POINTS = 50_000_000
 
 
-def explicit_axis(text, label):
-    if not str(text).strip(): return None
-    tokens = re.split(r'[,;\s]+', str(text).strip())
-    if len(tokens)>20001: raise ValueError(f'{label}: too many requested points.')
-    try: values = sorted(set(float(t) for t in tokens))
-    except ValueError: raise ValueError(f'{label}: enter numbers separated by commas or spaces.') from None
-    if not all(math.isfinite(v) for v in values): raise ValueError(f'{label}: values must be finite.')
-    if label == 'Frequency' and values[0]<=0: raise ValueError('Frequencies must be positive GHz values.')
-    if label == 'Angle' and (values[0]<0 or values[-1]>=90):
-        raise ValueError('Incidence angles must be from 0 to less than 90°, measured from the surface normal.')
-    return values
-
-
 def axis_counts(setup):
     counts=[]
-    for prefix, key, label in [('f','frequency_list','Frequency'),('a','angle_list','Angle')]:
-        axis=explicit_axis(setup.get(key,''),label)
-        if axis is not None:
-            counts.append(len(axis)); continue
+    for prefix, label in [('f','Frequency'),('a','Angle')]:
         try: start,stop,step=(float(setup[prefix+'_'+s]) for s in ('start','stop','step'))
         except (ValueError,TypeError): raise ValueError(f'{label} sweep must be numeric.') from None
         n=sweep_count(start,stop,step)
@@ -66,11 +49,9 @@ def validate_envelope_setup(state):
 
 
 def envelope_axes(setup):
-    nf,na=axis_counts(setup)
-    freqs=explicit_axis(setup['frequency_list'],'Frequency')
-    angles=explicit_axis(setup['angle_list'],'Angle')
-    if freqs is None: freqs=make_frequency_sweep(*(float(setup['f_'+k]) for k in ('start','stop','step')))
-    if angles is None: angles=make_sweep(*(float(setup['a_'+k]) for k in ('start','stop','step')))
+    axis_counts(setup)
+    freqs=make_frequency_sweep(*(float(setup['f_'+k]) for k in ('start','stop','step')))
+    angles=make_sweep(*(float(setup['a_'+k]) for k in ('start','stop','step')))
     return freqs,angles,['te','tm'] if setup['polarization']=='Both' else [setup['polarization'].lower()]
 
 

@@ -10,8 +10,7 @@ DISTRIBUTIONS = ('Uniform', 'Truncated normal (±3σ)')
 DEFAULT_SPEC = dict(bound=0., units='%', distribution=DISTRIBUTIONS[0], group='', loading=1.)
 SETUP_DEFAULTS = dict(f_start='8', f_stop='12', f_step='0.1', a_start='0', a_stop='30',
                       a_step='10', polarization='Both', target='-10', points='21',
-                      mode='Sensitivity only', samples='1024', seed='12345', repeats='1',
-                      frequency_list='', angle_list='')
+                      mode='Sensitivity only', samples='1024', seed='12345', repeats='1')
 ENVELOPE_MODE = 'Thickness tolerance envelopes'
 MODES = ('Sensitivity only', 'Sensitivity + statistical trials', ENVELOPE_MODE)
 

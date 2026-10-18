@@ -28,10 +28,10 @@ VIEWS = ('Sensitivity ranking', 'Parameter tolerance sweep', 'Margin distributio
 
 SETTING_HELP = {
     'mode': 'Sensitivity only varies one parameter at a time. Statistical trials also vary all active parameters together to estimate yield. Thickness envelopes plot minimum/maximum reflection versus frequency for each layer and the complete selected thickness grid.',
-    'f_start': 'First frequency in the sweep, in GHz; must be greater than zero. An optional frequency list overrides the sweep in thickness-envelope mode.',
+    'f_start': 'First frequency in the sweep, in GHz; must be greater than zero.',
     'f_stop': 'Upper frequency limit in GHz. The sweep includes this value only when it falls on a step from the start frequency.',
     'f_step': 'Frequency spacing in GHz; must be positive. Smaller steps help resolve narrow resonances but increase calculation time.',
-    'a_start': 'First incidence angle in degrees, measured from the surface normal: 0° is normal incidence. Use angles from 0° to less than 90°. An optional angle list overrides this sweep.',
+    'a_start': 'First incidence angle in degrees, measured from the surface normal: 0° is normal incidence. Use angles from 0° to less than 90°.',
     'a_stop': 'Upper incidence-angle limit in degrees from the surface normal, less than 90°. Included only when it falls on a step from the start angle.',
     'a_step': 'Incidence-angle spacing in degrees; must be positive. Smaller steps sample angular performance more closely.',
     'polarization': 'TE has electric field perpendicular to the plane of incidence; TM has magnetic field perpendicular to it. Both evaluates both polarizations. Sensitivity/yield requires all selected points and polarizations to pass; thickness plots let you view TE and TM separately.',
@@ -40,8 +40,6 @@ SETTING_HELP = {
     'samples': 'Number of joint manufacturing trials in each independent repeat. Each trial evaluates the entire selected frequency/angle/polarization grid. Use a power of two; total trials = samples per repeat × repeats, limited to 65,536.',
     'seed': 'Integer from 0 to 4,294,967,295 that controls statistical sampling. Identical inputs and seed reproduce a study; independent repeats use successive seeds.',
     'repeats': 'Number of statistical studies (1–16) with different seeds. Reports the spread in modeled yield and, with multiple repeats, sampling standard error. This measures sampling variability, not material-model accuracy.',
-    'frequency_list': 'Optional positive GHz values separated by commas, spaces or semicolons. Overrides frequency start/stop/step; values are sorted and duplicates removed. Leave blank to use the sweep.',
-    'angle_list': 'Optional incidence angles in degrees from the surface normal, from 0° to less than 90°, separated by commas, spaces or semicolons. Overrides angle start/stop/step; values are sorted and duplicates removed. Leave blank to use the sweep.',
 }
 
 PARAMETER_HELP = (
@@ -99,8 +97,6 @@ class ToleranceWidget(QWidget):
             [('a_start', 'Angle start (°)'), ('a_stop', 'Stop (°)'), ('a_step', 'Step (°)')],
             [('polarization', 'Polarization'), ('target', 'Reflection limit (dB)'), ('points', 'Points per parameter')],
             [('samples', 'Samples per repeat'), ('seed', 'Random seed'), ('repeats', 'Independent repeats')],
-            [('frequency_list', 'Frequencies (GHz; optional list)')],
-            [('angle_list', 'Incidence angles (°; optional list)')],
         ]
         options = {'polarization': ['TE', 'TM', 'Both'], 'mode': MODES,
                    'samples': [str(2**i) for i in range(4, 17)], 'repeats': [str(i) for i in range(1, 17)]}
@@ -118,16 +114,13 @@ class ToleranceWidget(QWidget):
                 else:
                     edit = QLineEdit(SETUP_DEFAULTS[key])
                     edit.textChanged.connect(self.refresh_workload)
-                if key in ('frequency_list','angle_list'):
-                    edit.setPlaceholderText('Blank uses the sweep above; e.g. ' + ('8, 9.5, 12' if key=='frequency_list' else '0, 15, 35'))
-                    edit.setMinimumWidth(300)
                 edit.setToolTip(SETTING_HELP[key])
                 edit.setMinimumWidth(85)
                 self.fields[key] = edit
-                grid.addWidget(edit, row, 2 * col + 1, 1, 5 if key in ('frequency_list','angle_list') else 1)
+                grid.addWidget(edit, row, 2 * col + 1)
         layout.addLayout(grid)
         self.copy_inverse = QPushButton('Copy inverse frequencies, angles and requirement')
-        self.copy_inverse.setToolTip('Copy the inverse setup frequencies, incidence angles, polarization and reflection limit. Discrete frequency lists are supported in thickness-envelope mode. Does not apply an inverse candidate or reuse calculated results.')
+        self.copy_inverse.setToolTip('Copy the inverse band sweep, incidence-angle sweep, polarization and reflection limit. For a discrete-frequency inverse study, enter the desired sweep here. Does not apply an inverse candidate or reuse calculated results.')
         self.copy_inverse.clicked.connect(self.use_inverse_setup)
         layout.addWidget(self.copy_inverse)
         note = QLabel('Set ± bounds below; zero disables a parameter. Absolute units: thickness in inches, resistance in Ω/sq, ε/μ relative units. '
@@ -254,13 +247,10 @@ class ToleranceWidget(QWidget):
         self.refresh_workload()
 
     def use_inverse_setup(self):
-        envelope = self.fields['mode'].currentText() == ENVELOPE_MODE
         discrete = self.host.inv_freq_mode_var.get() != 'Band sweep'
-        if discrete and not envelope:
+        if discrete:
             messagebox.showwarning('Sensitivity setup', 'This workspace uses a frequency band. Enter the desired band here for a discrete-frequency inverse study.')
             return
-        self.fields['frequency_list'].setText(self.host.inv_freq_list_var.get() if discrete else '')
-        self.fields['angle_list'].clear()
         mapping = {'f_start': 'inv_target_start', 'f_stop': 'inv_target_stop', 'f_step': 'inv_target_step',
                    'a_start': 'inv_angle_start', 'a_stop': 'inv_angle_stop', 'a_step': 'inv_angle_step',
                    'target': 'inv_requirement_db', 'polarization': 'inv_wave_pol'}
@@ -365,8 +355,6 @@ class ToleranceWidget(QWidget):
         hidden = set()
         if envelopes:
             hidden.add('points')
-        else:
-            hidden.update(('frequency_list', 'angle_list'))
         if not statistical:
             hidden.update(('samples', 'seed', 'repeats'))
         visible = tuple(key for key in self.fields if key not in hidden)
@@ -387,8 +375,7 @@ class ToleranceWidget(QWidget):
                 continue
             for col, key in enumerate(keys):
                 self.setup_grid.addWidget(self.field_labels[key], row, 2 * col)
-                self.setup_grid.addWidget(self.fields[key], row, 2 * col + 1, 1,
-                                          5 if key in ('frequency_list', 'angle_list') else 1)
+                self.setup_grid.addWidget(self.fields[key], row, 2 * col + 1)
             row += 1
 
     def refresh_workload(self, *_):
@@ -403,8 +390,6 @@ class ToleranceWidget(QWidget):
         self.parameters.verticalHeader().setVisible(not envelopes)
         for col in (3,4,5): self.parameters.setColumnHidden(col,not statistical)
         self.fields['points'].setEnabled(not envelopes)
-        for key in ('frequency_list','angle_list'):
-            self.fields[key].setEnabled(envelopes)
         for row in range(self.parameters.rowCount()):
             self.parameters.setRowHidden(row,envelopes and self.parameters.item(row,0).data(Qt.UserRole)!='thickness')
             for col in (3,4,5): self.parameters.cellWidget(row,col).setEnabled(statistical)

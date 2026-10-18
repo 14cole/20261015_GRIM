@@ -207,10 +207,11 @@ Define the current stack and use each bulk layer's existing **Minimum thickness,
 Maximum thickness, and Thickness step**, in inches. These are the same range
 settings used by Inverse Design. The setup table shows the shared ranges and
 value counts; **Edit selected layer range** opens the existing layer editor.
-Choose the frequency sweep, incidence
-angles measured from the surface normal, and TE, TM, or Both. Optional frequency
-and incidence-angle lists override the corresponding sweeps; values are sorted
-and duplicates removed. These angles are not rotation about the surface normal.
+Choose the frequency and incidence-angle start, stop, and step, and TE, TM, or
+Both. All three analysis modes use these sweeps; there are no separate list
+overrides. Incidence angles are measured from the surface normal, not rotation
+about it. Copy inverse settings supports band sweeps; for a discrete-frequency
+inverse study, enter the desired sweep here.
 
 Each range evaluates minimum + k × step without exceeding maximum. A maximum
 that does not fall on a step is excluded, exactly as in Inverse Design. For
