@@ -11,7 +11,7 @@ DEFAULT_SPEC = dict(bound=0., units='%', distribution=DISTRIBUTIONS[0], group=''
 SETUP_DEFAULTS = dict(f_start='8', f_stop='12', f_step='0.1', a_start='0', a_stop='30',
                       a_step='10', polarization='Both', target='-10', points='21',
                       mode='Sensitivity only', samples='1024', seed='12345', repeats='1',
-                      envelope_points='5', frequency_list='', angle_list='')
+                      frequency_list='', angle_list='')
 ENVELOPE_MODE = 'Thickness tolerance envelopes'
 MODES = ('Sensitivity only', 'Sensitivity + statistical trials', ENVELOPE_MODE)
 

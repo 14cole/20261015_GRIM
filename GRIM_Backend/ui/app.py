@@ -48,8 +48,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from GRIM_Backend.assembly.workspace import AssemblyWorkspace
-from GRIM_Backend.assembly.panel import FeatureAssemblyPanel
 from GRIM_Backend.integrations.freddy import FreddyIntegrationWidget
 from GRIM_Backend.integrations.ghost import GhostIntegrationWidget, load_ghost_module
 from GRIM_Backend.datasets.grid import RcsGrid
@@ -281,7 +279,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         if callable(apply_ghost_palette):
             apply_ghost_palette(self.application_palette)
 
-        assembly_workspace = getattr(self, "assembly_workspace", None)
+        assembly_workspace = getattr(self, "_assembly_workspace", None)
         apply_assembly_palette = getattr(
             assembly_workspace, "apply_application_palette", None
         )
@@ -751,28 +749,18 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         )
         # One canonical Assembly workspace replaces the two independent,
         # hidden trees that used to live inside the Plotting and ISAR views.
-        self.assembly_workspace = AssemblyWorkspace(self)
-        self.feature_assembly_panel = FeatureAssemblyPanel(
-            self.assembly_workspace
-        )
-        self.assembly_workspace.set_feature_controls(
-            self.feature_assembly_panel
-        )
-        assembly_tree_panel = getattr(
-            self.assembly_workspace, "assembly_tree_panel", None
-        )
-        if assembly_tree_panel is not None:
-            # Assembly builds use the same Result storage choice as other jobs.
-            assembly_tree_panel.storage_options_provider = self._current_result_storage_options
-        assembly_dirty_changed = getattr(
-            assembly_tree_panel, "dirty_changed", None
-        )
-        if callable(getattr(assembly_dirty_changed, "connect", None)):
-            assembly_dirty_changed.connect(
-                lambda dirty: self._set_main_tab_dirty(
-                    self.assembly_workspace, "Assembly", dirty
-                )
-            )
+        # Keep its tab position, but defer the scene, controls, and feature
+        # backend until the tab opens or another tool requests Assembly.
+        self._assembly_workspace = None
+        self._feature_assembly_panel = None
+        self._assembly_load_error = ""
+        self._assembly_loading = False
+        self._assembly_placeholder = QWidget()
+        assembly_layout = QVBoxLayout(self._assembly_placeholder)
+        self._assembly_load_message = QLabel("Assembly loads when first opened.")
+        self._assembly_load_message.setWordWrap(True)
+        assembly_layout.addWidget(self._assembly_load_message)
+        assembly_layout.addStretch(1)
 
         # GHOST remains optional at runtime. The integration widget shows an
         # actionable unavailable message when its backend is not installed.
@@ -834,7 +822,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             ("ISAR", self.tab_isar, "isar"),
             ("FREDDY", self.freddy_integration, None),
             ("GHOST", self.ghost_integration, None),
-            ("Assembly", self.assembly_workspace, None),
+            ("Assembly", self._assembly_placeholder, None),
             ("PPT", self.ppt_workspace, None),
             ("Python", self.tab_python, None),
         ):
@@ -842,16 +830,6 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             if plot_key is not None:
                 self._tab_key_for_index[tab_index] = plot_key
         self._sync_python_tab_title()
-
-        try:
-            feature_service = load_ghost_module(
-                "feature_workflow", self.ghost_integration.backend_path
-            )
-            self.feature_assembly_panel.set_service(feature_service)
-        except Exception as exc:
-            self.assembly_workspace.lbl_status.setText(
-                "Feature assembly backend is unavailable: " + str(exc)
-            )
 
         self.status = self.statusBar()
         self.status.showMessage("Ready")
@@ -879,36 +857,6 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         self.table.files_dropped.connect(self._handle_files_dropped)
         self.table.assembly_branch_dropped.connect(self._on_assembly_branch_dropped)
         self.table.rows_reordered.connect(self._on_dataset_rows_reordered)
-        self.assembly_workspace.files_to_load.connect(self._handle_files_dropped)
-        self.assembly_workspace.platform_built.connect(self._on_platform_built)
-        self.assembly_workspace.feature_built.connect(
-            self._on_assembly_feature_built
-        )
-        self.assembly_workspace.feature_build_failed.connect(
-            self.status.showMessage
-        )
-        self.feature_assembly_panel.preview_ready.connect(
-            self._on_feature_preview_ready
-        )
-        self.feature_assembly_panel.preview_stale.connect(
-            self.assembly_workspace.mark_preview_stale
-        )
-        self.feature_assembly_panel.feature_instance_selected.connect(
-            self.assembly_workspace.focus_feature_instance
-        )
-        self.assembly_workspace.feature_instance_picked.connect(
-            self.feature_assembly_panel.select_feature_instance
-        )
-        self.feature_assembly_panel.feature_built.connect(
-            self._on_feature_file_built
-        )
-        self.feature_assembly_panel.comparison_ready.connect(self.assembly_workspace.response_comparison.set_outputs)
-        self.feature_assembly_panel.build_failed.connect(
-            self.status.showMessage
-        )
-        self.feature_assembly_panel.status_changed.connect(
-            self.status.showMessage
-        )
         self.ppt_workspace.status_changed.connect(self.status.showMessage)
         self.ppt_workspace.report_exported.connect(
             lambda path: self.status.showMessage(
@@ -2239,7 +2187,100 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         ops_btn.setChecked(self._dataset_ops_visible)
         ops_btn.blockSignals(False)
 
+    @property
+    def assembly_workspace(self):
+        """Return the canonical workspace, loading it for cross-tool callers."""
+        return self._ensure_assembly_loaded()
+
+    @property
+    def feature_assembly_panel(self):
+        """Feature requests use the same initialization path as opening the tab."""
+        self._ensure_assembly_loaded()
+        return self._feature_assembly_panel
+
+    def _ensure_assembly_loaded(self):
+        if self._assembly_workspace is not None:
+            return self._assembly_workspace
+        if self._assembly_load_error:
+            raise RuntimeError(self._assembly_load_error)
+        if self._assembly_loading:
+            raise RuntimeError("Assembly initialization is already in progress.")
+        self._assembly_loading = True
+        workspace = None
+        try:
+            from GRIM_Backend.assembly.workspace import AssemblyWorkspace
+            from GRIM_Backend.assembly.panel import FeatureAssemblyPanel
+
+            workspace = AssemblyWorkspace(self)
+            panel = FeatureAssemblyPanel(workspace)
+            workspace.set_feature_controls(panel)
+            tree_panel = workspace.assembly_tree_panel
+            tree_panel.storage_options_provider = self._current_result_storage_options
+            tree_panel.dirty_changed.connect(
+                lambda dirty: self._set_main_tab_dirty(workspace, "Assembly", dirty)
+            )
+            workspace.files_to_load.connect(self._handle_files_dropped)
+            workspace.platform_built.connect(self._on_platform_built)
+            workspace.feature_built.connect(self._on_assembly_feature_built)
+            workspace.feature_build_failed.connect(self.status.showMessage)
+            panel.preview_ready.connect(self._on_feature_preview_ready)
+            panel.preview_stale.connect(workspace.mark_preview_stale)
+            panel.feature_instance_selected.connect(workspace.focus_feature_instance)
+            workspace.feature_instance_picked.connect(panel.select_feature_instance)
+            panel.feature_built.connect(self._on_feature_file_built)
+            panel.comparison_ready.connect(workspace.response_comparison.set_outputs)
+            panel.build_failed.connect(self.status.showMessage)
+            panel.status_changed.connect(self.status.showMessage)
+            try:
+                feature_service = load_ghost_module(
+                    "feature_workflow", self.ghost_integration.backend_path
+                )
+                panel.set_service(feature_service)
+            except Exception as exc:
+                workspace.lbl_status.setText(
+                    "Feature assembly backend is unavailable: " + str(exc)
+                )
+            # Dataset and theme changes while Assembly was unopened are applied
+            # here without forcing the other optional workspaces to load.
+            panel.set_loaded_dataset_catalog(self._dataset_catalog())
+            workspace.apply_application_palette(self.application_palette)
+        except Exception as exc:
+            if workspace is not None:
+                workspace.hide()
+                workspace.deleteLater()
+            self._assembly_load_error = f"Assembly workspace is unavailable: {exc}"
+            self._assembly_load_message.setText(
+                self._assembly_load_error + "\n\nRestart GRIM after correcting the installation."
+            )
+            raise RuntimeError(self._assembly_load_error) from exc
+        finally:
+            self._assembly_loading = False
+
+        self._assembly_workspace = workspace
+        self._feature_assembly_panel = panel
+        tabs = self.main_tabs
+        index = tabs.indexOf(self._assembly_placeholder)
+        current = tabs.currentWidget()
+        previous = tabs.blockSignals(True)
+        try:
+            # Insert before removing the selected placeholder so Qt never
+            # briefly selects (and initializes) a different tool tab.
+            tabs.insertTab(index, workspace, "Assembly")
+            if current is self._assembly_placeholder:
+                tabs.setCurrentWidget(workspace)
+            tabs.removeTab(tabs.indexOf(self._assembly_placeholder))
+        finally:
+            tabs.blockSignals(previous)
+        self._assembly_placeholder.deleteLater()
+        self._assembly_placeholder = None
+        return workspace
+
     def _on_main_tab_changed(self, index: int) -> None:
+        if self.main_tabs.widget(index) is self._assembly_placeholder:
+            try:
+                self._ensure_assembly_loaded()
+            except RuntimeError as exc:
+                self.status.showMessage(str(exc))
         tab_key = self._tab_key_for_index.get(index)
         if tab_key is None:
             active = self._plot_contexts.get(self._active_plot_tab)
@@ -2334,7 +2375,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         workspace = getattr(self, "ppt_workspace", None)
         if workspace is not None:
             workspace.set_dataset_catalog(catalog)
-        feature_panel = getattr(self, "feature_assembly_panel", None)
+        feature_panel = getattr(self, "_feature_assembly_panel", None)
         set_feature_catalog = getattr(
             feature_panel, "set_loaded_dataset_catalog", None
         )
@@ -2498,13 +2539,16 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API name
         """Keep the unified app alive while background physics work runs."""
-        if not self.assembly_workspace.response_comparison.can_close():
+        # Closing and status checks must never initialize an unused tool.
+        assembly_workspace = self._assembly_workspace
+        feature_panel = self._feature_assembly_panel
+        if assembly_workspace is not None and not assembly_workspace.response_comparison.can_close():
             self.status.showMessage("Canceling response comparison; close again after it stops.")
             event.ignore()
             return
         # The inspector runs its own QThread. Destroying that thread while it
         # still runs aborts the whole process, so cancel it and refuse the close.
-        inspector = getattr(self.assembly_workspace, "interference_inspector", None)
+        inspector = getattr(assembly_workspace, "interference_inspector", None)
         if inspector is not None and not inspector.can_close():
             self.status.showMessage(
                 "Canceling interference metrics; close again after they stop."
@@ -2567,19 +2611,19 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             event.ignore()
             return
         feature_busy = bool(
-            getattr(self.feature_assembly_panel, "job_is_running", lambda: False)()
+            getattr(feature_panel, "job_is_running", lambda: False)()
         )
         if feature_busy:
             feature_operation = str(
                 getattr(
-                    self.feature_assembly_panel,
+                    feature_panel,
                     "busy_operation",
                     lambda: "",
                 )()
             )
             if feature_operation == "build":
                 getattr(
-                    self.feature_assembly_panel,
+                    feature_panel,
                     "request_cancel",
                     lambda: None,
                 )()
@@ -2625,7 +2669,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             event.ignore()
             return
         feature_request_close = getattr(
-            self.feature_assembly_panel, "request_close", None
+            feature_panel, "request_close", None
         )
         if callable(feature_request_close) and not feature_request_close(self):
             self.main_tabs.setCurrentWidget(self.assembly_workspace)
@@ -2640,7 +2684,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             return
 
         assembly_panel = getattr(
-            self.assembly_workspace, "assembly_tree_panel", None
+            assembly_workspace, "assembly_tree_panel", None
         )
         assembly_request_close = getattr(assembly_panel, "request_close", None)
         if callable(assembly_request_close) and not assembly_request_close(self):

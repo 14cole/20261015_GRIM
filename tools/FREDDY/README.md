@@ -203,20 +203,29 @@ bounds are unwrapped about the nominal phase and can therefore lie outside
 ## Thickness-tolerance frequency envelopes
 
 In **Sensitivity & Yield → Setup**, select **Thickness tolerance envelopes**.
-Define the current stack and enter a separate thickness ± bound for each bulk
-layer, in percent or absolute inches. Choose the frequency sweep, incidence
+Define the current stack and use each bulk layer's existing **Minimum thickness,
+Maximum thickness, and Thickness step**, in inches. These are the same range
+settings used by Inverse Design. The setup table shows the shared ranges and
+value counts; **Edit selected layer range** opens the existing layer editor.
+Choose the frequency sweep, incidence
 angles measured from the surface normal, and TE, TM, or Both. Optional frequency
 and incidence-angle lists override the corresponding sweeps; values are sorted
 and duplicates removed. These angles are not rotation about the surface normal.
 
-**Thickness grid points** selects an odd number of equally spaced thicknesses
-from each layer's lower bound through nominal to its upper bound (default 5).
+Each range evaluates minimum + k × step without exceeding maximum. A maximum
+that does not fall on a step is excluded, exactly as in Inverse Design. For
+example, 0.090–0.110 in with a 0.005 in step defines five values; a 0.006 in step
+defines 0.090, 0.096, 0.102 and 0.108 in. There is no separate point-count control.
 The calculation creates one frequency-envelope plot per bulk layer, with only
 that layer varied, and a final plot over every independent combination of layer
-thicknesses. For three varying layers and five points each, all 125 combinations
-are evaluated. Fixed layers still get a plot with coincident nominal and bounds.
-Material ε/μ, ideal sheet resistances, and layer order remain nominal; statistical
-distribution/group controls do not constrain this rectangular thickness grid.
+thicknesses. Layers with 3, 4 and 5 defined values produce 60 joint combinations.
+Layers without limits use their nominal thickness; equal minimum/maximum defines
+one value. Nominal is a separate reference and is added to bounds only when it
+is a defined grid value. If nominal is outside a layer's grid, the reference
+can lie outside the envelope, and joint bounds need not enclose individual
+panels that hold other layers nominal. Material ε/μ, ideal sheet resistances,
+and layer order remain nominal. Statistical ± tolerances, distributions and
+groups do not define or constrain this thickness grid.
 
 Results show nominal and pointwise minimum/maximum **PEC reflection in dB**;
 more negative means less reflection. Choose **All plots** or an individual
@@ -226,7 +235,10 @@ their bounds and also shows the nominal angle range. A bounding curve can come
 from different thickness combinations at different frequencies; it need not
 represent one realizable stack. These are sampled envelopes, not percentiles,
 statistical variance, or certified extrema over continuous tolerances. Increase
-thickness and frequency resolution to check stability of resonant features.
+thickness and frequency resolution by reducing the steps to check stability of
+resonant features. Every defined value is evaluated; unsampled intervals are
+not certified. Workload distinguishes joint combinations from total evaluations
+including individual sweeps and the nominal reference, reusing shared cases.
 
 The full selected thickness grid is evaluated without retaining every response.
 Preflight checks limit combinations to 250,000 and total response points to

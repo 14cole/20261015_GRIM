@@ -41,6 +41,7 @@ def draw_envelopes(figure,result,panel_index,pol_index,angle_index,colors=None):
         if thickness:
             detail=f'{thickness[0]:.5g}–{thickness[-1]:.5g} in · {panel["cases"]} cases'
         else: detail=f'{panel["cases"]:,} combinations'
+        if not panel.get('nominal_in_grid', True): detail+=' · nominal is a separate reference'
         ax.set(title=label+'\n'+detail,xlabel='Frequency (GHz)',ylabel='PEC reflection (dB)')
         ax.grid(True,alpha=.2)
         ax.legend(fontsize=7,loc='best')

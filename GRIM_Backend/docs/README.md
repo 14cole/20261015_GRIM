@@ -9,6 +9,12 @@ self-contained tools under `tools/`; GRIM embeds their authoritative user
 interfaces instead of copying their numerical implementations into the
 plotting code.
 
+FREDDY, GHOST, and Assembly initialize when first opened or requested by another
+tool. Unopened workspaces avoid the cost of constructing their interfaces and
+plots. The first use may take a moment; afterward each workspace stays loaded
+and retains its state when switching tabs. Theme changes, dataset updates, and
+closing GRIM do not initialize an unused workspace.
+
 The **Plots**, **Plot Manipulation**, and ISAR buttons wrap to fit the available
 width. Widening the workspace reduces button rows and gives the plot more
 height. Legend, Auto Plot, Auto Scale, Hold, and Clear remain available above

@@ -167,7 +167,7 @@ class LayerDialog(QDialog):
         sep.setFrameShadow(QFrame.Sunken)
         grid.addWidget(sep, 6, 0, 1, 3)
         grid.addWidget(
-            QLabel("Inverse-design range — choose the allowed thicknesses"),
+            QLabel("Thickness range — shared by Inverse Design and thickness envelopes"),
             7,
             0,
             1,
