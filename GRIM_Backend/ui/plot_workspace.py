@@ -8,14 +8,13 @@ class PlotWorkspaceMixin:
     def _build_shared_plot_workspace(self, panel, groups_spec):
         layout = panel.layout()
         self._plot_header_stack = QStackedWidget()
-        self._plot_header_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._plot_header_stack.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._plot_view_stack = QStackedWidget()
         for key in ('plotting', 'isar'):
             self._plot_header_stack.addWidget(self._plot_headers[key])
             self._plot_view_stack.addWidget(self._plot_views[key])
             popup = self._plot_contexts[key].settings_frame
             popup.setParent(panel, popup.windowFlags())
-        layout.addWidget(self._plot_header_stack)
 
         toolbar = QFrame()
         toolbar.setObjectName('plotToolbar')
@@ -23,6 +22,7 @@ class PlotWorkspaceMixin:
         toolbar_layout.setContentsMargins(8, 6, 8, 6)
         toolbar_layout.setSpacing(4)
         self.plot_control_tabs = groups = ResponsiveControlTabs()
+        groups.setHeaderActions(self._plot_header_stack)
         groups.setObjectName('plottingControlTabs')
         self._shared_manipulation_roles = []
         self._unavailable_plot_controls = {}

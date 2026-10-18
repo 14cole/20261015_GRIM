@@ -25,6 +25,12 @@ from GRIM_Backend.datasets.result_storage import (
     allocate_result, operation_result_storage, result_blocks,
 )
 from GRIM_Backend.datasets.storage import raw_coverage_scope
+from GRIM_Backend.datasets.phase_conventions import (
+    RANGE_PHASE_METADATA_KEYS as _ISAR_RANGE_PHASE_METADATA_KEYS,
+    declared_range_phase_sign as _declared_range_phase_sign,
+    declared_time_sign,
+    metadata_is_unspecified,
+)
 
 try:  # scipy.fft is multithreaded and preserves single precision
     from scipy import fft as _sp_fft
@@ -957,25 +963,11 @@ _ISAR_MOTION_METADATA_KEYS = (
     "phase_center_motion",
     "range_alignment",
 )
-_ISAR_RANGE_PHASE_METADATA_KEYS = (
-    "range_phase_convention",
-    "phase_law",
-    "amplitude_convention",
-    "phase_reference",
-)
 
 
 def _declared_scalar_metadata(dataset, key: str) -> str:
     """Read one convention declaration without guessing between containers."""
 
-    getter = getattr(dataset, "_declared_scalar_metadata", None)
-    if callable(getter):
-        declared_by_dataset = str(getter(key) or "").strip()
-        if declared_by_dataset:
-            return declared_by_dataset
-        # Some legacy implementations collapse explicit scalar False/0 to a
-        # blank string.  Fall through and preserve those values: for motion
-        # metadata they mean "not compensated", not "undeclared".
     declared = []
     for container_name in ("units", "extra"):
         container = getattr(dataset, container_name, None) or {}
@@ -986,55 +978,19 @@ def _declared_scalar_metadata(dataset, key: str) -> str:
             raise ValueError(f"metadata {key!r} must be scalar")
         scalar = value.reshape(-1)[0]
         text = "" if scalar is None else str(scalar).strip()
-        if text:
+        if text and not metadata_is_unspecified(text):
             declared.append(text)
-    normalized = {" ".join(value.split()).casefold() for value in declared}
+    if key == "time_convention":
+        from GRIM_Backend.datasets.metadata import canonical_time_convention
+        recognized = [(value, canonical_time_convention(value)) for value in declared]
+        recognized = [(value, sign) for value, sign in recognized if sign in {"+jwt", "-jwt"}]
+        declared = [value for value, sign in recognized]
+        normalized = {sign for value, sign in recognized}
+    else:
+        normalized = {" ".join(value.split()).casefold() for value in declared}
     if len(normalized) > 1:
         raise ValueError(f"dataset contains contradictory {key} metadata")
     return declared[0] if declared else ""
-
-
-def _canonical_time_convention(dataset, value: str) -> str:
-    canonicalizer = getattr(dataset, "_canonical_time_convention", None)
-    if callable(canonicalizer):
-        return str(canonicalizer(value))
-    compact = (
-        str(value or "").strip().casefold().replace("omega", "w")
-        .replace("ω", "w").replace("*", "").replace(" ", "")
-    )
-    if "exp(+jwt)" in compact or "exp(jwt)" in compact:
-        return "+jwt"
-    if "exp(-jwt)" in compact:
-        return "-jwt"
-    return compact
-
-
-def _declared_range_phase_sign(dataset) -> int | None:
-    """Return -1/+1 for an explicit ``exp(±j*2*k*R)`` declaration.
-
-    Generic amplitude labels and one-way ``exp(±j*k*R)`` references do not
-    establish the two-way range law and therefore return ``None``.
-    """
-
-    signs = set()
-    for key in _ISAR_RANGE_PHASE_METADATA_KEYS:
-        declared = _declared_scalar_metadata(dataset, key)
-        if not declared:
-            continue
-        compact = str(declared).casefold()
-        compact = compact.replace("−", "-").replace("–", "-")
-        compact = re.sub(r"[\s*·^{}()\[\]_=~]+", "", compact)
-        matches = re.findall(r"(?:exp|e)([+-])j2(?:\.0+)?kr", compact)
-        if "negativetwowayrangephase" in compact:
-            matches.append("-")
-        if "positivetwowayrangephase" in compact:
-            matches.append("+")
-        signs.update(-1 if match == "-" else 1 for match in matches)
-    if len(signs) > 1:
-        raise ValueError(
-            "dataset contains contradictory two-way range-phase declarations"
-        )
-    return next(iter(signs), None)
 
 
 def _isar_preflight_error(
@@ -1048,7 +1004,7 @@ def _isar_preflight_error(
     """Return a user-facing reason that ``dataset`` is unsafe for ISAR.
 
     The implemented k-space geometry is GRIM conic azimuth/elevation and the
-    IFFT sign assumes ``exp(+j*omega*t)`` with a monostatic phase history
+    IFFT uses ``exp(+j*omega*t)`` after normalizing negative-time samples, with a monostatic phase history
     proportional to ``exp(-j*2*k*R)``. Missing declarations on a legacy file
     are recorded as user assumptions instead of blocking formation;
     contradictory or unsupported declarations still fail closed.
@@ -1102,8 +1058,8 @@ def _isar_preflight_error(
         joined = " ".join(words)
         return bool(
             word_set.intersection({
-                "none", "unfixed", "unstable", "varying", "variable",
-                "moving", "uncompensated", "arbitrary",
+                "unfixed", "unstable", "varying", "variable",
+                "moving", "uncompensated",
             })
             or (
                 any(word.startswith("drift") for word in words)
@@ -1112,14 +1068,14 @@ def _isar_preflight_error(
             )
             or any(
                 phrase in joined
-                for phrase in ("not fixed", "not compensated", "not aligned")
+                for phrase in ("not fixed", "not compensated", "not aligned", "random phase", "uncorrelated phase")
             )
         )
 
     def placeholder_semantics(value: str) -> bool:
         """Treat common vendor placeholders as absent, not physical claims."""
 
-        return normalized_semantics(value) in {"na", "n a", "not applicable"}
+        return metadata_is_unspecified(value)
 
     def recognized_far_field(value: str) -> bool:
         semantic = normalized_semantics(value)
@@ -1239,7 +1195,7 @@ def _isar_preflight_error(
     if complex_field_domain and recognized_far_field(complex_field_domain):
         far_field_declared = True
     if any(
-        key in extra
+        key in extra and not metadata_is_unspecified(extra[key])
         for key in (
             "fixed_incident_azimuth_deg",
             "fixed_incident_elevation_deg",
@@ -1301,8 +1257,18 @@ def _isar_preflight_error(
             units.get("elevation_coordinate_convention", ""),
             extra.get("sentri_elevation_convention", ""),
         )
-        if str(value or "").strip()
+        if not metadata_is_unspecified(value)
     }
+    def incompatible_elevation(value):
+        words = normalized_semantics(value).split()
+        return bool(set(words).intersection({"zenith", "colatitude", "theta"})
+                    or "top negative" in " ".join(words))
+
+    # Unrecognized producer labels do not establish a different coordinate
+    # system. Only competing recognized systems are a physical contradiction.
+    elevation_declarations = {value for value in elevation_declarations
+                              if value in {_GRIM_ELEVATION, _SENTRI_NATIVE_ELEVATION}
+                              or incompatible_elevation(value)}
     if len(elevation_declarations) > 1:
         return "units and extra contain contradictory elevation conventions"
     elevation_convention = next(iter(elevation_declarations), "")
@@ -1311,7 +1277,7 @@ def _isar_preflight_error(
             "native SENTRi theta uses 0 deg top-down and 90 deg waterline. "
             "Run Geometry & Units > Convert SENTRi Coordinates before ISAR"
         )
-    if elevation_convention and elevation_convention != _GRIM_ELEVATION:
+    if elevation_convention != _GRIM_ELEVATION and incompatible_elevation(elevation_convention):
         return (
             f"elevation convention {elevation_convention!r} is unsupported; "
             "convert or relabel it to GRIM signed elevation before ISAR"
@@ -1320,15 +1286,7 @@ def _isar_preflight_error(
     phase_reference = _declared_scalar_metadata(dataset, "phase_reference")
     if placeholder_semantics(phase_reference):
         phase_reference = ""
-    declared_time = _declared_scalar_metadata(dataset, "time_convention")
-    declared_time_key = (
-        _canonical_time_convention(dataset, declared_time) if declared_time else ""
-    )
-    phase_time_key = (
-        _canonical_time_convention(dataset, phase_reference)
-        if phase_reference else ""
-    )
-    phase_declares_time = phase_time_key in {"+jwt", "-jwt"}
+    declared_time_key = declared_time_sign(dataset)
     semantic_phase = normalized_semantics(phase_reference)
     phase_words = set(semantic_phase.split())
     phase_has_fixed_reference = bool(
@@ -1349,27 +1307,8 @@ def _isar_preflight_error(
             "phase center; calibrate/motion-compensate before ISAR"
         )
 
-    if declared_time and declared_time_key == "-jwt":
-        return (
-            "ISAR requires the exp(+j*omega*t) time convention; dataset declares "
-            f"{declared_time!r}. Convert/conjugate the phase history explicitly "
-            "before imaging"
-        )
-    if phase_declares_time and phase_time_key == "-jwt":
-        return (
-            "ISAR requires the exp(+j*omega*t) time convention, but the phase "
-            f"reference declares {phase_reference!r}. Convert/conjugate the phase "
-            "history explicitly before imaging"
-        )
-    if (
-        declared_time_key == _ISAR_TIME_CONVENTION
-        and phase_declares_time
-        and phase_time_key != declared_time_key
-    ):
-        return "time-convention and phase-reference declarations contradict each other"
-
     range_phase_sign = _declared_range_phase_sign(dataset)
-    if range_phase_sign == 1 and not (bool(flip_x) and bool(flip_y)):
+    if range_phase_sign == 1 and declared_time_key != "-jwt" and not (bool(flip_x) and bool(flip_y)):
         return (
             "dataset explicitly declares S~exp(+j*2*k*R), while the default ISAR "
             "axes assume S~exp(-j*2*k*R). Convert/conjugate the phase history, "
@@ -1378,6 +1317,8 @@ def _isar_preflight_error(
         )
 
     missing = []
+    if elevation_convention != _GRIM_ELEVATION:
+        missing.append("GRIM signed elevation coordinates")
     if not monostatic_declared:
         missing.append("far-field monostatic acquisition geometry")
     elif not far_field_declared:
@@ -1386,9 +1327,7 @@ def _isar_preflight_error(
         missing.append("a stable or motion-compensated phase center")
     if not phase_has_fixed_reference:
         missing.append("a fixed phase reference/center")
-    if declared_time_key != _ISAR_TIME_CONVENTION and not (
-        phase_declares_time and phase_time_key == _ISAR_TIME_CONVENTION
-    ):
+    if declared_time_key is None:
         missing.append("the exp(+j*omega*t) time convention")
     if range_phase_sign is None:
         missing.append("the S~exp(-j*2*k*R) two-way range-phase convention")
@@ -2033,6 +1972,7 @@ def _compute_band(
         az_center_deg,
         preprocess_mode,
     )
+    conjugate_time = declared_time_sign(dataset) == "-jwt"
     prep = _preprocess_cache_get(cache_key)
     cache_hit = prep is not None
     if progress is not None:
@@ -2055,6 +1995,8 @@ def _compute_band(
             any_valid = any_valid or bool(np.any(valid))
             weights[block] = valid
             rcs_slice[block] = np.nan_to_num(tile, copy=True, nan=0., posinf=0., neginf=0.)
+            if conjugate_time:
+                np.conjugate(rcs_slice[block], out=rcs_slice[block])
         del tile, valid
         if not any_valid:
             return "ISAR imaging requires phase-aware samples; selected data has no finite complex phase history."
@@ -2347,9 +2289,13 @@ def _compute_band(
         ids = np.asarray(sorted_band_indices, dtype=np.intp)
         fids = np.asarray(freq_indices_sorted, dtype=np.intp)
         try:
+            def normalized_samples(ia, jf):
+                samples = dataset.rcs_slice((ids[ia], elev_idx, fids[jf], pol_idx))
+                return np.conjugate(samples) if conjugate_time else samples
+
             native = native_image_residual(complex_image, x_range, y_range, contract,
                 band_az_values[order], freq_hz,
-                lambda ia, jf: dataset.rcs_slice((ids[ia], elev_idx, fids[jf], pol_idx)),
+                normalized_samples,
                 support_threshold=sparse_diagnostics.get("sparse_support_threshold", 0.), cancel_check=cancel_check)
         except InterruptedError:
             return "ISAR computation superseded."
@@ -3012,6 +2958,13 @@ def _compute_bands(params: dict):
         )
         result["isar_contract_user_assumed"] = bool(contract_assumptions)
         result["isar_contract_undeclared_fields"] = list(contract_assumptions)
+        source_time = declared_time_sign(params["dataset"])
+        result["time_convention_conjugated"] = source_time == "-jwt"
+        result["image_contract"].update(
+            source_time_convention=source_time or "undeclared",
+            processing_time_convention="+jwt",
+            time_convention_conjugated=source_time == "-jwt",
+        )
         band_results.append(result)
     return band_results, time.perf_counter() - t_start
 

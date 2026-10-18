@@ -17,6 +17,7 @@ from GRIM_Backend.datasets.result_storage import allocate_result, operation_resu
 from GRIM_Backend.plotting.requests import PlotPlan, PlotRequest, PlotResult, check_cancel
 
 from GRIM_Backend.datasets.transforms import _declared_time_sign
+from GRIM_Backend.datasets.phase_conventions import declared_range_phase_sign
 from . import common
 from .isar_mode import (
     _MAX_INTERP_COMPLEX_CELLS,
@@ -233,6 +234,21 @@ def _range_display_grid(azimuths, ranges, image, *, azimuth_width, max_side, ret
     return (*result, (ix, iy) if reduced else None) if return_peaks else result
 
 
+def _range_convention(dataset, *, flip_y=False):
+    """Validate before reading samples, including when called by a worker/script."""
+    time_sign = _declared_time_sign(dataset)
+    range_sign = declared_range_phase_sign(dataset)
+    # Negative-time phasors are conjugated before the IFFT. A positive range
+    # law in that convention therefore already becomes the canonical law.
+    if range_sign == 1 and time_sign != "-jwt" and not flip_y:
+        raise ValueError(
+            "dataset explicitly declares S~exp(+j*2*k*R), while the default range "
+            "axis assumes S~exp(-j*2*k*R). Convert the phase history and its "
+            "declarations, or enable Flip Y after validating a known target."
+        )
+    return time_sign
+
+
 def render(self) -> None:
     self.last_plot_mode = "az_vs_range"
     self._start_plot_render()
@@ -242,8 +258,13 @@ def render(self) -> None:
     reference = self._preflight_plot_datasets([("Dataset", self.active_dataset)])
     if reference is None:
         return
+    flip_y_widget = getattr(self, "chk_isar_flip_y", None)
+    flip_y = bool(flip_y_widget.isChecked()) if flip_y_widget is not None else False
+    flip_x_widget = getattr(self, "chk_isar_flip_x", None)
+    if flip_x_widget is not None and hasattr(flip_x_widget, "setEnabled"):
+        flip_x_widget.setEnabled(False)
     try:
-        time_sign = _declared_time_sign(self.active_dataset)
+        time_sign = _range_convention(self.active_dataset, flip_y=flip_y)
     except ValueError as exc:
         self.status.showMessage(f"Az vs Down-Range blocked: {exc}")
         return
@@ -321,7 +342,7 @@ def render(self) -> None:
                   (sorted_az_indices, [elev_idx], sorted_freq_indices, [pol_idx])),),
         scale=self._plot_scale_mode(), options={**window_options,
             "unit_name": unit_name, "unit_scale": unit_scale, "peak_norm": peak_norm,
-            "azimuth_width": width, "time_sign": time_sign})
+            "azimuth_width": width, "time_sign": time_sign, "flip_y": flip_y})
 
     def publish(result):
         _display(self, result)
@@ -336,6 +357,8 @@ def prepare_azimuth_range(request, cancel=None, *, batch_bytes=8 * 1024**2):
     from .isar_mode import _window_array
     plan = request.plans[0]
     dataset = plan.dataset
+    flip_y = bool(request.options.get("flip_y", False))
+    time_sign = _range_convention(dataset, flip_y=flip_y)
     if dataset.phase_coverage() == "none":
         # Zero-power cells of power-only data read as 0+0j and would pass the
         # usable-row check below without any real phase history.
@@ -362,7 +385,7 @@ def prepare_azimuth_range(request, cancel=None, *, batch_bytes=8 * 1024**2):
             check_cancel(cancel)
             history = dataset.rcs_slice(np.ix_(azimuth[first:first + rows], elevation,
                                                frequency, polarization))[:, 0, :, 0]
-            if request.options["time_sign"] == "-jwt":
+            if time_sign == "-jwt":
                 np.conjugate(history, out=history)
             _, uniform, weights, _ = _prepare_uniform_frequency_history(freq_hz, history, plan=frequency_plan)
             image, usable = _form_range_image(uniform, weights, window, n_fft=n_fft)
@@ -385,6 +408,9 @@ def prepare_azimuth_range(request, cancel=None, *, batch_bytes=8 * 1024**2):
                 linear=request.scale == "linear")
         ranges = np.fft.fftshift(np.fft.fftfreq(n_fft, d=float(np.mean(np.diff(target)))))
         ranges *= 299_792_458.0 / 2.0 * request.options["unit_scale"]
+        if flip_y:
+            display = display[:, ::-1]
+            ranges = -ranges[::-1]
         maximum = min(common.MAX_IMAGE_SIDE, int(np.sqrt(common.MAX_IMAGE_CELLS)))
         xe, ye, drawn, reduced, peaks = _range_display_grid(az_values, ranges, display.T,
             azimuth_width=request.options["azimuth_width"], max_side=maximum,
@@ -463,7 +489,9 @@ def _display(self, result):
             "frequency_values_hz":freq_hz.tolist(),
             "remaining_selection":("elevation",float(dataset.elevations[elev_idx]),common.axis_unit(dataset,"elevation")),
             "source_units":compact_metadata(dataset.units),
-            "source_metadata":compact_metadata(dataset.extra), "peak_normalized":peak_norm})
+            "source_metadata":compact_metadata(dataset.extra), "peak_normalized":peak_norm,
+            "range_mirrored":bool(request.options.get("flip_y", False)),
+            "time_convention_conjugated":_declared_time_sign(dataset) == "-jwt"})
     if peak_indices is not None:
         attach_block_peak_probe(mesh, x_edges, y_edges, az_values, range_axis, *peak_indices)
     self.plot_ax.set_xlabel(self._plot_axis_label(reference, "azimuth"))
@@ -515,6 +543,8 @@ def _display(self, result):
     note = ""
     if fr_nonuniformity >= 1e-3:
         note = f" — resampled frequency (Δ-spread {fr_nonuniformity*100:.1f}%)"
+    if request.options.get("flip_y", False):
+        note += " — range mirrored (Flip Y)"
     gap_count = int(frequency_sampling.get("gap_count", 0))
     if gap_count:
         unsupported = 100.0 * float(

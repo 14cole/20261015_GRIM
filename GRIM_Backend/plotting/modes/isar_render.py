@@ -55,6 +55,8 @@ def render(self) -> None:
     use_composite = lambda span: image_mode == "composite" or (image_mode == "auto" and span > computation._COMPOSITE_SPAN_DEG)
 
     flip_x_widget = getattr(self, "chk_isar_flip_x", None)
+    if flip_x_widget is not None and hasattr(flip_x_widget, "setEnabled"):
+        flip_x_widget.setEnabled(True)
     flip_x = bool(flip_x_widget.isChecked()) if flip_x_widget is not None else False
     flip_y_widget = getattr(self, "chk_isar_flip_y", None)
     flip_y = bool(flip_y_widget.isChecked()) if flip_y_widget is not None else False
@@ -602,10 +604,12 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
     if n_bands > 1:
         parts.append(f" ({n_bands} bands)")
     notes = []
+    if any(br.get("time_convention_conjugated") for br in band_results):
+        notes.append("negative-time samples normalized automatically; source unchanged")
     contract_assumptions = tuple(params.get("isar_contract_assumptions", ()))
     if contract_assumptions:
         notes.append(
-            "undeclared ISAR conventions user-assumed: "
+            "missing or ambiguous ISAR conventions assumed: "
             + ", ".join(str(value) for value in contract_assumptions)
         )
     if composite_subs:

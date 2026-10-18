@@ -1372,10 +1372,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         topbar = QHBoxLayout(header)
         topbar.setContentsMargins(0, 0, 0, 0)
         self._plot_headers[tab_key] = header
-        plot_title = QLabel("Display")
-        plot_title.setObjectName("plotTitle")
-        topbar.addWidget(plot_title)
-        topbar.addStretch(1)
         btn_dataset_ops = QToolButton(text="Dataset Operations")
         btn_dataset_ops.setCheckable(True)
         btn_export_plot = QToolButton(text="Export Plot")
@@ -1666,7 +1662,8 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         combo_isar_recon.addItem("Recommended PFA (scene-aware)")
         chk_isar_flip_x = QCheckBox("Flip X")
         chk_isar_flip_x.setToolTip(
-            "Mirror the image about x=0 (swap left/right). Use when the "
+            "ISAR images only: mirror cross-range about x=0 (swap left/right). "
+            "Az vs D.R. keeps its measured azimuth coordinates. Use when the "
             "cross-range axis comes out reversed versus another tool — an "
             "opposite azimuth rotation-direction convention. Validate once "
             "against a known asymmetric geometry, then leave it set."
@@ -1674,10 +1671,11 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         settings_layout.addWidget(chk_isar_flip_x, row, 4)
         chk_isar_flip_y = QCheckBox("Flip Y")
         chk_isar_flip_y.setToolTip(
-            "Mirror the image about y=0 (swap up/down). Use when the range "
+            "ISAR and Az vs D.R.: mirror range about y=0 (swap up/down). Use when the range "
             "axis comes out reversed versus another tool — an opposite "
-            "down-range sign convention. Both flips together are equivalent "
-            "to the opposite e^{+j2kr} phase convention."
+            "down-range sign convention. For the opposite e^{+j2kr} range law, "
+            "ISAR needs both flips; Az vs D.R. needs only Flip Y. Validate "
+            "against a known target before changing the range direction."
         )
         settings_layout.addWidget(chk_isar_flip_y, row, 5)
         row += 1

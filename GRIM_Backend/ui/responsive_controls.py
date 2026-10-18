@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtWidgets import (
-    QLabel, QLayout, QSizePolicy, QTabBar, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QLayout, QSizePolicy, QTabBar, QVBoxLayout, QWidget,
 )
 
 
@@ -115,14 +115,18 @@ class ResponsiveControlTabs(QWidget):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(4)
-        self.header = ResponsiveButtonPanel(self)
-        self.header.setObjectName("plottingCommonControls")
-        self.header.setAttribute(Qt.WA_StyledBackground, True)
-        self.header.flow.setContentsMargins(8, 5, 8, 5)
-        common_label = QLabel("Plot controls")
+        self.header_row = QWidget(self)
+        self.header_row.setObjectName("plottingCommonControls")
+        self.header_row.setAttribute(Qt.WA_StyledBackground, True)
+        self._header_layout = QHBoxLayout(self.header_row)
+        self._header_layout.setContentsMargins(8, 5, 8, 5)
+        self._header_layout.setSpacing(12)
+        self.header = ResponsiveButtonPanel(self.header_row)
+        self._header_layout.addWidget(self.header, 1)
+        common_label = QLabel("Plot Tools")
         common_label.setObjectName("plotCommonLabel")
         self.header.addWidget(common_label)
-        self._layout.addWidget(self.header)
+        self._layout.addWidget(self.header_row)
         self._tab_bar = QTabBar(self)
         self._tab_bar.setObjectName("plotControlTabBar")
         self._tab_bar.setExpanding(False)
@@ -133,6 +137,10 @@ class ResponsiveControlTabs(QWidget):
 
     def addCommonWidget(self, widget: QWidget) -> None:
         self.header.addWidget(widget)
+
+    def setHeaderActions(self, widget: QWidget) -> None:
+        """Keep workspace actions at the right while left-side tools wrap."""
+        self._header_layout.addWidget(widget, 0, Qt.AlignRight | Qt.AlignTop)
 
     def addTab(self, page: QWidget, title: str) -> int:
         index = len(self._pages)

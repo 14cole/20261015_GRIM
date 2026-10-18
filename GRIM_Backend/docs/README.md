@@ -23,7 +23,8 @@ results and settings. The upper-right button shows **Plot Settings** or **ISAR
 Settings** for the active view, including while using Plot Manipulation.
 
 Buttons wrap to fit the available width. Legend, Auto Plot, Auto Scale, Hold,
-and Clear remain in a separate **Plot controls** row. Hold, trace markers and
+and Clear share the **Plot Tools** row with Dataset Operations, Export Plot,
+and the active view's Settings button aligned on the right. Hold, trace markers and
 the parameter slider are disabled for ISAR. The selected tab has a filled
 background. Parameter lists use plain row highlights without an additional
 colored selection marker.
@@ -436,10 +437,32 @@ them as user-owned assumptions and records every undeclared contract field in
 the completed result and artifact.
 This is especially important for Pioneer PIO, whose interchange header cannot
 carry the full acquisition contract. The same contract also binds the two-way
-range law: an explicit
+range law: for positive-time or undeclared-time samples, an explicit
 `S~exp(+j*2*k*R)` declaration is blocked under the default axes unless both
 Flip X and Flip Y are deliberately enabled and checked against a known
-asymmetric target.
+asymmetric target. Declared negative-time samples are normalized automatically
+and do not need these flips to correct the time convention.
+
+Time-convention checks include `time_convention`, `phase_reference`, and
+`amplitude_convention` in both metadata containers. Conflicting declarations
+are rejected. ISAR automatically conjugates declared negative-time samples
+before regridding, reconstruction, and native residual checks. The source
+dataset remains unchanged; the status message and exported image contract
+record the normalization. A display mirror remains a separate coordinate choice.
+Missing declarations and ambiguous placeholders such as `none`, `unknown`,
+and `unspecified` become recorded assumptions, not blockers. Explicit near-field,
+bistatic, drifting-reference, and unsupported coordinate declarations still
+require correction; missing frequency units and unusable phase data still block.
+
+Az. vs D.R. conjugates declared `exp(-jwt)` samples before range processing.
+For positive-time or undeclared-time samples that explicitly declare
+`S~exp(+j*2*k*R)`, it requires **Flip Y** or an explicit data/convention
+conversion. Flip Y mirrors the range coordinates and image together and is
+recorded in the image metadata. Flip X applies only to ISAR cross-range and
+is disabled on Az. vs D.R., whose horizontal coordinates remain acquired
+azimuths. For a horizontal scene, ISAR reports horizontal range at nonzero
+elevation; Az. vs D.R. reports line-of-sight range. Both retain the dataset's
+phase-reference origin.
 
 Fast PFA is the interactive narrow-look path; Accurate Cartesian PFA removes
 the remaining range-curvature approximation for supported apertures. Sparse L1

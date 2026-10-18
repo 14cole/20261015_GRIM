@@ -1248,24 +1248,8 @@ _GATE_WORK_BYTES = 32 * 1024**2
 
 def _declared_time_sign(dataset: RcsGrid) -> str | None:
     """Return "+jwt", "-jwt", or None when no time convention is declared."""
-
-    from GRIM_Backend.datasets.metadata import canonical_time_convention
-
-    signs = set()
-    for container in (dataset.units or {}, dataset.extra or {}):
-        for key in ("time_convention", "phase_reference", "amplitude_convention"):
-            raw = container.get(key)
-            if raw is None:
-                continue
-            array = np.asarray(raw)
-            if array.size != 1:
-                continue
-            sign = canonical_time_convention(str(array.reshape(-1)[0].item()))
-            if sign in {"+jwt", "-jwt"}:
-                signs.add(sign)
-    if len(signs) > 1:
-        raise ValueError("dataset declares contradictory time conventions")
-    return next(iter(signs)) if signs else None
+    from GRIM_Backend.datasets.phase_conventions import declared_time_sign
+    return declared_time_sign(dataset)
 
 
 def _uniform_frequencies_hz(dataset: RcsGrid) -> np.ndarray:
