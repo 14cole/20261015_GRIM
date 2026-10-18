@@ -59,6 +59,7 @@ from GRIM_Backend.ui.widgets import (
     ClickableLabel, CollapsibleSection, PlotSettingsPopup, initial_window_size,
 )
 from GRIM_Backend.ui.theme import build_qss
+from GRIM_Backend.ui.plot_workspace import PlotWorkspaceMixin
 from GRIM_Backend.io.loaders import is_supported_path
 from GRIM_Backend.scripting.recorder import PythonScriptRecorder
 from GRIM_Backend.ui.dataset_actions import (
@@ -73,7 +74,6 @@ from GRIM_Backend.plotting.models import PlotContext
 from GRIM_Backend.plotting.session import plot_context_facade
 from GRIM_Backend.ui.delta_map_controls import DeltaMapControls
 from GRIM_Backend.ui.spatial_overlays import SpatialOverlayPanel
-from GRIM_Backend.ui.responsive_controls import ResponsiveButtonPanel, ResponsiveControlTabs
 
 from GRIM_Backend.ui.palette import (
     APPLICATION_PALETTES,
@@ -183,16 +183,17 @@ PLOT_OPS_SPECS = {
 }
 
 # Plotting groups reuse the same buttons and signal wiring. The common
-# controls sit beside the tab headings and remain available on either page.
+# controls remain available above all three pages.
 PLOTTING_CONTROL_GROUPS = (
     ("Plots", (
         ("azimuth_rect", "azimuth_polar", "frequency", "elevation_sweep", "waterfall", "cdf"),
         ("compare", "delta_map", "sector_stats", "range_freq", "pbp", "phase"),
-        ("phase_analysis", "polarization", "image_compare"),
     )),
+    ("ISAR", (("isar_image", "az_vs_range"),)),
     ("Plot Manipulation", (
         ("fit_x", "fit_y", "fit_both", "zoom_box", "pan"),
         ("markers", "slider", "overlays", "measure"),
+        ("phase_analysis", "polarization", "image_compare"),
     )),
 )
 
@@ -211,7 +212,7 @@ def _extract_supported_drop_paths(mime: QMimeData) -> list[str]:
 
 
 @plot_context_facade(PlotContext)
-class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
+class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWindow):
     @property
     def application_palette_menu(self):
         # QAction.menu() can return a fresh Python wrapper after another
@@ -420,6 +421,10 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         self._plot_splitters: dict[str, QSplitter] = {}
         self._plot_contexts: dict[str, PlotContext] = {}
         self._plot_controls_by_tab: dict[str, dict[str, QToolButton]] = {}
+        self._plot_headers = {}
+        self._plot_views = {}
+        self._plot_control_storage = QWidget(self)
+        self._plot_control_storage.hide()
         self._active_plot_tab = "plotting"
         self._dataset_ops_visible = False
 
@@ -723,21 +728,13 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
 
         self._shared_right_panel = dock
 
-        self.tab_isar = QWidget()
-        isar_layout = QVBoxLayout(self.tab_isar)
-        isar_layout.setContentsMargins(10, 10, 10, 10)
-        isar_layout.setSpacing(0)
-
-        isar_splitter = QSplitter(Qt.Horizontal)
-        isar_layout.addWidget(isar_splitter, 1)
-        self._plot_splitters["isar"] = isar_splitter
-
-        isar_left_panel = QWidget()
-        isar_splitter.addWidget(isar_left_panel)
-        isar_splitter.setStretchFactor(0, 1)
-
-        isar_context = self._build_plot_left_context(isar_left_panel, "isar")
-        self._plot_contexts["isar"] = isar_context
+        # Retain separate canvas/settings state inside one visible workspace.
+        self._isar_build_container = QWidget(self)
+        self._isar_build_container.hide()
+        self._plot_contexts["isar"] = self._build_plot_left_context(
+            self._isar_build_container, "isar")
+        self._plot_splitters["isar"] = plot_splitter
+        self._build_shared_plot_workspace(plot_panel, PLOTTING_CONTROL_GROUPS)
 
         # PPT owns an independent report selection and a true 16:9 slide
         # preview. It consumes the same in-memory RcsGrid objects but does not
@@ -819,7 +816,6 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         # dictate the user-facing workflow order.
         for label, widget, plot_key in (
             ("Plotting", self.tab_simple_plots, "plotting"),
-            ("ISAR", self.tab_isar, "isar"),
             ("FREDDY", self.freddy_integration, None),
             ("GHOST", self.ghost_integration, None),
             ("Assembly", self._assembly_placeholder, None),
@@ -1372,7 +1368,10 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
 
-        topbar = QHBoxLayout()
+        header = QWidget()
+        topbar = QHBoxLayout(header)
+        topbar.setContentsMargins(0, 0, 0, 0)
+        self._plot_headers[tab_key] = header
         plot_title = QLabel("Display")
         plot_title.setObjectName("plotTitle")
         topbar.addWidget(plot_title)
@@ -1386,7 +1385,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         topbar.addWidget(btn_dataset_ops)
         topbar.addWidget(btn_export_plot)
         topbar.addWidget(btn_settings)
-        left_layout.addLayout(topbar)
+        left_layout.addWidget(header)
 
         settings_frame = PlotSettingsPopup(panel, title=settings_title)
         settings_frame.setObjectName(f"{tab_key}SettingsPopup")
@@ -1899,7 +1898,8 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
         plot_controls: dict[str, QToolButton] = {}
 
         def _make_plot_button(label: str, role: str) -> QToolButton:
-            btn = QToolButton(text=label)
+            btn = QToolButton(self._plot_control_storage)
+            btn.setText(label)
             if role in (
                 "hold", "auto_plot", "auto_scale", "pbp", "phase", "zoom_box", "pan",
                 "markers", "slider", "overlays",
@@ -1965,49 +1965,19 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
                 btn.setToolTip(tooltips[role])
             return btn
 
-        # Legend remains outside the grouped pages, alongside the common
-        # controls. ISAR keeps it at the start of its first toolbar row.
-        chk_plot_legend = QToolButton(text="Legend")
+        # Legend joins the shared controls when this context is active.
+        chk_plot_legend = QToolButton(self._plot_control_storage)
+        chk_plot_legend.setText("Legend")
         chk_plot_legend.setCheckable(True)
         chk_plot_legend.setChecked(True)
         chk_plot_legend.setToolTip("Show or hide the plot legend")
 
-        plot_ops_bar = QFrame()
-        plot_ops_bar.setObjectName("plotToolbar")
-        plot_ops_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        plot_ops_bar_layout = QVBoxLayout(plot_ops_bar)
-        plot_ops_bar_layout.setContentsMargins(8, 6, 8, 6)
-        plot_ops_bar_layout.setSpacing(4)
-        for _specs in row_specs:
-            for label, role in _specs:
+        for specs in row_specs:
+            for label, role in specs:
                 _make_plot_button(label, role)
-        if tab_key == "plotting":
-            groups = ResponsiveControlTabs()
-            groups.setObjectName("plottingControlTabs")
-            groups.addCommonWidget(chk_plot_legend)
-            for role in ("auto_plot", "auto_scale", "hold", "clear"):
-                groups.addCommonWidget(plot_controls[role])
-            for title, rows in PLOTTING_CONTROL_GROUPS:
-                page = ResponsiveButtonPanel()
-                page.setObjectName("plottingButtons" if title == "Plots" else "plotManipulationButtons")
-                for roles in rows:
-                    for role in roles:
-                        page.addWidget(plot_controls[role])
-                groups.addTab(page, title)
-            plot_ops_bar_layout.addWidget(groups)
-        else:
-            buttons = ResponsiveButtonPanel()
-            buttons.setObjectName("isarButtons")
-            buttons.addWidget(chk_plot_legend)
-            for _specs in row_specs:
-                for _label, role in _specs:
-                    buttons.addWidget(plot_controls[role])
-            plot_ops_bar_layout.addWidget(buttons)
         self._plot_controls_by_tab[tab_key] = plot_controls
-
+        self._plot_views[tab_key] = plot_frame
         left_layout.addWidget(plot_frame, 1)
-        # Toolbar sits just below the Display header (index 0), above the plot.
-        left_layout.insertWidget(1, plot_ops_bar)
 
         return PlotContext(
             isar_advanced=isar_advanced,
@@ -2144,6 +2114,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
 
         self._active_plot_tab = tab_key
         self._move_shared_right_panel(tab_key)
+        self._refresh_shared_plot_controls()
 
         controls = self._plot_controls_by_tab[tab_key]
         self.btn_hold = controls.get("hold")
@@ -2301,7 +2272,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
             if self.main_tabs.widget(index) is self.ppt_workspace:
                 self._notify_dataset_catalog_changed()
             return
-        self._activate_plot_tab(tab_key)
+        self._activate_plot_tab(self._active_plot_tab)
         self._update_plot_color_buttons()
         self.plot_canvas.draw_idle()
 
@@ -2595,7 +2566,7 @@ class GrimCutWindow(DatasetOpsMixin, PlotOpsMixin, QMainWindow):
                 "The current ISAR calculation was canceled. Wait for its "
                 "worker to finish, then close GRIM again.",
             )
-            self.main_tabs.setCurrentWidget(self.tab_isar)
+            self._show_isar_workspace()
             event.ignore()
             return
         if self.ppt_workspace.job_is_running():

@@ -41,8 +41,8 @@ def validate_envelope_setup(state):
     if state['mode'] != ENVELOPE_MODE: raise ValueError('Choose Thickness tolerance envelopes.')
     try:
         target=float(state['target'])
-    except (TypeError,ValueError): raise ValueError('Enter a numeric reflection limit.') from None
-    if not math.isfinite(target) or not -200<=target<=0: raise ValueError('Reflection limit must be between −200 and 0 dB.')
+    except (TypeError,ValueError): raise ValueError('Enter a numeric reflection target.') from None
+    if not math.isfinite(target) or not -200<=target<=0: raise ValueError('Reflection Target must be between −200 and 0 dB.')
     if state['polarization'] not in ('TE','TM','Both'): raise ValueError('Choose TE, TM or Both.')
     nf,na=axis_counts(state)
     if nf>20001 or na>1001: raise ValueError('Use at most 20,001 frequencies and 1,001 incidence angles.')

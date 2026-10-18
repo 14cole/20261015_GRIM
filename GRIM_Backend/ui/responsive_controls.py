@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
 from PySide6.QtWidgets import (
-    QLayout, QSizePolicy, QTabBar, QVBoxLayout, QWidget,
+    QLabel, QLayout, QSizePolicy, QTabBar, QVBoxLayout, QWidget,
 )
 
 
@@ -101,7 +101,7 @@ class ResponsiveControlTabs(QWidget):
 
     QTabWidget reserves space for its largest page. Keeping inactive pages
     hidden in an ordinary layout lets a shorter page return space to the
-    canvas. The header wraps its common controls along with the tab headings.
+    canvas. Persistent controls wrap in their own labeled row above the tabs.
     """
 
     currentChanged = Signal(int)
@@ -117,11 +117,18 @@ class ResponsiveControlTabs(QWidget):
         self._layout.setSpacing(4)
         self.header = ResponsiveButtonPanel(self)
         self.header.setObjectName("plottingCommonControls")
-        self._tab_bar = QTabBar(self.header)
+        self.header.setAttribute(Qt.WA_StyledBackground, True)
+        self.header.flow.setContentsMargins(8, 5, 8, 5)
+        common_label = QLabel("Plot controls")
+        common_label.setObjectName("plotCommonLabel")
+        self.header.addWidget(common_label)
+        self._layout.addWidget(self.header)
+        self._tab_bar = QTabBar(self)
+        self._tab_bar.setObjectName("plotControlTabBar")
         self._tab_bar.setExpanding(False)
         self._tab_bar.setUsesScrollButtons(True)
-        self.header.addWidget(self._tab_bar)
-        self._layout.addWidget(self.header)
+        self._tab_bar.setDrawBase(False)
+        self._layout.addWidget(self._tab_bar)
         self._tab_bar.currentChanged.connect(self._select_page)
 
     def addCommonWidget(self, widget: QWidget) -> None:
@@ -130,6 +137,8 @@ class ResponsiveControlTabs(QWidget):
     def addTab(self, page: QWidget, title: str) -> int:
         index = len(self._pages)
         self._pages.append(page)
+        page.setAttribute(Qt.WA_StyledBackground, True)
+        page.layout().setContentsMargins(8, 6, 8, 6)
         self._layout.addWidget(page)
         page.setVisible(index == self.currentIndex())
         self._tab_bar.addTab(title)

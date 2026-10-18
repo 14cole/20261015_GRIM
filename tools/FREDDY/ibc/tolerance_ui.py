@@ -97,7 +97,7 @@ class ToleranceWidget(QWidget):
             [('mode', 'Analysis')],
             [('f_start', 'Frequency start (GHz)'), ('f_stop', 'Stop (GHz)'), ('f_step', 'Step (GHz)')],
             [('a_start', 'Angle start (°)'), ('a_stop', 'Stop (°)'), ('a_step', 'Step (°)')],
-            [('polarization', 'Polarization'), ('target', 'Reflection limit (dB)'), ('points', 'Points per parameter')],
+            [('polarization', 'Polarization'), ('target', 'Reflection Target (dB)'), ('points', 'Points per parameter')],
             [('samples', 'Samples per repeat'), ('seed', 'Random seed'), ('repeats', 'Independent repeats')],
         ]
         options = {'polarization': ['TE', 'TM', 'Both'], 'mode': MODES,
@@ -122,7 +122,7 @@ class ToleranceWidget(QWidget):
                 grid.addWidget(edit, row, 2 * col + 1)
         layout.addLayout(grid)
         self.copy_inverse = QPushButton('Copy inverse frequencies, angles and requirement')
-        self.copy_inverse.setToolTip('Copy the inverse band sweep, incidence-angle sweep, polarization and reflection limit. For a discrete-frequency inverse study, enter the desired sweep here. Does not apply an inverse candidate or reuse calculated results.')
+        self.copy_inverse.setToolTip('Copy the inverse band sweep, incidence-angle sweep, polarization and reflection target. For a discrete-frequency inverse study, enter the desired sweep here. Does not apply an inverse candidate or reuse calculated results.')
         self.copy_inverse.clicked.connect(self.use_inverse_setup)
         layout.addWidget(self.copy_inverse)
         note = QLabel('Set ± bounds below; zero disables a parameter. Absolute units: thickness in inches, resistance in Ω/sq, ε/μ relative units. '

@@ -4,7 +4,7 @@ The Python entry points for a source checkout are listed under
 [Running from a development checkout](#running-from-a-development-checkout).
 
 GRIM is the host application for this distribution. Its desktop tabs are
-**Plotting | ISAR | FREDDY | GHOST | Assembly | PPT | Python**. GHOST and FREDDY remain
+**Plotting | FREDDY | GHOST | Assembly | PPT | Python**. GHOST and FREDDY remain
 self-contained tools under `tools/`; GRIM embeds their authoritative user
 interfaces instead of copying their numerical implementations into the
 plotting code.
@@ -15,10 +15,18 @@ plots. The first use may take a moment; afterward each workspace stays loaded
 and retains its state when switching tabs. Theme changes, dataset updates, and
 closing GRIM do not initialize an unused workspace.
 
-The **Plots**, **Plot Manipulation**, and ISAR buttons wrap to fit the available
-width. Widening the workspace reduces button rows and gives the plot more
-height. Legend, Auto Plot, Auto Scale, Hold, and Clear remain available above
-either Plotting control page.
+The Plotting workspace contains **Plots | ISAR | Plot Manipulation**. ISAR Image
+and Az. vs D.R. live on the ISAR page. Fit, zoom, pan, overlays, measurement,
+phase/polarization analysis and image comparison are shared on Plot Manipulation;
+they act on the last selected Plots or ISAR view. The two views retain their own
+results and settings. The upper-right button shows **Plot Settings** or **ISAR
+Settings** for the active view, including while using Plot Manipulation.
+
+Buttons wrap to fit the available width. Legend, Auto Plot, Auto Scale, Hold,
+and Clear remain in a separate **Plot controls** row. Hold, trace markers and
+the parameter slider are disabled for ISAR. The selected tab has a filled
+background. Parameter lists use plain row highlights without an additional
+colored selection marker.
 
 The [vehicle assembly guide](ASSEMBLY_WORKFLOW.md) describes the Body, Points,
 Line features, and Build workflow, including direct feature authoring and reusable

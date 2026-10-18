@@ -454,9 +454,12 @@ from .ui_options import (
 # Corner-aggregation labels for property mismatch or performance gap.
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BUILTIN_MATERIAL_PRESETS = {
-    # Air is exact and is the only bundled material until measured/validated
-    # property data are available. Do not ship generic unvalidated presets.
+    # Demo presets are synthetic passive models, not measured product data.
     "Air (reference)": str(_PROJECT_ROOT / "materials" / "air_reference.csv"),
+    "Demo: Low-loss dielectric": str(_PROJECT_ROOT / "materials" / "demo_low_loss.csv"),
+    "Demo: High permittivity": str(_PROJECT_ROOT / "materials" / "demo_high_permittivity.csv"),
+    "Demo: Lossy dielectric": str(_PROJECT_ROOT / "materials" / "demo_lossy_dielectric.csv"),
+    "Demo: Magnetic loss": str(_PROJECT_ROOT / "materials" / "demo_magnetic_loss.csv"),
 }
 _T = TypeVar("_T")
 
@@ -771,7 +774,6 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self.plot_frame = None
         self.heatmap_cbar = None
         self.inv_results_list = None
-        self.inv_parameter_summary_label: QLabel | None = None
         self.left_tabs = None
         self.mode_stack = None
         self.nav_group = None
@@ -1267,8 +1269,6 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         imp_freq_grid.addWidget(self.backing_combo, 1, 1, 1, 3, Qt.AlignLeft)
         imp_freq_grid.setColumnStretch(5, 1)
         imp_layout.addWidget(imp_freq_group)
-        from .operating_grid import copy_button
-        imp_layout.addWidget(copy_button(self, 'Impedance / IBC Batch'))
 
         (
             imp_unc_group,
@@ -1330,8 +1330,6 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         ibc_batch_freq_grid.addWidget(_entry(self.f_step_var, 10), 0, 5, Qt.AlignLeft)
         ibc_batch_freq_grid.setColumnStretch(5, 1)
         ibc_batch_layout.addWidget(ibc_batch_freq_group)
-        from .operating_grid import copy_button
-        ibc_batch_layout.addWidget(copy_button(self, 'Impedance / IBC Batch'))
 
         ibc_batch_sweep_group = QGroupBox("Selected-layer thickness sweep")
         ibc_batch_sweep_grid = QGridLayout(ibc_batch_sweep_group)
@@ -1436,8 +1434,6 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         ang_freq_grid.addWidget(_entry(self.angle_f_step_var, 10), 0, 5, Qt.AlignLeft)
         ang_freq_grid.setColumnStretch(5, 1)
         angle_layout.addWidget(ang_freq_group)
-        from .operating_grid import copy_button
-        angle_layout.addWidget(copy_button(self, 'Off Angle'))
 
         angle_group = QGroupBox("Incidence angle from normal (deg)")
         angle_grid = QGridLayout(angle_group)
@@ -1495,25 +1491,11 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         inv_layout = QVBoxLayout(inv_content)
         _add_mode("Inverse Design", inv_tab)
 
-        inv_intro = QLabel(
-            "Choose Fixed or Vary for each layer, then enter Minimum, "
-            "Maximum, and Step for thickness or sheet resistance. FREDDY then "
-            "analyzes every combination of those values. The summary below shows "
-            "exactly what will vary."
-        )
-        inv_intro.setWordWrap(True)
-        inv_layout.addWidget(inv_intro)
-        self.inv_parameter_summary_label = QLabel("No optimization parameters configured.")
-        self.inv_parameter_summary_label.setWordWrap(True)
-        self.inv_parameter_summary_label.setObjectName("PreviewLabel")
-        inv_layout.addWidget(self.inv_parameter_summary_label)
         self._build_inverse_workflow(inv_layout)
-        from .operating_grid import copy_button
-        inv_layout.addWidget(copy_button(self, 'Inverse Design'))
 
-        self.inv_freq_target_frame = CollapsibleFrame("Frequency target", expanded=False)
+        self.inv_freq_target_frame = QGroupBox("Frequency target")
         inv_layout.addWidget(self.inv_freq_target_frame)
-        freq_body = QGridLayout(self.inv_freq_target_frame.body)
+        freq_body = QGridLayout(self.inv_freq_target_frame)
         freq_body.addWidget(QLabel("Mode"), 0, 0, Qt.AlignLeft)
         freq_mode_combo = make_combo(
             ("Band sweep", "Discrete list"),
@@ -1536,9 +1518,9 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         freq_body.addWidget(self.inv_freq_list_entry, 2, 1, 1, 5)
         freq_body.setColumnStretch(5, 1)
 
-        self.inv_angle_target_frame = CollapsibleFrame("Incidence angle from normal (deg)", expanded=False)
+        self.inv_angle_target_frame = QGroupBox("Incidence angle from normal (deg)")
         inv_layout.addWidget(self.inv_angle_target_frame)
-        angle_body = QGridLayout(self.inv_angle_target_frame.body)
+        angle_body = QGridLayout(self.inv_angle_target_frame)
         angle_body.addWidget(QLabel("Start (deg)"), 0, 0, Qt.AlignLeft)
         angle_body.addWidget(_entry(self.inv_angle_start_var, 8), 0, 1, Qt.AlignLeft)
         angle_body.addWidget(QLabel("Stop"), 0, 2, Qt.AlignLeft)
@@ -1549,23 +1531,18 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         angle_body.addWidget(make_combo(("TE", "TM", "Both"), self.inv_wave_pol_var, width=80), 0, 7, Qt.AlignLeft)
         angle_body.setColumnStretch(8, 1)
 
-        self.inv_search_frame = CollapsibleFrame("Results to retain", expanded=False)
+        self.inv_search_frame = QWidget()
         inv_layout.addWidget(self.inv_search_frame)
-        search_body = QGridLayout(self.inv_search_frame.body)
+        search_body = QGridLayout(self.inv_search_frame)
         search_body.addWidget(QLabel("Keep best for comparison"), 0, 0, Qt.AlignLeft)
-        search_body.addWidget(_entry(self.inv_top_n_var, 8), 0, 1, Qt.AlignLeft)
-        search_help = QLabel(
-            "Every combination of the configured layer values is analyzed. "
-            "Keep best only limits the results retained for comparison. "
-            "Values start at Minimum and advance by Step without exceeding Maximum."
-        )
-        search_help.setWordWrap(True)
-        search_body.addWidget(search_help, 1, 0, 1, 3)
+        keep_best = _entry(self.inv_top_n_var, 8)
+        keep_best.setToolTip('Number of results retained for comparison. Every defined design combination is still evaluated.')
+        search_body.addWidget(keep_best, 0, 1, Qt.AlignLeft)
         search_body.setColumnStretch(2, 1)
 
-        self.inv_score_frame = CollapsibleFrame("Objective and tolerances", expanded=False)
+        self.inv_score_frame = QGroupBox("Objective and tolerances")
         inv_layout.addWidget(self.inv_score_frame)
-        score_body = QGridLayout(self.inv_score_frame.body)
+        score_body = QGridLayout(self.inv_score_frame)
         inv_unc_check = QCheckBox("Shared stack variation (sampled corners and axis probes)")
         self.inv_unc_check = inv_unc_check
         bind_check_box(self.inv_uncertainty_var, inv_unc_check)
@@ -1589,7 +1566,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
             5,
             Qt.AlignLeft,
         )
-        self.inv_requirement_label = QLabel('Reflection limit (dB)')
+        self.inv_requirement_label = QLabel('Reflection Target (dB)')
         score_body.addWidget(self.inv_requirement_label, 3, 0, 1, 2)
         self.inv_requirement_entry = _entry(self.inv_requirement_db_var, 8)
         self.inv_requirement_entry.setToolTip('Rank by worst PEC reflection minus this target over all analyzed frequencies, angles, and tolerance cases. Gap ≤ 0 passes. Saved with the search; separate from the Results comparison target.')
@@ -1639,7 +1616,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self.inv_requirement_entry.setEnabled(whole_band)
         self.inv_requirement_label.setEnabled(whole_band)
         self.inv_objective_note.setText(
-            'Minimize the worst reflection gap across every analyzed frequency, angle, and tolerance case. Gap ≤ 0 passes the limit. Verify between samples with a finer sweep.'
+            'Minimize the worst reflection gap across every analyzed frequency, angle, and tolerance case. Gap ≤ 0 meets the target. Verify between samples with a finer sweep.'
             if whole_band else 'Minimize mean reflection dB across frequency and angle, then take the worst or average tolerance corner. A good mean score can still miss a peak requirement.')
         if mode in MANUFACTURING_OBJECTIVES:
             self.inv_objective_note.setText('Per-layer bounds replace shared uncertainty. ' + ('Minimize modeled failure percentage under the entered distributions/groups. Zero sampled failures is not guaranteed acceptance.' if mode == INVERSE_SCORE_YIELD else 'Minimize worst reflection gap across joint rectangular support samples; distribution/group constraints are ignored for these conservative probes.'))
@@ -1728,8 +1705,6 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         mix_freq_frame = CollapsibleFrame("3. Choose prediction band", expanded=True)
         self.mix_freq_frame = mix_freq_frame
         mix_layout.addWidget(mix_freq_frame)
-        from .operating_grid import copy_button
-        mix_layout.addWidget(copy_button(self, 'Material Mix'))
         mix_freq_body = QGridLayout(mix_freq_frame.body)
         mix_freq_body.addWidget(QLabel("Mode"), 0, 0, Qt.AlignLeft)
         mix_freq_body.addWidget(
@@ -2296,7 +2271,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
     def _sync_inverse_uncertainty_state(self) -> None:
         enabled = self.inv_uncertainty_var.get() and self.inv_score_mode_var.get() not in MANUFACTURING_OBJECTIVES
         if hasattr(self, 'inv_score_frame'):
-            self._show_grid_row(self.inv_score_frame.body.layout(), 1, enabled)
+            self._show_grid_row(self.inv_score_frame.layout(), 1, enabled)
         if self.inv_unc_t_entry is not None:
             self.inv_unc_t_entry.setEnabled(enabled)
         if self.inv_unc_eps_entry is not None:
@@ -2316,8 +2291,8 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         mode = self.inv_freq_mode_var.get().strip().lower()
         band_enabled = mode.startswith("band")
         if hasattr(self, 'inv_freq_target_frame'):
-            self._show_grid_row(self.inv_freq_target_frame.body.layout(), 1, band_enabled)
-            self._show_grid_row(self.inv_freq_target_frame.body.layout(), 2, not band_enabled)
+            self._show_grid_row(self.inv_freq_target_frame.layout(), 1, band_enabled)
+            self._show_grid_row(self.inv_freq_target_frame.layout(), 2, not band_enabled)
         for entry in (
             self.inv_target_start_entry,
             self.inv_target_stop_entry,
@@ -2764,33 +2739,6 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
                     parts.append(f"step={layer.inv_t_accuracy_in:g}")
                 desc += f" | inv[{', '.join(parts)}]"
             self.layer_list.addItem(desc)
-        if self.inv_parameter_summary_label is not None:
-            parameters: list[str] = []
-            for index, layer in enumerate(self.layers, start=1):
-                if layer.is_sheet:
-                    if layer.inv_rs_min is not None and layer.inv_rs_max is not None:
-                        step = (
-                            f", step {layer.inv_rs_accuracy:g} Ω"
-                            if layer.inv_rs_accuracy is not None else ", step required"
-                        )
-                        parameters.append(
-                            f"Layer {index} resistance: {layer.inv_rs_min:g} to "
-                            f"{layer.inv_rs_max:g} Ω/sq{step}"
-                        )
-                elif layer.inv_t_min_in is not None and layer.inv_t_max_in is not None:
-                    step = (
-                        f", step {layer.inv_t_accuracy_in:g} in"
-                        if layer.inv_t_accuracy_in is not None else ", step required"
-                    )
-                    parameters.append(
-                        f"Layer {index} thickness: {layer.inv_t_min_in:g} to "
-                        f"{layer.inv_t_max_in:g} in{step}"
-                    )
-            self.inv_parameter_summary_label.setText(
-                "Optimization parameters: " + " | ".join(parameters)
-                if parameters else
-                "All layers are fixed. Choose Fixed / variable layers to vary a parameter, or run once to score the current stack."
-            )
         self.layer_preview.update()
         self._refresh_thickness_layers()
 

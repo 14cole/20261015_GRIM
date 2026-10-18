@@ -117,7 +117,7 @@ def verify_candidates(configs, candidates, frequencies, angles, polarization, un
     if not candidates:
         raise ValueError('Retain at least one candidate before verification.')
     if not math.isfinite(target) or not -200 <= target <= 0:
-        raise ValueError('Verification reflection limit must be between −200 and 0 dB.')
+        raise ValueError('Verification reflection target must be between −200 and 0 dB.')
     for values, label in ((frequencies, 'frequencies'), (angles, 'angles')):
         if not values or not all(math.isfinite(v) for v in values) or any(b<=a for a,b in zip(values,values[1:])):
             raise ValueError(f'Verification {label} must be finite, nonempty and strictly increasing.')

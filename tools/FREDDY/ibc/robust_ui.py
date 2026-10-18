@@ -84,7 +84,7 @@ class VerificationDialog(QDialog):
         self.setWindowTitle('Verify inverse candidates')
         self.resize(1000, 560)
         layout = QVBoxLayout(self)
-        note = QLabel('Checks the captured reflection limit using nested frequency/angle grids and increasing joint tolerance samples. Discrete frequency targets remain discrete. Independent yield repeats use the finest operating grid. This comparison covers retained candidates only; it does not prove continuous acceptance.')
+        note = QLabel('Checks the captured reflection target using nested frequency/angle grids and increasing joint tolerance samples. Discrete frequency targets remain discrete. Independent yield repeats use the finest operating grid. This comparison covers retained candidates only; it does not prove continuous acceptance.')
         note.setWordWrap(True)
         layout.addWidget(note)
         self.choice = QComboBox()

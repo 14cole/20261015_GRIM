@@ -13,7 +13,7 @@ from .compute import build_uncertainty_scales, make_frequency_sweep, make_sweep,
 from .sweep_admission import sweep_count, frequency_sweep_count, validate_inverse_grid
 from .io import read_material_table, save_project_file, constant_material_from_layer, CONSTANT_VALUE_FIELDS
 from .compute import layer_material_label
-from .ui_options import inverse_requirement_target, inverse_polarizations, INVERSE_SCORE_MODE_OPTIONS
+from .ui_options import inverse_requirement_target, inverse_polarizations
 from .compute import validate_sweep_coverage
 from .inverse_grid import DesignGrid, NumericChoices
 
@@ -145,7 +145,7 @@ class InverseWorkflowMixin:
         for b in (self.inv_setup_btn, self.inv_check_btn):
             row.addWidget(b)
         layout.addLayout(row)
-        self.inv_setup_status = QLabel('Every configured design is evaluated at sampled conditions. Verify candidates with finer grids and fresh tolerance cases before acceptance.')
+        self.inv_setup_status = QLabel()
         self.inv_setup_status.setWordWrap(True)
         layout.addWidget(self.inv_setup_status)
         self.inv_setup_btn.clicked.connect(self._edit_inverse_layers)
@@ -360,8 +360,7 @@ class InverseWorkflowMixin:
         cases = self._inverse_case_count(layers, cfg)*len(inverse_polarizations(self.inv_wave_pol_var.get()))
         return (f'{grid.total:,} combinations × {frequency_count:,} frequencies × '
                 f'{angle_count:,} angles × {cases} case/polarization evaluations = '
-                f'{grid.total*frequency_count*angle_count*cases:,} response points. '
-                'Comparison plots add work.\n' + grid.description())
+                f'{grid.total*frequency_count*angle_count*cases:,} response points.')
 
     def _refresh_inverse_work_count(self):
         try:
@@ -381,11 +380,7 @@ class InverseWorkflowMixin:
                                                   self._read_inverse_uncertainty_config())
         except Exception as exc:
             text = 'Complete setup: ' + str(exc)
-        freq = self.inv_freq_list_var.get() + ' GHz' if self.inv_freq_mode_var.get().lower().startswith('discrete') else f'{self.inv_target_start_var.get()}–{self.inv_target_stop_var.get()} GHz, step {self.inv_target_step_var.get()}'
-        summary = f'{freq} · incidence {self.inv_angle_start_var.get()}–{self.inv_angle_stop_var.get()}° · {self.inv_wave_pol_var.get()}\n{self.inv_score_mode_var.get()}'
-        if self.inv_score_mode_var.get() not in INVERSE_SCORE_MODE_OPTIONS[:2]:
-            summary += f' · reflection limit {self.inv_requirement_db_var.get()} dB'
-        self.inv_work_count.setText(summary + '\n' + text)
+        self.inv_work_count.setText(text)
 
     def _inverse_can_resume(self):
         checkpoint = self._inverse_checkpoint

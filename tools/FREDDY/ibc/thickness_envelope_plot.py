@@ -34,7 +34,7 @@ def draw_envelopes(figure,result,panel_index,pol_index,angle_index,colors=None):
         else:
             ax.fill_between(freqs,nom_lo,nom_hi,color=nc,alpha=.10,label='Nominal angle range')
             ax.plot(freqs,nom_lo,'--',color=nc,lw=.8);ax.plot(freqs,nom_hi,'--',color=nc,lw=.8)
-        ax.axhline(result['target_db'],color=nc,ls=':',lw=.8,label='Reflection limit')
+        ax.axhline(result['target_db'],color=nc,ls=':',lw=.8,label='Reflection Target')
         label=panel['label']
         if len(label)>64: label=label[:61]+'…'
         thickness=panel.get('thickness_values_in')

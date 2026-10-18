@@ -394,7 +394,7 @@ class ProjectStateMixin:
         self._inverse_result_identity = None
         self._inverse_progress = None
         self.inv_extend_btn.setEnabled(False)
-        self.inv_setup_status.setText('Review the allowed values and combination count, then analyze the setup.')
+        self.inv_setup_status.clear()
         self.inverse_result_metadata = {}
         self._clear_analysis_results()
         self._inverse_summary = ''

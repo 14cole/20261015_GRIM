@@ -164,12 +164,12 @@ def classic_qss_overrides(palette: Mapping[str, object]) -> str:
     QTabBar::tab:selected {{ background: {face}; border-color: {raised}; margin-top: -2px; padding-bottom: 6px; }}
     QTabBar::tab:hover {{ background: {face}; }}
 
-    QTableWidget, QTableView, QListWidget, QTreeWidget, QTreeWidget#featureReadinessChecklist {{
+    QTableWidget, QTableView, QListView, QTreeWidget, QTreeWidget#featureReadinessChecklist {{
         background: {field}; alternate-background-color: {field}; color: {text};
         border: 2px solid; border-color: {field_sunken}; border-radius: 0px; gridline-color: {grid};
     }}
-    QTreeWidget::item, QListWidget::item {{ border-bottom: none; padding: 2px 4px; }}
-    QTreeWidget::item:selected, QListWidget::item:selected,
+    QTreeWidget::item, QListView::item {{ border: none; padding: 2px 4px; }}
+    QTreeWidget::item:selected, QListView::item:selected,
     QTableWidget::item:selected, QTableView::item:selected {{ background: {navy}; color: white; border-bottom: none; }}
     QTreeWidget::branch {{ background: {field}; }}
     QTreeWidget::branch:has-children:!open {{ image: url("{arrow_right}"); }}

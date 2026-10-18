@@ -77,7 +77,7 @@ def _build_base_qss(palette: Mapping[str, object]) -> str:
     QTabBar::tab {{ background: {palette['panel_bg']}; color: {palette['text']}; border: 1px solid {palette['border']}; border-bottom: 0; padding: 6px 12px; margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; }}
     QTabBar::tab:selected {{ background: {palette['head_bg']}; color: {palette['text']}; border-color: {palette['checked_border']}; }}
     QTabBar::tab:hover {{ background: {palette['hover']}; }}
-    QListWidget {{
+    QListView {{
         background: {palette['panel_bg']}; color: {palette['text']};
         alternate-background-color: {palette['head_bg']};
         border: 1px solid {palette['border']};
@@ -89,13 +89,13 @@ def _build_base_qss(palette: Mapping[str, object]) -> str:
     QTreeWidget::branch:has-children:!open {{ image: url("{arrow_right}"); }}
     QTreeWidget::branch:has-children:open  {{ image: url("{arrow_down}"); }}
     QTreeWidget#assemblyTree::branch:has-children {{ image: none; }}
-    QListWidget::item {{ border-bottom: 1px solid {palette['grid']}; padding: 4px 6px; }}
-    QListWidget QLineEdit {{
+    QListView::item {{ border: none; padding: 4px 6px; }}
+    QListView QLineEdit {{
         background: {palette['panel_bg']}; color: {palette['text']}; border: 1px solid {palette['border']};
         padding: 2px 4px; min-height: 20px; font-size: 12px;
     }}
-    QListWidget::item:selected {{
-        background: {palette['checked_bg']}; color: white; border-bottom: 1px solid {palette['grid']};
+    QListView::item:selected {{
+        background: {palette['checked_bg']}; color: white; border: none;
     }}
     QToolButton, QPushButton, QDoubleSpinBox, QSpinBox, QLineEdit, QComboBox {{
         background: {palette['panel_bg']}; color: {palette['text']}; border: 1px solid {palette['border']};
@@ -254,5 +254,22 @@ def _build_base_qss(palette: Mapping[str, object]) -> str:
     QLabel#paramHeader {{ color: {palette['text']}; font-weight: 600; padding: 2px; }}
     QLabel#plotTitle {{ color: {palette['text']}; font-weight: 700; font-size: 14px; padding: 2px 4px; }}
     QFrame#plotToolbar {{ background: {palette['head_bg']}; border: 1px solid {palette['border']}; border-radius: 8px; }}
+    QWidget#plottingCommonControls {{
+        background: {palette['win_bg']}; border: 1px solid {palette['border']}; border-radius: 6px;
+    }}
+    QLabel#plotCommonLabel {{
+        color: {palette['muted']}; font-weight: 600; border: none; padding: 0 6px 0 0;
+    }}
+    QTabBar#plotControlTabBar::tab {{
+        background: {palette['head_bg']}; border: 1px solid {palette['border']};
+        border-bottom: none; padding: 8px 16px; font-weight: 600;
+    }}
+    QTabBar#plotControlTabBar::tab:selected {{
+        background: {palette['checked_bg']}; color: white; border-color: {palette['checked_border']};
+    }}
+    QTabBar#plotControlTabBar::tab:!selected:hover {{ background: {palette['hover']}; }}
+    QWidget#plottingButtons, QWidget#isarButtons, QWidget#plotManipulationButtons {{
+        background: {palette['panel_bg']}; border: 1px solid {palette['border']}; border-radius: 6px;
+    }}
     QFrame#datasetOpsPanel {{ background: {palette['panel_bg']}; border: 1px solid {palette['border']}; border-radius: 8px; }}
     """

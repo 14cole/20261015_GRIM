@@ -109,6 +109,29 @@ handoff validates and copies the file beside that geometry, then you press
 and other analysis CSVs cannot be attached through this action. GRIM
 deliberately does not load any FREDDY CSV into its RCS dataset table.
 
+## Demo material presets
+
+**Add Layer → Preset material → Use** and Material Mix's component dialog
+include four synthetic examples alongside the Air reference:
+
+| Preset | Useful for testing | εr model (high, strength, relaxation GHz) | μr model |
+| --- | --- | --- | --- |
+| Demo: Low-loss dielectric | Dielectric spacing and thickness resonances | (2.1, 0.1, 20) | 1 |
+| Demo: High permittivity | Stronger impedance mismatch and thinner resonances | (8, 2, 30) | 1 |
+| Demo: Lossy dielectric | Absorption and multilayer matching | (3, 7, 8) | 1 |
+| Demo: Magnetic loss | Combined electric and magnetic loss | (2.5, 1.5, 12) | (1, 2, 6) |
+
+These are illustrative passive Debye models, not measured commercial materials.
+For each parameter tuple, the response is `high + strength / (1 + j*f/relaxation)`
+with frequency in GHz, using FREDDY's `exp(+jωt)` convention (negative imaginary
+parts indicate loss). CSVs cover **1 MHz–1 THz**, with 80 intervals per decade;
+FREDDY interpolates their stored samples. Regenerate them with
+`python tools/generate_demo_materials.py` from the FREDDY folder.
+
+For a quick multilayer trial, add a low-loss layer and a lossy or magnetic layer,
+then set each layer's thickness minimum, maximum and step in **Thickness**.
+Import that stack into **Material Explorer** to compare its material properties.
+
 ## Material Explorer
 
 Use **Material Explorer** to compare any number of validated five-column
@@ -206,7 +229,7 @@ bounds are unwrapped about the nominal phase and can therefore lie outside
 analysis. Check **Vary** on each selected bulk layer and enter **Minimum,
 Maximum, and Step**, in inches. Ranges are shared with Inverse Design and can
 also be changed in the layer editor. Unchecked layers stay nominal. Set the
-frequency and incidence-angle sweeps, polarization, and PEC reflection limit.
+frequency and incidence-angle sweeps, polarization, and PEC reflection target.
 Angles are measured from the surface normal. The former standalone Sensitivity
 only, Sensitivity + statistical trials, and thickness-envelope modes have been
 consolidated; there are no sampling-count controls in this workflow.
@@ -262,18 +285,15 @@ completed study. Projects save inputs, and loading a project clears results.
 
 ## Inverse manufacturing model
 
-Inverse Design opens with its four settings sections collapsed. The visible
-summary shows the operating grid, objective, reflection limit and combination
-count. **Results to retain** controls storage only; every defined design is
-still evaluated. Layer Edit, Thickness and inverse layer selection share the
-same **Vary / Minimum / Maximum / Step** controls. Unchecked Vary means Fixed;
-inactive range fields are ignored.
+Inverse Design shows its frequency, incidence-angle, objective and tolerance
+settings directly. The combination count updates as inputs change and shows
+the total response points to evaluate. **Keep best for comparison** controls
+storage only; every defined design is still evaluated. Layer Edit, Thickness
+and inverse layer selection share the same **Vary / Minimum / Maximum / Step**
+controls. Unchecked Vary means Fixed; inactive range fields are ignored.
 
-**Copy operating grid from…** explicitly copies settings between workflows.
-Discrete frequency lists remain discrete and cannot be silently converted into
-a regular sweep. Copying inverse settings to Thickness also copies polarization
-and the reflection limit. IBC Batch's **Use current layer range** copies the
-selected layer's range in the chosen inch/mm units.
+IBC Batch's **Use current layer range** copies the selected layer's range in
+the chosen inch/mm units.
 
 Results offer upper/lower bounds only when those bounds were captured for the
 selected metric and polarization. Tolerance span/envelope requires both bounds;
@@ -421,7 +441,7 @@ objective on the specified finite grid, not between grid values or under
 untested conditions. A partial run is explicitly incomplete.
 
 New workspaces default to **Whole-band PEC reflection requirement (worst point)**.
-For a requirement over the full requested region, select this Score and enter **Reflection limit
+For a requirement over the full requested region, select this Score and enter **Reflection Target
 (dB)**. The objective minimizes `max(reflection_dB) − target_dB` across every
 requested frequency, incidence angle, and nominal/tolerance case. Lower is
 better; **Gap ≤ 0 passes**, and **Req. margin = −Gap**. A flat −11 dB design

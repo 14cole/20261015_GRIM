@@ -25,9 +25,7 @@ class ThicknessWidget(ToleranceWidget):
         self.detail_panel = None
         self._range_refresh = False
         super().__init__(host)
-        from .operating_grid import copy_button
-        self.setup_page.layout().insertWidget(3, copy_button(host, 'Thickness'))
-        self.copy_inverse.hide()  # The common copy action includes this source.
+        self.copy_inverse.hide()
         self.field_labels['a_start'].setText('Incidence from normal (°)')
         self.run_button.setText('Analyze every combination')
         self.result_status.setText('Run the layer ranges to view individual and combined results.')
@@ -37,7 +35,7 @@ class ThicknessWidget(ToleranceWidget):
             'Unchecked layers stay at their nominal thickness. Material properties and sheet resistances stay nominal.')
         self.thickness_ranges.setMinimumHeight(220)
         self.thickness_ranges.setToolTip('Ranges are shared with Inverse Design. Values start at minimum and advance by step without exceeding maximum. '
-            'An off-step maximum is excluded; Defined values shows the actual last value. Nominal is a separate reference.')
+            'An off-step maximum is excluded. Nominal is a separate reference.')
         self.summary.setColumnCount(5)
         self.summary.setHorizontalHeaderLabels(['Study', 'Best peak (dB)', 'Worst peak (dB)', 'Worst margin (dB)', 'Passing grid cases'])
         self.summary.setWordWrap(False)
@@ -91,11 +89,10 @@ class ThicknessWidget(ToleranceWidget):
         try:
             for controls in getattr(self, 'range_controls', []): controls.deleteLater()
             table=self.thickness_ranges
-            table.setRowCount(0);table.setColumnCount(7)
-            table.setHorizontalHeaderLabels(['Layer','Vary','Nominal (in)','Minimum (in)','Maximum (in)','Step (in)','Defined values'])
-            for col in range(1,7): table.setColumnWidth(col,85 if col==1 else 110)
+            table.setRowCount(0);table.setColumnCount(6)
+            table.setHorizontalHeaderLabels(['Layer','Vary','Nominal (in)','Minimum (in)','Maximum (in)','Step (in)'])
+            for col in range(1,6): table.setColumnWidth(col,85 if col==1 else 110)
             table.horizontalHeader().setSectionResizeMode(0,QHeaderView.Stretch)
-            table.horizontalHeader().setSectionResizeMode(6,QHeaderView.ResizeToContents)
             self.range_controls = []
             for index,layer in enumerate(self.host.layers):
                 if layer.is_sheet: continue
@@ -110,14 +107,12 @@ class ThicknessWidget(ToleranceWidget):
                 toggle.setToolTip('Evaluate this layer’s entire defined range. Uncheck to hold it at nominal thickness.')
                 table.setCellWidget(row,1,toggle)
                 table.setItem(row,2,QTableWidgetItem(f'{layer.thickness_in:.12g}'))
-                values=(layer.inv_t_min_in,layer.inv_t_max_in,layer.inv_t_accuracy_in)
                 for col,edit in zip((3,4,5),controls.fields):
                     edit.setToolTip('Positive thickness in inches. Minimum = maximum defines one value.' if col!=5 else
                                     'Spacing in inches. All minimum + k × step values up to maximum are evaluated; an off-step maximum is excluded.')
                     table.setCellWidget(row,col,edit)
                     edit.textChanged.connect(self.refresh_workload)
                     edit.editingFinished.connect(self.commit_if_valid)
-                table.setItem(row,6,QTableWidgetItem())
                 toggle.toggled.connect(self.range_toggled)
             if table.rowCount(): table.selectRow(0)
         finally: self._range_refresh=False
@@ -169,12 +164,7 @@ class ThicknessWidget(ToleranceWidget):
             for row in range(self.thickness_ranges.rowCount()):
                 enabled=self.thickness_ranges.cellWidget(row,1).isChecked()
                 for col in (3,4,5): self.thickness_ranges.cellWidget(row,col).setEnabled(enabled and not self.host.job_is_running())
-                self.thickness_ranges.item(row,6).setText('Checking…' if enabled else '1 · nominal')
             snapshot=self.range_snapshot()
-            for row in range(self.thickness_ranges.rowCount()):
-                index=self.thickness_ranges.item(row,0).data(Qt.UserRole)
-                _,axes=thickness_axes([snapshot[index]]);axis=axes[0]
-                self.thickness_ranges.item(row,6).setText(f'{axis.count:,} · last {axis.value(axis.count-1):.12g}')
             w=envelope_workload(snapshot,self.capture_setup(),retain_layer_metrics=True)
             self.workload.setText(f'{w["joint_combinations"]:,} joint combinations · {w["evaluations"]:,} total evaluations including individual sweeps and nominal · '
                                   f'{w["response_points"]:,} response points · approximately {w["array_mib"]:.1f} MiB of arrays. No combinations are sampled or skipped.')
@@ -264,7 +254,7 @@ class ThicknessWidget(ToleranceWidget):
                     grid=p[key]['reflection_db'][pi]
                     values=grid.max(axis=0) if self.angle_choice.currentIndex()==0 else grid[ai]
                     ax.plot(r['frequencies_ghz'],values,'.-',color=color,label=label)
-                ax.axhline(r['target_db'],linestyle=':',color='#999999',label='Reflection limit')
+                ax.axhline(r['target_db'],linestyle=':',color='#999999',label='Reflection Target')
                 ax.set(xlabel='Frequency (GHz)',ylabel='PEC reflection (dB)',
                        title=p['label']+' · '+r['polarizations'][pi].upper()+' · '+self.angle_choice.currentText())
                 ax.legend();ax.grid(alpha=.2)
