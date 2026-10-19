@@ -8,12 +8,12 @@ meet at split junction nodes (partial coatings: TYPE 2+3+4 junctions). Its D/W
 density is then continuous: at each junction the slave end's D/W columns route
 to the master end's coefficient, while S/K' keep both values. The element-wise
 Maue form of W is exact for that continuous density except on the two
-half-hat test rows of each junction, which receive the endpoint term
+endpoint test rows of each junction, which receive the endpoint term
 ``-eps*F(p)`` (``_junction_flux_entries``). Bounded regions bounded by open
 interfaces keep the single-layer representation: their unbounded complement
 has no interior eigenvalues, and combining them raised the condition estimate
-without an accuracy gain. Polynomial (degree > 1) meshes keep the former
-representation on such regions.
+without an accuracy gain. Polynomial meshes use the same endpoint routing,
+with the full polynomial density derivative in the junction flux term.
 
 A closed one-sided (PEC/impedance) contour may carry a spatially varying Robin
 law, including PEC zones, several impedance zones and tapers. The boundary
@@ -35,9 +35,10 @@ def _union_junctions(mesh, interfaces, rid, indices):
     at coincident but distinct mesh nodes. Returns ``None`` unless every
     geometric endpoint cluster (mesh snap tolerance) holds exactly two element
     ends with one arc ending and the other starting in the region's orientation
-    (element tangent times the side sign), and every element is linear.
+    (element tangent times the side sign). Endpoint nodes are the first two
+    local nodes for both linear and polynomial elements.
     Otherwise the region keeps the former single-layer representation (open
-    strips, cracks, touching loops, polynomial bases).
+    strips, cracks, touching loops).
     """
     from scipy.spatial import cKDTree
     from ghost_backend.twod.operators import NODE_SNAP_TOLERANCE
@@ -46,8 +47,6 @@ def _union_junctions(mesh, interfaces, rid, indices):
         sign = 1 if interfaces[mi]['r_m'] == rid else -1
         for ei in interfaces[mi]['eids']:
             element = mesh.elements[ei]
-            if len(element.node_ids) != 2:
-                return None
             for position in (0, 1):
                 # +1 where the region's oriented contour arrives at this end;
                 # last: +1 where the element's own direction arrives.
@@ -143,11 +142,14 @@ def _source_columns(layout, mi, rid, col_map, n):
 _JUNCTION_GAUSS = np.polynomial.legendre.leggauss(32)
 
 
-def _segment_green(p0, p1, point, k):
+def _segment_green(p0, p1, point, k, derivative_degree=None):
     """int_e G_k(point, y) ds_y on a straight panel.
 
     A log singularity at a panel end is removed by t = u**4; other panels use
-    composite 32-point rules subdivided by their distance to the point."""
+    composite 32-point rules subdivided by their distance to the point.
+    With ``derivative_degree``, return int G*dphi/ds ds for every local
+    polynomial basis function; the length cancels between ds and dphi/ds.
+    """
     from ghost_backend.twod.operators import _green_2d_array, NODE_SNAP_TOLERANCE
     x, w = (_JUNCTION_GAUSS[0] + 1)/2, _JUNCTION_GAUSS[1]/2
     p0, p1, point = np.asarray(p0, float), np.asarray(p1, float), np.asarray(point, float)
@@ -165,7 +167,11 @@ def _segment_green(p0, p1, point, k):
         t = ((np.arange(pieces)[:, None] + x[None, :])/pieces).ravel()
         weights = np.tile(w/pieces, pieces)
     y = p0[None, :] + t[:, None]*(p1 - p0)[None, :]
-    return complex(np.sum(weights*_green_2d_array(k, np.linalg.norm(y - point[None, :], axis=1)))*length)
+    weighted = weights*_green_2d_array(k, np.linalg.norm(y - point[None, :], axis=1))
+    if derivative_degree is not None:
+        from ghost_backend.twod.basis import values
+        return weighted @ values(t, derivative_degree, derivative=True)
+    return complex(np.sum(weighted)*length)
 
 
 def _junction_flux_entries(mesh, layout, mi, rid, cc, flux_map, flux_weight):
@@ -173,7 +179,7 @@ def _junction_flux_entries(mesh, layout, mi, rid, cc, flux_map, flux_weight):
 
     The element-wise Maue form of W is exact for a continuous density and a
     continuous test function on a closed contour. A junction row is tested by
-    a half-hat that ends (eps=+1) or starts (eps=-1) at the junction point p in
+    an endpoint basis function that ends (eps=+1) or starts (eps=-1) at p in
     its element's direction; integrating its tangential derivative by parts
     leaves ``W = W_Maue - eps*F(p)``, ``F(p) = int G(p,y) dpsi/ds dy``. Each
     source panel enters in its own direction and normal, exactly as its Maue
@@ -189,6 +195,7 @@ def _junction_flux_entries(mesh, layout, mi, rid, cc, flux_map, flux_weight):
     k = layout['region_props'][rid]['k']
     cache = layout.setdefault('combined_junction_green', {})
     elements = [mesh.elements[ei] for ei in interface['eids']]
+    degree = len(elements[0].node_ids)-1
     n0 = np.array([e.node_ids[0] for e in elements], int)
     n1 = np.array([e.node_ids[1] for e in elements], int)
     rows, columns, values = [], [], []
@@ -198,11 +205,21 @@ def _junction_flux_entries(mesh, layout, mi, rid, cc, flux_map, flux_weight):
             continue
         key = rid, mi, index
         if key not in cache:
-            cache[key] = np.array([_segment_green(e.p0, e.p1, junction['point'], k)/e.length
-                                        for e in elements])
+            if degree == 1:
+                cache[key] = np.array([_segment_green(e.p0, e.p1, junction['point'], k)/e.length
+                                            for e in elements])
+            else:
+                cache[key] = np.array([_segment_green(e.p0, e.p1, junction['point'], k,
+                                                     derivative_degree=degree) for e in elements])
         coefficient = cache[key]
         for node, eps in tests:
             scale = -eps*flux_weight[node]
+            if degree > 1:
+                nodes = np.asarray([e.node_ids for e in elements]).ravel()
+                rows.append(np.full(len(nodes), flux_map[node]))
+                columns.append(cc[nodes])
+                values.append(scale*coefficient.ravel())
+                continue
             for nodes, factor in ((n1, 1.), (n0, -1.)):
                 rows.append(np.full(len(nodes), flux_map[node]))
                 columns.append(cc[nodes])

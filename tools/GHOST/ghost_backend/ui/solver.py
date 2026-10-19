@@ -1001,6 +1001,7 @@ class SolverTab(RunSetupMixin, QWidget):
 
         self.cmb_freq_mode = QComboBox()
         self.cmb_freq_mode.addItems(["Discrete List", "Start / Stop / Step"])
+        self.cmb_freq_mode.setCurrentIndex(1)
         self.edit_freq_list = QLineEdit("1.0, 3.0, 10.0")
         self.edit_freq_start = QLineEdit("1.0")
         self.edit_freq_stop = QLineEdit("10.0")
@@ -1008,10 +1009,11 @@ class SolverTab(RunSetupMixin, QWidget):
 
         self.cmb_elev_mode = QComboBox()
         self.cmb_elev_mode.addItems(["Discrete List", "Start / Stop / Step"])
+        self.cmb_elev_mode.setCurrentIndex(1)
         self.edit_elev_list = QLineEdit("0, 30, 60, 90, 120, 150, 180")
         self.edit_elev_start = QLineEdit("0")
-        self.edit_elev_stop = QLineEdit("180")
-        self.edit_elev_step = QLineEdit("2")
+        self.edit_elev_stop = QLineEdit("360")
+        self.edit_elev_step = QLineEdit("1")
 
         # The legacy elev controls above specify incident azimuths in 2D.
         # BoR uses them as radar azimuths and adds a separate elevation axis.
@@ -1463,10 +1465,14 @@ class SolverTab(RunSetupMixin, QWidget):
                 self.edit_bor_elev_step.text(),
                 "Elevations",
             )
+        azimuths = self._collect_elevation_values()
+        # A full-circle sweep includes its closing look in 2D. BoR stores
+        # unique directions, so omit that repeated endpoint for sweeps only.
+        if (self.cmb_elev_mode.currentIndex() == 1 and len(azimuths) > 1
+                and math.isclose(azimuths[-1] - azimuths[0], 360.0, abs_tol=1e-9)):
+            azimuths = azimuths[:-1]
         try:
-            azimuths, elevations = validate_radar_grid(
-                self._collect_elevation_values(), elevations
-            )
+            azimuths, elevations = validate_radar_grid(azimuths, elevations)
         except ValueError as exc:
             message = str(exc).replace("AZIMUTHS_DEG", "Azimuths").replace("ELEVATIONS_DEG", "Elevations")
             raise ValueError(message) from exc
