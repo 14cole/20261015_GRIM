@@ -311,11 +311,15 @@ def compress_sampled(block, threshold, maximum_rank, rng, start=SAMPLE_COLUMNS):
         error = float(np.max(np.linalg.norm(y, axis=0)))/np.sqrt(2.)
         if error <= max(threshold, floor):
             break
-        if q.shape[1] + width > limit:
+        remaining = limit - q.shape[1]
+        if remaining <= 0:
             raise HierarchicalCapacityRejected('Off-diagonal rank exceeds {} (sampled residual {:.3g}).'.format(limit, error))
+        # Use a partial final extension when the cap is not a batch multiple.
+        # Keep full fresh probe batches above, including after reaching the cap,
+        # so exhausting capacity never weakens the residual acceptance check.
         # Normalizing a residual far below its raw samples amplifies their
         # rounding: orthogonalize the new directions once more.
-        extension = la.qr(y, mode='economic', check_finite=False)[0]
+        extension = la.qr(y[:, :min(width, remaining)], mode='economic', check_finite=False)[0]
         if q.shape[1]:
             extension -= q @ (q.conj().T @ extension)
             extension = la.qr(extension, mode='economic', check_finite=False)[0]
