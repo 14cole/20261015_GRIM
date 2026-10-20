@@ -1604,6 +1604,7 @@ class BorPecSolver:
         the cap for genuinely excessive global oscillation/mode bandwidth.
         """
 
+        checkpoint = getattr(self, "_checkpoint", None)
         gen = self.gen
         ne = gen.n_elems
         sources = [set(range(max(0, e - self.near_span),
@@ -1628,14 +1629,34 @@ class BorPecSolver:
         touch_tol = max(1.0e-14, 1.0e-10 * scale)
         mids = 0.5 * (gen.nodes[gen.elem_n0] + gen.nodes[gen.elem_n1])
         half = 0.5 * gen.lengths
+        search_roundoff = 8.0 * np.finfo(float).eps * max(
+            float(np.max(np.abs(gen.nodes))), scale)
         if ne and direct_gap > 0.0:
             tree = cKDTree(mids)
+            # Let the larger local reach own each unordered pair. If e owns
+            # (e, f), half[f] <= reach[e] and pair_gap <= 4*reach[e], hence
+            # midpoint distance <= half[e] + 5*reach[e]. A single long panel
+            # must not expand every short panel's query to the whole body.
+            reach = np.maximum(half, 0.25 * direct_scale * self._elem_rho)
+            local_owner = float(np.max(reach)) > 2.0 * float(np.min(reach))
             max_half = float(np.max(half))
             for e in range(ne):
-                radius = float(half[e]) + max_half + max(direct_gap, 4.0*max_half)
-                for candidate in tree.query_ball_point(mids[e], radius):
+                if checkpoint is not None:
+                    checkpoint()
+                # Nearly uniform meshes keep the cheaper index-order filter;
+                # their global extent bound is already within a fixed factor.
+                radius = (float(half[e] + 5.0 * reach[e]) if local_owner else
+                          float(half[e]) + max_half + max(direct_gap, 4.0 * max_half)) + search_roundoff
+                for candidate_index, candidate in enumerate(tree.query_ball_point(mids[e], radius)):
+                    if checkpoint is not None and candidate_index % 256 == 0:
+                        checkpoint()
                     f = int(candidate)
-                    if f <= e + self.near_span:
+                    if local_owner:
+                        if abs(f - e) <= self.near_span:
+                            continue
+                        if reach[f] > reach[e] or (reach[f] == reach[e] and f <= e):
+                            continue
+                    elif f <= e + self.near_span:
                         continue
                     lower = (
                         float(np.linalg.norm(mids[e] - mids[f]))
@@ -1643,11 +1664,12 @@ class BorPecSolver:
                     )
                     pair_direct = direct_scale * float(max(self._elem_rho[e], self._elem_rho[f]))
                     pair_gap = max(pair_direct, 2.0*max(gen.lengths[e], gen.lengths[f]))
-                    if lower > pair_gap:
+                    if lower > pair_gap + search_roundoff:
                         continue
+                    left, right = min(e, f), max(e, f)
                     gap = _segment_distance(
-                        gen.nodes[gen.elem_n0[e]], gen.nodes[gen.elem_n1[e]],
-                        gen.nodes[gen.elem_n0[f]], gen.nodes[gen.elem_n1[f]],
+                        gen.nodes[gen.elem_n0[left]], gen.nodes[gen.elem_n1[left]],
+                        gen.nodes[gen.elem_n0[right]], gen.nodes[gen.elem_n1[right]],
                     )
                     if gap <= touch_tol:
                         raise ValueError(
@@ -1694,6 +1716,7 @@ class BorPecSolver:
 
         if getattr(self, "_far_gap_cache", None) is not None:
             return self._far_gap_cache
+        checkpoint = getattr(self, "_checkpoint", None)
         gen = self.gen
         ne = gen.n_elems
         if ne <= self.near_span:
@@ -1716,8 +1739,12 @@ class BorPecSolver:
 
 
         for offset in range(1, ne):
+            if checkpoint is not None:
+                checkpoint()
             found_at_offset = False
             for e in range(ne - offset):
+                if e % 256 == 0 and checkpoint is not None:
+                    checkpoint()
                 f = e + offset
                 if f in self._near_sources_by_element[e]:
                     continue
@@ -1744,29 +1771,44 @@ class BorPecSolver:
             gen.nodes[gen.elem_n0] + gen.nodes[gen.elem_n1]
         )
         half = 0.5 * gen.lengths
-        max_half = float(np.max(half))
         tree = cKDTree(mids)
+        max_half = float(np.max(half))
+        local_owner = max_half > 2.0 * float(np.min(half))
+        search_roundoff = 8.0 * np.finfo(float).eps * max(
+            float(np.max(np.abs(gen.nodes))), 1.0e-15)
         # Effective gaps are never below geometric ones, so candidates whose
         # geometric lower bound reaches the current effective minimum cannot
         # improve it; the raw minimum only matters when it is a touch.
         bound = d if math.isfinite(d) else raw
         for e in range(ne):
-
-
-            radius = float(half[e]) + max_half + bound
-            for f in tree.query_ball_point(mids[e], radius):
+            if checkpoint is not None:
+                checkpoint()
+            # Every candidate belongs to its longer element. Then a gap below
+            # bound implies midpoint distance <= 2*half[e] + bound, without
+            # the global longest-panel radius that makes graded meshes O(N^2).
+            radius = (2.0 * float(half[e]) if local_owner else float(half[e]) + max_half) + bound + search_roundoff
+            near_sources = set(self._near_sources_by_element[e])
+            for candidate_index, f in enumerate(tree.query_ball_point(mids[e], radius)):
+                if checkpoint is not None and candidate_index % 256 == 0:
+                    checkpoint()
                 f = int(f)
-                if f <= e or f in self._near_sources_by_element[e]:
+                if local_owner:
+                    if half[f] > half[e] or (half[f] == half[e] and f <= e):
+                        continue
+                elif f <= e:
+                    continue
+                if f in near_sources:
                     continue
                 lower = (
                     float(np.linalg.norm(mids[e] - mids[f]))
                     - float(half[e]) - float(half[f])
                 )
-                if lower >= bound:
+                if lower >= bound + search_roundoff:
                     continue
+                left, right = min(e, f), max(e, f)
                 de = _segment_distance(
-                    gen.nodes[gen.elem_n0[e]], gen.nodes[gen.elem_n1[e]],
-                    gen.nodes[gen.elem_n0[f]], gen.nodes[gen.elem_n1[f]],
+                    gen.nodes[gen.elem_n0[left]], gen.nodes[gen.elem_n1[left]],
+                    gen.nodes[gen.elem_n0[right]], gen.nodes[gen.elem_n1[right]],
                 )
                 if de < raw:
                     raw, raw_pair = de, (e, f)
@@ -6114,18 +6156,19 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
     on each PEC piece; all with the same operator blocks.  Junction
     conditions (per junction circle A):
 
-      * through-current continuity ties the chain-end coefficients:
-        J_1p(A) = (+t, +phi) J_d(A)  (air chain runs S_d and the bare piece
-        in the same global traversal), and
-        J_2(A)  = (+t, -phi) J_d(A)  (the layer chain traverses S_d REVERSED:
-        the -J_d current in the flipped frame has +t and -phi components);
+      * through-current continuity ties the meridional chain-end
+        coefficients J_1p,t(A) = J_2,t(A) = J_d,t(A). Only this component
+        crosses the junction circle. The azimuthal coefficients are
+        independent traces: their currents run along the circle and the
+        adjacent surfaces can have different meridional field components;
       * M_t(A) = 0 (tangential E along the junction circle vanishes on the
         conductor), while M_phi(A) stays free with its natural half-triangle
         end basis (it carries the normal-E wedge behavior).
 
-    The constraints enter Galerkin-style: A_red = Q^T A_full Q -- the tied
-    row is the sum of the piece rows, exactly the classical BoR junction
-    treatment (Putnam / Medgyesi-Mitschang).
+    The constraints enter Galerkin-style: A_red = Q^H A_full Q. Each
+    region's equation weight multiplies all of its boundary test rows,
+    including its conductor rows, before that projection. This preserves
+    cancellation of the integration-by-parts edge terms within each region.
 
     bare_zs (optional): per-piece Leontovich surface impedance -- a list
     matching bare_pieces of None / complex scalar / per-element complex
@@ -6401,14 +6444,14 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
         assign(off_M, surf_mask(sd_e, d_jn_nodes, True))
         t2, f2 = surf_mask(s2_L, c_jn_nodes, False)
         for jn in junctions:
-            t2[jn["c_node"]] = False; f2[jn["c_node"]] = False
+            t2[jn["c_node"]] = False
         assign(off_J2, (t2, f2))
         b_acts = []
         for bi, b in enumerate(bares):
             tb, fb = surf_mask(b, {n for (p, n) in b_jn_nodes if p == bi}, False)
             for jn in junctions:
                 if jn["bare"][0] == bi:
-                    tb[jn["bare"][1]] = False; fb[jn["bare"][1]] = False
+                    tb[jn["bare"][1]] = False
             b_acts.append((tb, fb))
             assign(off_J1[bi], (tb, fb))
 
@@ -6430,13 +6473,9 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
             cn = jn["c_node"]
             bi, bn = jn["bare"]
             master_t = col[off_Jd + dn]
-            master_f = col[off_Jd + Nd + dn]
             if master_t >= 0:
                 Q[off_J2 + cn, master_t] = 1.0
                 Q[off_J1[bi] + bn, master_t] = 1.0
-            if master_f >= 0:
-                Q[off_J2 + N2 + cn, master_f] = -1.0
-                Q[off_J1[bi] + N1[bi] + bn, master_f] = 1.0
         Q = Q.tocsr()
         _Q_cache[category] = Q
         return Q
@@ -6464,9 +6503,12 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
         memo = {}
         A[iE, sl_J2] = -weight * _cross_block(X_d2, 'T', m, m_max, memo)
         A[iH, sl_J2] = (-weight * ETA0) * _cross_block(X_d2, 'P', m, m_max, memo)
-        A[sl_J2, sl_Jd] = -_cross_block(X_2d, 'T', m, m_max, memo)
-        A[sl_J2, sl_M] = ETA0 * _cross_block(X_2d, 'P', m, m_max, memo)
-        A[sl_J2, sl_J2] = s2_L.assemble_mode(m, m_max)
+        # The covered conductor belongs to the same region as the weighted
+        # interior interface equation. Weight its entire test row as well;
+        # otherwise the shared junction test leaves an uncancelled edge term.
+        A[sl_J2, sl_Jd] = -weight * _cross_block(X_2d, 'T', m, m_max, memo)
+        A[sl_J2, sl_M] = (weight * ETA0) * _cross_block(X_2d, 'P', m, m_max, memo)
+        A[sl_J2, sl_J2] = weight * s2_L.assemble_mode(m, m_max)
         for bi, b in enumerate(bares):
             sl_b = slice(off_J1[bi], off_J1[bi] + 2 * N1[bi])
             T_d1 = _cross_block(X_d1[bi], 'T', m, m_max, memo)
@@ -6836,6 +6878,17 @@ class _MultiRegionBor:
             return Q
         jn_nodes = {(si, node) for jn in self.junctions for (si, node) in jn}
         slave = {(si, node) for jn in self.junctions for (si, node) in jn[1:]}
+        # A two-piece continuation of the same boundary keeps the original
+        # nodal basis in both components. At a material junction only the
+        # meridional component carries flux across the circle. Azimuthal
+        # endpoint traces must stay independent; tying them through a chosen
+        # region gives incompatible signs around a three-interface junction
+        # and makes the answer depend on which surface is the master.
+        phi_slave = {(si, node) for jn in self.junctions
+                     if len(jn) == 2
+                     and self.is_cond[jn[0][0]] == self.is_cond[jn[1][0]]
+                     and set(self.adj[jn[0][0]]) == set(self.adj[jn[1][0]])
+                     for (si, node) in jn[1:]}
 
 
         m_t_masked = {(si, node) for jn in self.junctions
@@ -6857,7 +6910,7 @@ class _MultiRegionBor:
                     f_act[end] = False
                 elif (si, end) in slave:
                     t_act[end] = False
-                    f_act[end] = False
+                    f_act[end] = (si, end) not in phi_slave
                 elif (si, end) in jn_nodes:
                     if is_m and (si, end) in m_t_masked:
                         t_act[end] = False
@@ -6900,14 +6953,14 @@ class _MultiRegionBor:
                 mf = col[self.off_J[sm] + self.Nn[sm] + nm]
                 if mt >= 0:
                     Q[self.off_J[ss] + ns, mt] = ct
-                if mf >= 0:
+                if mf >= 0 and (ss, ns) in phi_slave:
                     Q[self.off_J[ss] + self.Nn[ss] + ns, mf] = cf
                 if self.off_M[sm] is not None and self.off_M[ss] is not None:
                     mmt = col[self.off_M[sm] + nm]
                     mmf = col[self.off_M[sm] + self.Nn[sm] + nm]
                     if mmt >= 0:
                         Q[self.off_M[ss] + ns, mmt] = ct
-                    if mmf >= 0:
+                    if mmf >= 0 and (ss, ns) in phi_slave:
                         Q[self.off_M[ss] + self.Nn[ss] + ns, mmf] = cf
         Q = Q.tocsr()
         self._Q_cache[category] = Q
@@ -6920,10 +6973,12 @@ class _MultiRegionBor:
             eta_r = self.solv[(reg["bounds"][0][0], ri)].eta
             eta2 = (ETA0 / eta_r) ** 2
             for (si, sg_i) in reg["bounds"]:
-                # Rows of a material interface add the equations of its two
-                # regions with their weights (all 1 is PMCHWT); a conductor's
-                # rows belong to one region and need none.
-                row_weight = 1.0 if self.is_cond[si] else self.weight[ri]
+                # Weight the test equation on the region's entire boundary,
+                # including conductors. Before junction projection these open
+                # pieces have integration-by-parts edge terms that cancel
+                # only with the same regional weight. A closed conductor's
+                # equation is merely scaled, including its CFIE part below.
+                row_weight = self.weight[ri]
                 if self.weighted and not self.is_cond[si]:
                     # Jump terms that only equal weights cancel: region R gives
                     # +sigma/2 R M in the electric row, -sigma/2 R J in the magnetic one.
@@ -6951,7 +7006,7 @@ class _MultiRegionBor:
                     slJ_j = slice(self.off_J[sj], self.off_J[sj] + 2 * self.Nn[sj])
                     A[slJ_i, slJ_j] += ss * T
                     if self.core_cfie[si]:
-                        magnetic = (self.solv[(si, ri)].assemble_mfie_mode(m, m_max)
+                        magnetic = (row_weight * self.solv[(si, ri)].assemble_mfie_mode(m, m_max)
                             if si == sj else ss * _rotate_test_rows(P, self.Nn[si]))
                         A[slJ_i, slJ_j] += eta_r * magnetic
                     if self.off_M[sj] is not None:

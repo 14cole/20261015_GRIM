@@ -113,6 +113,15 @@ def solver_report_text(metadata):
     if estimates:
         lines.append("Estimated error of the published (fine) result, delta/(r^p-1) with p=1: "
                      f"{max(estimates)*100.:.4g}%")
+    waves = [segment for record in metadata.get('surface_wave_sampling', [])
+             for segment in record.get('segments', [])]
+    if waves:
+        lines.append('Bound surface-wave sampling: {} (minimum {:.4g} polynomial intervals per wavelength; '
+                     'required {:.4g}, largest phase index {:.4g}).'.format(
+                         'resolved' if all(row['resolved'] for row in waves) else 'unresolved',
+                         min(row['samples_per_wavelength'] for row in waves),
+                         max(row['required_samples_per_wavelength'] for row in waves),
+                         max(row['phase_index'] for row in waves)))
     for title, key in (("Maximum linear residual", "residual_norm_max"),
                        ("Maximum backward error", "backward_error_max"),
                        ("Condition estimate", "condition_est_max")):

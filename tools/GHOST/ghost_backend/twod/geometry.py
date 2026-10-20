@@ -1674,10 +1674,9 @@ def validate_geometry_snapshot_for_solver(
 
 
     diag = max(math.hypot(max(xs) - min(xs), max(ys) - min(ys)), 1.0)
-    # Drawing-precision tolerance: 1e-6 of the diagonal, capped at 1 um so a
-    # deliberate 0.001 in (25.4 um) layer on a long body is never read as
-    # coincident, duplicate or intersecting. Larger accidental gaps at free
-    # ends are reported by the region check's near-miss diagnostics.
+    # Drawing proximity diagnoses cracks at free ends only. It must not decide
+    # whether two boundaries are identical or intersect: intentionally separate
+    # coating contours can be much closer than this tolerance.
     tol = max(1e-8, min(1e-6 * diag, 1e-6))
 
     # Endpoints are one vertex exactly when the mesher welds them into one node.
@@ -1708,15 +1707,24 @@ def validate_geometry_snapshot_for_solver(
     # legitimate 2e-9..1e-6 m primitive is a feature, not a crack, and its two
     # ends (or its neighbors' ends) must not be compared at 1e-6 * diagonal.
     proximity_fraction = 0.5
-    primitive_feature = [
-        min(math.hypot(p2[0] - p1[0], p2[1] - p1[1]), vertex_feature[key1], vertex_feature[key2])
-        for (_, _, _, p1, p2), (key1, key2) in zip(primitives, primitive_keys)
-    ]
-
     def local_tolerance(*features: 'float') -> 'float':
         return min(tol, proximity_fraction * min(features))
 
-    joined = {frozenset(keys) for keys in primitive_keys}
+    # Check welded identity independently of raw bounding boxes. Endpoints
+    # on opposite sides of an earlier weld anchor can share its key while
+    # being nearly twice the weld tolerance apart from each other.
+    joined = {}
+    for i, keys in enumerate(primitive_keys):
+        edge = frozenset(keys)
+        if edge in joined:
+            _, prim_i, name_i, _, _ = primitives[joined[edge]]
+            _, prim_j, name_j, _, _ = primitives[i]
+            raise ValueError(
+                f"Duplicate primitive: '{name_i}' primitive {prim_i + 1} and "
+                f"'{name_j}' primitive {prim_j + 1} have identical endpoints. "
+                "Remove one -- a doubled boundary doubles the surface currents."
+            )
+        joined[edge] = i
     vertex_keys = list(vertex_point)
     from ghost_backend.geometry.spatial import overlapping_pairs
     endpoint_bounds = [(vertex_point[key][0], vertex_point[key][0],
@@ -1734,6 +1742,10 @@ def validate_geometry_snapshot_for_solver(
             # Both ends are already connected: two boundaries placed close on
             # purpose (a thin layer), not a crack. A crack leaves a free end.
             continue
+        if mode == "bor" and abs(px) <= snap_tol_m and abs(qx) <= snap_tol_m:
+            # Each meridian may terminate independently on the rotation axis.
+            # Nearby poles of separate coating boundaries are not open cracks.
+            continue
         raise ValueError(
             f"Geometry crack: endpoints ({px:.9g}, {py:.9g}) m and ({qx:.9g}, {qy:.9g}) m "
             f"are {gap:.3g} m apart -- close enough to look connected, but "
@@ -1750,22 +1762,9 @@ def validate_geometry_snapshot_for_solver(
             min(float(p1[1]), float(p2[1])),
             max(float(p1[1]), float(p2[1])),
         ))
-    for i, j in overlapping_pairs(primitive_bounds, tol):
+    for i, j in overlapping_pairs(primitive_bounds, snap_tol_m):
         seg_i, prim_i, name_i, a1, a2 = primitives[i]
         seg_j, prim_j, name_j, b1, b2 = primitives[j]
-        pair_tol = local_tolerance(primitive_feature[i], primitive_feature[j])
-
-
-        same_fwd = _points_close(a1, b1, pair_tol) and _points_close(a2, b2, pair_tol)
-        same_rev = _points_close(a1, b2, pair_tol) and _points_close(a2, b1, pair_tol)
-        if same_fwd or same_rev:
-            raise ValueError(
-                f"Duplicate primitive: '{name_i}' primitive {prim_i + 1} and "
-                f"'{name_j}' primitive {prim_j + 1} have identical endpoints. "
-                "Remove one -- a doubled boundary doubles the surface currents."
-            )
-
-
         shared = None
         for pa, key_a in zip((a1, a2), primitive_keys[i]):
             for pb, key_b in zip((b1, b2), primitive_keys[j]):
@@ -1795,7 +1794,7 @@ def validate_geometry_snapshot_for_solver(
 
         if seg_i == seg_j and abs(prim_i - prim_j) <= 1:
             continue
-        if _segment_intersects_strict(a1, a2, b1, b2, pair_tol):
+        if _segment_intersects_strict(a1, a2, b1, b2, snap_tol_m):
             raise ValueError(
                 f"Geometry contains an unsupported segment intersection between '{name_i}' primitive {prim_i + 1} and '{name_j}' primitive {prim_j + 1}."
             )
@@ -1835,15 +1834,18 @@ def validate_geometry_snapshot_for_solver(
 # wavelength had 12.7 % field error at -60j ohm (TM, index 6.4), 10.8 % at
 # +2000j and 6.9 % at +600j (TE) against 0.12 / 0.56 % for PEC; 75-20j, whose
 # bound wave is damped within a fraction of its own wavelength, had 0.06 %.
-# The mesh wavelength of such a segment is the bound wavelength at every mesh
-# frequency (both polarizations share one mesh), by at most this factor.
-SURFACE_WAVE_MAX_DENSITY_FACTOR = 4.0
-# A wave that needs more than this density factor is not resolved even at the
-# cap (under 7 panels per bound wavelength) and the capped mesh did not help:
-# -30j (index 12.6) went from 5.8 to 8.2 % and -20j (18.9) from 0.62 to 1.2 %
-# at four times the panels, while +4000j (10.7) improved from 16 to 3.5 %.
-# Such tightly bound waves keep the material mesh.
-SURFACE_WAVE_MAX_UNRESOLVED_FACTOR = 12.0
+# Use the bound wavelength on each segment, with a finite density cap shared
+# by meshing, backend admission and resource forecasts. A former 4x cap and
+# index>12 exemption let a -30j-ohm square certify a 96/136-panel plateau more
+# than 6% from a resolved field. The 16x cap resolves that case automatically;
+# stronger waves retain a bounded mesh and must pass the actual sampling
+# prerequisite below before a mesh-convergence certificate can be issued.
+SURFACE_WAVE_MAX_DENSITY_FACTOR = 16.0
+# Match the mesh's existing maximum 5% panel-length rounding allowance. The
+# nominal 20 intervals/wavelength therefore has a measured lower bound of
+# 20/1.05; requiring exactly 20 would reject normally rounded automatic meshes.
+SURFACE_WAVE_MIN_SAMPLES_PER_WAVELENGTH = (
+    float(DEFAULT_PANELS_PER_WAVELENGTH) / (1.0 + PANEL_COUNT_CEIL_TOLERANCE))
 # A tapered law is sampled at this many points along its segment.
 SURFACE_WAVE_TAPER_SAMPLES = 9
 
@@ -1852,6 +1854,7 @@ def _bound_surface_wave_index(
     z_surface: 'complex',
     eps_medium: 'complex' = 1.0 + 0.0j,
     mu_medium: 'complex' = 1.0 + 0.0j,
+    polarization=None,
 ) -> 'float':
     """Phase index (against free space) of the wave bound to a flat impedance surface.
 
@@ -1860,7 +1863,8 @@ def _bound_surface_wave_index(
     kappa/k = -j*Zs/eta (TE) and -j*eta/Zs (TM), and beta/k = sqrt(1 +
     (kappa/k)^2). A wave counts when it is bound (Re kappa > 0) and propagates
     (its attenuation per radian is below one, |Im beta| <= Re beta); the larger
-    of the two polarizations is returned, 0 when neither guides a wave.
+    of the two polarizations is returned unless one is selected, 0 when the
+    selected polarization does not guide a wave.
     """
 
     z = complex(z_surface)
@@ -1869,7 +1873,9 @@ def _bound_surface_wave_index(
     n_medium = _causal_medium_index(eps_medium, mu_medium)
     eta_medium = _medium_eta(eps_medium, mu_medium)
     best = 0.0
-    for ratio in (z / eta_medium, eta_medium / z):
+    ratios = {'TE': z / eta_medium, 'TM': eta_medium / z}
+    selected = ratios.values() if polarization is None else (ratios[str(polarization).upper()],)
+    for ratio in selected:
         kappa = -1j * ratio
         if kappa.real <= 0.0:
             continue
@@ -1881,7 +1887,7 @@ def _bound_surface_wave_index(
 
 
 def _segment_surface_wave_index(materials, seg_type: 'int', ibc_flag: 'int',
-                                pos_mat: 'int', freq_ghz: 'float') -> 'float':
+                                pos_mat: 'int', freq_ghz: 'float', polarization=None) -> 'float':
     """Largest bound-wave index of an opaque conductor segment's law at one frequency."""
 
     if seg_type not in _OPAQUE_CONDUCTOR_TYPES or ibc_flag <= 0:
@@ -1899,7 +1905,7 @@ def _segment_surface_wave_index(materials, seg_type: 'int', ibc_flag: 'int',
         values = [materials.get_impedance(ibc_flag, freq_ghz, arc_s=float(s)) for s in positions]
     except ValueError:
         return 0.0      # an unevaluable law or medium: the field solve reports it
-    return max(_bound_surface_wave_index(z, eps, mu) for z in values)
+    return max(_bound_surface_wave_index(z, eps, mu, polarization) for z in values)
 
 
 def _surface_wave_mesh_wavelength(material_wavelength: 'float', materials, seg_type: 'int',
@@ -1913,9 +1919,49 @@ def _surface_wave_mesh_wavelength(material_wavelength: 'float', materials, seg_t
         index = _segment_surface_wave_index(materials, seg_type, ibc_flag, pos_mat, freq_ghz)
         if index > 0.0:
             bound = C0 / (float(freq_ghz) * 1.0e9) / index
-            if material_wavelength <= SURFACE_WAVE_MAX_UNRESOLVED_FACTOR * bound:
-                shortest = min(shortest, bound)
+            shortest = min(shortest, bound)
     return max(shortest, material_wavelength / SURFACE_WAVE_MAX_DENSITY_FACTOR)
+
+
+def _surface_wave_sampling(mesh, materials, freq_ghz, polarization):
+    """Actual bound-wave sampling, independent of requested N or mesh strategy.
+
+    Count polynomial intervals (degree per element) against the shortest
+    sampled bound wavelength of each segment law. This is a prerequisite for
+    meaningful refinement comparisons, not an absolute field-error estimate.
+    Tapers use the same nine-point law sampling as automatic mesh sizing and
+    additionally inspect every represented element's material sample.
+    """
+    groups = {}
+    for element in mesh.elements:
+        if element.seg_type not in _OPAQUE_CONDUCTOR_TYPES or element.ibc_flag <= 0:
+            continue
+        key = (element.name, element.seg_type, element.ibc_flag, element.pos_mat)
+        group = groups.setdefault(key, [0., []])
+        group[0] = max(group[0], element.length / (len(element.node_ids) - 1))
+        if materials.is_tapered_impedance(element.ibc_flag):
+            group[1].append(element.arc_s_center)
+    evidence = []
+    for (name, kind, flag, medium), (interval, positions) in groups.items():
+        index = _segment_surface_wave_index(materials, kind, flag, medium, freq_ghz, polarization)
+        if positions:
+            eps, mu = materials.get_medium(medium, freq_ghz) if kind == 4 else (1., 1.)
+            index = max(index, max(_bound_surface_wave_index(
+                materials.get_impedance(flag, freq_ghz, arc_s=float(s)), eps, mu, polarization)
+                for s in positions))
+        if index <= 0.0:
+            continue
+        wavelength = C0 / (float(freq_ghz) * 1.e9 * index)
+        sampling = wavelength / interval
+        minimum = SURFACE_WAVE_MIN_SAMPLES_PER_WAVELENGTH
+        evidence.append(dict(segment=name, ibc_flag=int(flag), phase_index=float(index),
+            wavelength_m=float(wavelength), samples_per_wavelength=float(sampling),
+            required_samples_per_wavelength=minimum,
+            resolved=bool(sampling >= minimum * (1. - 1.e-9))))
+    return dict(frequency_ghz=float(freq_ghz), polarization=str(polarization).upper(),
+                resolved=all(record['resolved'] for record in evidence), segments=evidence,
+                automatic_density_factor_limit=SURFACE_WAVE_MAX_DENSITY_FACTOR,
+                sampling_definition='polynomial intervals per bound surface wavelength')
 
 
 def _segment_material_wavelength(geometry_snapshot, segment, materials, frequencies) -> 'Optional[float]':

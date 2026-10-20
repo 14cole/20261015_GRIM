@@ -3912,7 +3912,9 @@ def _build_linear_junction_constraints(
     restore pointwise continuity at true shared geometric junctions with explicit trace
     constraints. We also add region-wise flux-balance constraints using the endpoint sign
     convention. When ``materialize`` is false, compute the same candidate counts and
-    orientation diagnostics without allocating the dense trace/flux matrix.
+    diagnostics without allocating the dense trace/flux matrix. Material-side
+    consistency is validated by the geometry's region graph before assembly;
+    endpoint direction alone does not determine consistency at a junction.
     """
 
     nnodes = len(mesh.nodes)
@@ -3926,7 +3928,6 @@ def _build_linear_junction_constraints(
     trace_count = 0
     flux_count = 0
     junction_nodes = 0
-    orientation_conflict_nodes = 0
     constrained_nodes: 'Set[int]' = set()
     constrained_elems: 'Set[int]' = set()
 
@@ -3936,25 +3937,13 @@ def _build_linear_junction_constraints(
         if len(unique_elems) < 2 and len(unique_nodes) < 2:
             continue
 
-        by_elem_sign: 'Dict[int, int]' = {}
-        seg_names: 'Set[str]' = set()
         region_set: 'Set[int]' = set()
         for eidx, local_end, nid in entries:
-            endpoint_sign = +1 if int(local_end) == 0 else -1
-            by_elem_sign[int(eidx)] = by_elem_sign.get(int(eidx), 0) + endpoint_sign
-            seg_names.add(mesh.elements[int(eidx)].name)
             info = infos[int(eidx)]
             if info.minus_region >= 0:
                 region_set.add(int(info.minus_region))
             if info.plus_region >= 0:
                 region_set.add(int(info.plus_region))
-
-        if len(seg_names) >= 2:
-            signs = [int(np.sign(by_elem_sign.get(eidx, 0))) for eidx in unique_elems]
-            has_pos = any(s > 0 for s in signs)
-            has_neg = any(s < 0 for s in signs)
-            if not (has_pos and has_neg):
-                orientation_conflict_nodes += 1
 
         if len(unique_nodes) > 1:
             ref_nid = unique_nodes[0]
@@ -4017,7 +4006,7 @@ def _build_linear_junction_constraints(
             "junction_panels": 0,
             "junction_trace_constraints": 0,
             "junction_flux_constraints": 0,
-            "junction_orientation_conflict_nodes": int(orientation_conflict_nodes),
+            "junction_orientation_conflict_nodes": 0,
         }
 
     c_mat = (
@@ -4031,7 +4020,7 @@ def _build_linear_junction_constraints(
         "junction_panels": int(len(constrained_elems)),
         "junction_trace_constraints": int(trace_count),
         "junction_flux_constraints": int(flux_count),
-        "junction_orientation_conflict_nodes": int(orientation_conflict_nodes),
+        "junction_orientation_conflict_nodes": 0,
     }
 
 def _ensure_finite_linear_system(a_mat: 'np.ndarray', rhs: 'Optional[np.ndarray]' = None, label: 'str' = "linear system") -> 'None':

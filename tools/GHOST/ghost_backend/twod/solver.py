@@ -129,6 +129,7 @@ from ghost_backend.twod.geometry import (
     _snapshot_segments,
     _solver_point_key,
     _surface_robin_alpha,
+    _surface_wave_sampling,
     _unit_scale_to_meters,
     _validate_passive_medium,
     _validate_passive_surface_impedance,
@@ -2201,6 +2202,7 @@ def solve_monostatic_rcs_2d_single_polarization(
     mesh_max_index_values: 'List[float]' = []
     mesh_material_flags_used: 'Set[int]' = set()
     panel_count_values: 'List[int]' = []
+    surface_wave_sampling = []
     panel_length_min_values: 'List[float]' = []
     panel_length_max_values: 'List[float]' = []
     elevations_arr = np.asarray(elevations, dtype=float)
@@ -2431,6 +2433,15 @@ def solve_monostatic_rcs_2d_single_polarization(
         panel_length_min_values.append(float(np.min(panel_lengths)) if len(panel_lengths) else 0.0)
         panel_length_max_values.append(float(np.max(panel_lengths)) if len(panel_lengths) else 0.0)
 
+        wave_sampling = _surface_wave_sampling(mesh, materials, freq_ghz, pol)
+        if wave_sampling['segments']:
+            surface_wave_sampling.append(wave_sampling)
+        if not wave_sampling['resolved']:
+            notices.warn_once(
+                'Bound surface waves remain below the required mesh sampling. '
+                'A small linear residual or mesh delta cannot certify this mesh; '
+                'increase the segment panel density. See surface-wave sampling evidence.')
+
         coupled_infos = _build_linear_coupled_infos(mesh, materials, freq_ghz, pol, k0)
         _assert_no_type1_sheet_for_mixed(coupled_infos)
         _assert_air_exterior(coupled_infos)
@@ -2589,15 +2600,6 @@ def solve_monostatic_rcs_2d_single_polarization(
             )
         junction_stats.update(linear_mesh_stats_local)
         junction_stats.update(linear_junction_stats)
-        orientation_conflicts = int(linear_junction_stats.get("junction_orientation_conflict_nodes", 0))
-        if orientation_conflicts > 0:
-            raise ValueError(
-                f"Detected {orientation_conflicts} cross-segment junction node(s) with "
-                "inconsistent segment orientation. Refusing to solve because "
-                "the material-side trace assignment is physically ambiguous; "
-                "fix the geometry so shared junctions have a consistent "
-                "plus/minus side assignment."
-            )
         if int(linear_junction_stats.get("junction_constraints", 0)) > 0:
             candidate_count = int(linear_junction_stats.get("junction_constraints", 0))
             if _is_multi_region(coupled_infos):
@@ -2748,6 +2750,7 @@ def solve_monostatic_rcs_2d_single_polarization(
         "mesh_wavelength_max_m": float(np.max(mesh_wavelength_values)) if mesh_wavelength_values else 0.0,
         "mesh_max_refractive_index": float(np.max(mesh_max_index_values)) if mesh_max_index_values else 1.0,
         "mesh_material_flags": sorted(mesh_material_flags_used),
+        "surface_wave_sampling": surface_wave_sampling,
         "polarization_internal": pol,
         "polarization_user": _canonical_user_polarization_label(polarization),
         "polarization_aliases": [_canonical_user_polarization_label(polarization)],
@@ -3109,6 +3112,8 @@ def _merge_co_polarized_2d_results(
         "dense_rhs_column_count": sum(m.get('dense_rhs_column_count', 0) for m in channel_metadata.values()),
         "dense_max_rhs_columns": max(m.get('dense_max_rhs_columns', 0) for m in channel_metadata.values()),
         "thin_layer": {label: channel_metadata[label].get("thin_layer", []) for label in expected_channels},
+        "surface_wave_sampling": [record for label in expected_channels
+                                  for record in channel_metadata[label].get('surface_wave_sampling', [])],
         "amplitude_version": RCS_AMPLITUDE_VERSION,
         "co_solve_shared_discretization": True,
         "shared_operator_cache_enabled": any(
@@ -3476,6 +3481,7 @@ def solve_bistatic_rcs_2d_single_polarization(
     obs_arr = np.asarray(obs_angles, dtype=float)
     thin_layer_evidence = []
     panel_counts = []
+    surface_wave_sampling = []
     mesh_wavelength_values: 'List[float]' = []
     mesh_max_index_values: 'List[float]' = []
     mesh_material_flags_used: 'Set[int]' = set()
@@ -3535,6 +3541,14 @@ def solve_bistatic_rcs_2d_single_polarization(
             mesh, _ = _build_linear_mesh_interface_aware(panels, preview_infos, polarization=pol)
             if shared_cache is not None:
                 shared_cache['mesh'] = (mesh_key, panels, mesh)
+        wave_sampling = _surface_wave_sampling(mesh, materials, freq_ghz, pol)
+        if wave_sampling['segments']:
+            surface_wave_sampling.append(wave_sampling)
+        if not wave_sampling['resolved']:
+            notices.warn_once(
+                'Bound surface waves remain below the required mesh sampling. '
+                'A small linear residual or mesh delta cannot certify this mesh; '
+                'increase the segment panel density. See surface-wave sampling evidence.')
         coupled_infos = _build_linear_coupled_infos(mesh, materials, freq_ghz, pol, k0)
         _assert_no_type1_sheet_for_mixed(coupled_infos)
         _assert_air_exterior(coupled_infos)
@@ -3693,6 +3707,7 @@ def solve_bistatic_rcs_2d_single_polarization(
         "mesh_wavelength_max_m": float(np.max(mesh_wavelength_values)) if mesh_wavelength_values else 0.0,
         "mesh_max_refractive_index": float(np.max(mesh_max_index_values)) if mesh_max_index_values else 1.0,
         "mesh_material_flags": sorted(mesh_material_flags_used),
+        "surface_wave_sampling": surface_wave_sampling,
         "residual_norm_max": residual_norm_max,
         "residual_norm_mean": residual_norm_mean,
         "residual_nonfinite_count": residual_nonfinite_count,
@@ -3883,6 +3898,7 @@ def _run_certified_2d_pair_impl(
     from ghost_backend.execution.metrics import solve_phase
     with solve_phase('Base mesh'):
         base_result = low_level_solver(**base_kwargs)
+    _require_surface_wave_sampling(base_result, 'base')
 
     fine_snapshot = scale_snapshot_panel_density(
         geometry_snapshot, policy["fine_factor"]
@@ -3935,9 +3951,28 @@ def _finish_certified_2d_pair(base_result, fine_result, policy):
     return _certify_2d_results(base_result, fine_result, policy)
 
 
+def _require_surface_wave_sampling(result, phase):
+    """Do not certify a short-wavelength plateau from two unresolved meshes."""
+    for record in result.get('metadata', {}).get('surface_wave_sampling', []):
+        for segment in record.get('segments', []):
+            if not segment.get('resolved', False):
+                raise ValueError(
+                    'Certified 2-D mesh convergence failed: unresolved bound surface-wave '
+                    f"sampling on the {phase} mesh, segment '{segment['segment']}', "
+                    f"{record['polarization']} at {record['frequency_ghz']:g} GHz: "
+                    f"{segment['samples_per_wavelength']:.4g} polynomial intervals per "
+                    f"bound wavelength; at least {segment['required_samples_per_wavelength']:g} "
+                    'are required before comparing meshes. Increase this segment\'s N '
+                    '(negative N specifies wavelength density). Automatic density is '
+                    f"capped at {record['automatic_density_factor_limit']:g} times the material "
+                    'mesh; panel and RAM limits still apply.')
+
+
 @timed_stage('mesh_certification')
 def _certify_2d_results(base_result, fine_result, policy):
     from ghost_backend.runs.quality import evaluate_mesh_convergence
+    _require_surface_wave_sampling(base_result, 'base')
+    _require_surface_wave_sampling(fine_result, 'fine')
     base_panel_count = int(
         base_result.get("metadata", {}).get("panel_count", 0) or 0
     )
@@ -3974,6 +4009,9 @@ def _certify_2d_results(base_result, fine_result, policy):
     mesh_gate["published_mesh"] = "fine"
     mesh_gate["geometry_model"] = "piecewise_linear_input"
     mesh_gate["geometry_approximation_certified"] = False
+    mesh_gate['surface_wave_sampling_checked'] = bool(
+        base_result.get('metadata', {}).get('surface_wave_sampling') or
+        fine_result.get('metadata', {}).get('surface_wave_sampling'))
     mesh_gate["base_quality_gate"] = dict(
         base_result.get("metadata", {}).get("quality_gate", {}) or {}
     )

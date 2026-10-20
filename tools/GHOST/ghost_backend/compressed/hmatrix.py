@@ -242,7 +242,7 @@ class _Fetcher:
     A paired oracle (``oracle.oracles``) answers one query for every
     polarization through one kernel traversal; results are lists by target.
     """
-    def __init__(self, oracle, order, checkpoint, tails=False):
+    def __init__(self, oracle, order, checkpoint, tail_rows=None):
         from ghost_backend.compressed.coefficients import PairedNativeOracle
         if type(oracle) is PairedNativeOracle:
             # Its shared primitive cache lives on the source oracles for one
@@ -252,7 +252,10 @@ class _Fetcher:
         self.oracle, self.order, self.checkpoint = oracle, order, checkpoint
         self.count = len(getattr(oracle, 'oracles', [oracle]))
         self.calls = self.entries = 0
-        self.tails = [np.zeros(len(order)) for _ in range(self.count)] if tails else None
+        # Near blocks and sample chunks only query their own sorted row subset.
+        # Keep error tails local instead of allocating n entries for every task.
+        self.tail_rows = None if tail_rows is None else np.asarray(tail_rows, np.int64)
+        self.tails = None if tail_rows is None else [np.zeros(len(self.tail_rows)) for _ in range(self.count)]
 
     def __call__(self, rows, cols):
         rows, cols = np.asarray(rows, np.int64), np.asarray(cols, np.int64)
@@ -275,7 +278,7 @@ class _Fetcher:
                         raise ValueError('Oracle returned invalid coefficient error bounds.')
                     results[index][r0:r0+width, c0:c0+step] = value
                     if self.tails is not None and np.any(error):
-                        np.add.at(self.tails[index], rr, np.sum(error, axis=1))
+                        np.add.at(self.tails[index], np.searchsorted(self.tail_rows, rr), np.sum(error, axis=1))
                 self.calls += 1
                 self.entries += len(rr)*len(cc)
         return results
@@ -464,36 +467,70 @@ def recompress(u, v, tolerance):
     return np.ascontiguousarray(qu @ (w[:, :keep] * s[:keep])), np.ascontiguousarray(zh[:keep] @ qv.conj().T)
 
 
-def _run(tasks):
-    """Results of ``tasks`` in order; single-threaded coefficient queries run concurrently.
+def _run(tasks, consume, checkpoint):
+    """Consume task results in order, retaining at most one per worker.
 
-    Each task owns its random stream and inputs, so results do not depend on
-    scheduling or on the number of threads.
+    Tasks receive a cooperative checkpoint and own their random streams. The
+    caller consumes and admits results before submitting replacement work, so neither
+    scheduling nor the worker count changes sampling or accumulation order.
+    Failure stops sibling queries at their next checkpoint and joins workers
+    before their owners can release oracle resources.
     """
-    # Coefficient queries are native kernel loops outside the GIL: unlike
-    # assembly tiles they gain from SMT siblings (1.7x from 8 to 16 threads on
-    # the 8-core host), so they use every allocated logical CPU.
-    from ghost_backend.execution.options import allocated_cpu_budget
-    budget = allocated_cpu_budget()
-    workers = min(budget, len(tasks))
-    if workers < 2:
-        return [task() for task in tasks]
-    import contextvars
+    from ghost_backend.compressed.operator import _thread_budget
     from ghost_backend.execution.options import single_thread_blas, cpu_allocation_scope
+    budget = _thread_budget()
+    workers = min(budget, len(tasks))
+    if not workers:
+        return
+    from concurrent.futures import CancelledError, wait
+    from collections import deque
+    from threading import Event
+    import contextvars
+    stopped = Event()
+    def check():
+        if stopped.is_set():
+            raise CancelledError('Hierarchical assembly stopped.')
+        checkpoint()
     # Fewer tasks than CPUs (the coarsest interaction lists): each task's
     # coefficient queries use the remaining CPUs for their own tiles.
-    share = max(1, budget // len(tasks))
+    share = max(1, budget // workers)
     def run(task):
         with cpu_allocation_scope(share):
-            return task()
+            check()
+            return task(check)
+    if workers < 2:
+        for index, task in enumerate(tasks):
+            result = run(task)
+            check()
+            consume(index, result)
+            del result
+        return
     with single_thread_blas(), ThreadPoolExecutor(max_workers=workers, thread_name_prefix='ghost-hmatrix') as pool:
-        futures = [pool.submit(contextvars.copy_context().run, run, task) for task in tasks]
+        pending = deque()
+        following = iter(enumerate(tasks))
+        def submit():
+            item = next(following, None)
+            if item is not None:
+                index, task = item
+                check()
+                pending.append((index, pool.submit(contextvars.copy_context().run, run, task)))
         try:
-            return [future.result() for future in futures]
-        except BaseException:
-            for future in futures:
+            for _ in range(workers):
+                submit()
+            while pending:
+                index, future = pending.popleft()
+                while not future.done():
+                    check()
+                    wait((future,), timeout=.05)
+                check()
+                result = future.result()
+                consume(index, result)
+                del result, future
+                submit()
+        finally:
+            stopped.set()
+            for _, future in pending:
                 future.cancel()
-            raise
 
 
 class _Ledger:
@@ -502,9 +539,10 @@ class _Ledger:
         self.budget, self.bytes = budget, 0
 
     def reserve(self, count):
-        self.bytes += int(count)
-        if self.bytes > self.budget:
+        updated = self.bytes + int(count)
+        if updated > self.budget:
             raise MemoryError('Hierarchical operator exceeded its retained-storage cap.')
+        self.bytes = updated
 
 
 @timed_stage('hmatrix_assembly')
@@ -514,8 +552,9 @@ def _assemble(oracle, targets):
     tree, order, n, checkpoint = first.tree, first.order, first.n, first.checkpoint
     far, near = tree.partition(first.eta)
     statistics = dict(queries=0, coefficients=0)
-    def count(fetch):
-        statistics['queries'] += fetch.calls; statistics['coefficients'] += fetch.entries
+    def count(queries):
+        calls, entries = queries
+        statistics['queries'] += calls; statistics['coefficients'] += entries
     for target in targets:
         target.near, target.far, target.dense_far = [], [], []
         target.dense_far_rows = 0
@@ -529,18 +568,22 @@ def _assemble(oracle, targets):
         for target in targets:
             target._reserve(16*(b - a)*len(columns) + 8*len(columns))
         plans.append((k, a, b, ranges, columns))
-    def exact(plan):
+    def exact(plan, check):
         k, a, b, ranges, columns = plan
-        fetch = _Fetcher(oracle, order, checkpoint, tails=True)
-        values = fetch(np.arange(a, b), columns)
-        return values, [tail[a:b].copy() for tail in fetch.tails], fetch
+        rows = np.arange(a, b)
+        fetch = _Fetcher(oracle, order, check, tail_rows=rows)
+        values = fetch(rows, columns)
+        return values, fetch.tails, (fetch.calls, fetch.entries)
     for target in targets:
         target.near_tail = np.zeros(n)
-    for (k, a, b, ranges, _), (values, tails, fetch) in zip(plans, _run([lambda p=p: exact(p) for p in plans])):
+    def store_near(index, result):
+        k, a, b, ranges, _ = plans[index]
+        values, tails, queries = result
         for target, value, tail in zip(targets, values, tails):
             target.near.append(BlockRow(k, a, b, ranges, value, None, 0))
             target.near_tail[a:b] += tail
-        count(fetch)
+        count(queries)
+    _run([lambda check, p=p: exact(p, check) for p in plans], store_near, checkpoint)
     near_entries = statistics['coefficients']
     # Operator scales from exactly evaluated sample rows (one per leaf at least).
     _sample(oracle, targets, count)
@@ -554,19 +597,19 @@ def _assemble(oracle, targets):
     for level in levels:
         checkpoint()
         lists = sorted((k for k in far if tree.level[k] == level), key=lambda c: tree.start[c])
-        def compress(k, guess=previous):
+        def compress(k, check, guess=previous):
             a, b = int(tree.start[k]), int(tree.stop[k])
             ranges = _ranges(tree, far[k])
             columns = _range_ids(ranges)
             m, w = b - a, len(columns)
             # Mean row-sum error tolerance*scale: Frobenius tolerance*scale*sqrt(m/w).
             targets_tolerance = [target.tolerance*scale*math.sqrt(m / w) for target, scale in zip(targets, scales)]
-            fetch = _Fetcher(oracle, order, checkpoint)
+            fetch = _Fetcher(oracle, order, check)
             if m*w <= DENSE_LIST_ENTRIES and guess*(m + w) >= DENSE_LIST_FRACTION*m*w:
                 # The expected rank leaves little to compress: one exact query.
                 # Its rank stays unmeasured and does not feed later guesses.
                 dense = fetch(np.arange(a, b), columns)
-                return [BlockRow(k, a, b, ranges, value, None, 2) for value in dense], None, fetch
+                return [BlockRow(k, a, b, ranges, value, None, 2) for value in dense], None, (fetch.calls, fetch.entries)
             rng = np.random.default_rng((first.seed, int(k)))
             # Partner lists are wider than their rows: sample (cheap) columns
             # and keep a skeleton of (long) rows, i.e. compress the transpose,
@@ -584,22 +627,30 @@ def _assemble(oracle, targets):
                         dense = fetch(np.arange(a, b), columns)
                     u, v = dense[len(result)], None
                 result.append(BlockRow(k, a, b, ranges, u, v, 1 if v is not None else 2))
-            return result, max(ranks), fetch
+            return result, max(ranks), (fetch.calls, fetch.entries)
         # A spread pilot wave calibrates the guess for the rest of the level.
         pilot = sorted(set(lists[::max(1, len(lists)//PILOT_LISTS)][:PILOT_LISTS]))
         rest = [k for k in lists if k not in set(pilot)]
-        results = dict(zip(pilot, _run([lambda k=k: compress(k) for k in pilot])))
-        measured = [rank for _, rank, _ in results.values() if rank is not None]
+        results, ranks = {}, {}
+        def store_far(k, result):
+            rows, rank, queries = result
+            # Paired operators share one ledger: admit the complete result
+            # atomically before retaining it or dispatching replacement work.
+            sizes = [row.nbytes for row in rows]
+            first.ledger.reserve(sum(sizes))
+            for target, size in zip(targets, sizes):
+                target.bytes += size
+            results[k], ranks[k] = rows, rank
+            count(queries)
+        _run([lambda check, k=k: compress(k, check) for k in pilot],
+             lambda index, result: store_far(pilot[index], result), checkpoint)
+        measured = [rank for rank in ranks.values() if rank is not None]
         guess = int(1.1*max(measured)) + 8 if measured else previous
-        results.update(zip(rest, _run([lambda k=k: compress(k, guess) for k in rest])))
-        rank_max = None
+        _run([lambda check, k=k: compress(k, check, guess) for k in rest],
+             lambda index, result: store_far(rest[index], result), checkpoint)
+        rank_max = max((rank for rank in ranks.values() if rank is not None), default=None)
         for k in lists:
-            rows, rank, fetch = results.pop(k)
-            count(fetch)
-            if rank is not None:
-                rank_max = max(rank_max or 0, rank)
-            for target, row in zip(targets, rows):
-                target._reserve(row.nbytes)
+            for target, row in zip(targets, results.pop(k)):
                 if row.v is None:
                     target.dense_far_rows += 1
                 (target.far if row.v is not None else target.dense_far).append(row)
@@ -635,16 +686,20 @@ def _sample(oracle, targets, count):
         target.sample_values = np.empty((len(rows), n), complex)
         target.sample_tail = np.zeros(len(rows))
     step = max(1, QUERY_ENTRIES // n)
-    def part(start):
-        fetch = _Fetcher(oracle, first.order, first.checkpoint, tails=True)
+    def part(start, check):
         chunk = rows[start:start + step]
-        return fetch(chunk, np.arange(n)), [tail[chunk].copy() for tail in fetch.tails], fetch
+        fetch = _Fetcher(oracle, first.order, check, tail_rows=chunk)
+        values = fetch(chunk, np.arange(n))
+        return values, fetch.tails, (fetch.calls, fetch.entries)
     starts = list(range(0, len(rows), step))
-    for start, (values, tails, fetch) in zip(starts, _run([lambda s=s: part(s) for s in starts])):
+    def store_sample(index, result):
+        start = starts[index]
+        values, tails, queries = result
         for target, value, tail in zip(targets, values, tails):
             target.sample_values[start:start + step] = value
             target.sample_tail[start:start + step] = tail
-        count(fetch)
+        count(queries)
+    _run([lambda check, s=s: part(s, check) for s in starts], store_sample, first.checkpoint)
     for target in targets:
         target.sample_norm = np.sum(abs(target.sample_values), axis=1) + target.sample_tail
 
@@ -761,8 +816,8 @@ class HMatrixOperator:
 
     # ---- assembly ---------------------------------------------------------
     def _reserve(self, count):
-        self.bytes += int(count)
         self.ledger.reserve(count)
+        self.bytes += int(count)
 
     def _evidence(self, near_entries):
         far_bytes = sum(row.nbytes for row in self.far); near_bytes = sum(row.nbytes for row in self.near + self.dense_far)
