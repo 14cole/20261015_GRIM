@@ -126,6 +126,7 @@ from ghost_backend.twod.geometry import (
     _reverse_point_pairs,
     _safe_complex_div,
     _segment_intersects_strict,
+    _segment_mesh_flags,
     _snapshot_segments,
     _solver_point_key,
     _surface_robin_alpha,
@@ -1576,8 +1577,7 @@ def _estimate_memory_gb(
     count = max(1, int(n_rhs))
     if resources.get('analytic_zero'):
         from ghost_backend.compressed.worker_pool import retained_bytes
-        from ghost_backend.compressed.recycling import capacity_bytes
-        return (64*1024**2 + 1024*n + count*4096 + retained_bytes() + capacity_bytes()) / 1024**3
+        return (64*1024**2 + 1024*n + count*4096 + retained_bytes()) / 1024**3
     requested, threshold = _requested_dense_backend()
     from ghost_backend.linalg.hierarchical import factor_mode
     factorization = factor_mode()
@@ -1628,9 +1628,7 @@ def _estimate_memory_gb(
     from ghost_backend.twod.polynomial_quadrature import MOMENT_CACHE_BYTES
     extra += resources.get('moment_cache_bytes', MOMENT_CACHE_BYTES if resources.get('basis_width', 2) > 2 else 0)
     from ghost_backend.compressed.worker_pool import retained_bytes as retained_worker_bytes
-    from ghost_backend.compressed.recycling import capacity_bytes as recycling_capacity_bytes
-    return (max(assembly, solve) + extra + count*4096 + retained_worker_bytes()
-            + recycling_capacity_bytes()) / 1024**3
+    return (max(assembly, solve) + extra + count*4096 + retained_worker_bytes()) / 1024**3
 
 
 def _has_sheet(infos: 'List[PanelCoupledInfo]') -> 'bool':
@@ -2160,7 +2158,7 @@ def solve_monostatic_rcs_2d_single_polarization(
         if isinstance(_shared_discretization_cache, dict)
         else None
     )
-    if shared_cache is not None and any(int(s.get('seg_type', 0)) == 1
+    if shared_cache is not None and any(_segment_mesh_flags(s)[0] == 1
                                        for s in geometry_snapshot.get('segments', [])):
         # TE joins impedance flags; TM retains its original interface DOFs.
         shared_cache = shared_cache.setdefault(('sheet_polarization', pol), {})
@@ -3462,7 +3460,7 @@ def solve_bistatic_rcs_2d_single_polarization(
     base_dir, preflight_report, materials, unit_scale = prepare_geometry(
         geometry_snapshot, material_base_dir, geometry_units)
     shared_cache = _shared_discretization_cache
-    if shared_cache is not None and any(int(s.get('seg_type', 0)) == 1
+    if shared_cache is not None and any(_segment_mesh_flags(s)[0] == 1
                                        for s in geometry_snapshot.get('segments', [])):
         # Sheet continuity differs between TE and TM, just as in monostatic.
         shared_cache = shared_cache.setdefault(('sheet_polarization', pol), {})

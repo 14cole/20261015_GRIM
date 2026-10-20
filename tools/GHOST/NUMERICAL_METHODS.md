@@ -344,8 +344,12 @@ wave of eight lists calibrating each level's rank guess. TE and TM share one
 kernel traversal when both are built together; the TM operator is kept for
 its solve.
 
-*Error measurement.* No per-row deterministic bound is claimed. One exactly
-evaluated row per leaf cluster (at least 64, at most 256 MiB) is retained.
+*Error measurement.* No per-row deterministic bound is claimed. Exactly
+evaluated rows are retained within a 256 MiB coefficient-storage allowance.
+There is one middle row per leaf plus random rows up to at least 64 while
+that allowance permits. When there are too many leaves, a spread subset of
+leaf middle rows is used. Evidence records the total and sampled leaf counts,
+coverage fraction, whether coverage is limited, and retained sample-row bytes.
 After assembly the complete row errors `sum_j |A_ij - H_ij|` of these rows
 must stay below `1e-11 ||A||_inf` (measured 1-3e-12), otherwise the tile
 operator is used. Every field solve must then pass the backend's existing
@@ -363,7 +367,15 @@ itself differs from LU by 1e-9) and 1.4e-8 on the 0.001-inch coat
 `1e-8`, refinement and GMRES) is built from range products with the
 retained factors (adaptive randomized sampling, ranks up to 2,048), so no
 coefficient is read twice. Condition estimates use exact one-pass
-equilibration over the retained blocks.
+equilibration over the retained blocks. A factorization owns one lazily started
+thread team for its range products; it joins that team on success, failure or
+cancellation. Adjoint products reduce bounded batches of block contributions
+in a fixed order, avoiding a complete tree's temporary outputs.
+
+The retained-storage ledger includes numeric geometry, tree and block indexes,
+sample rows and their diagnostics, and norm/error vectors as well as block
+coefficients. Shared buffers may be charged to both operators of a TE/TM pair;
+Python containers and transient work remain in the separate RAM forecast.
 
 *Planning.* Memory and work forecasts come from the cluster tree and
 interaction lists of the actual mesh with a calibrated rank model (12 +
@@ -974,14 +986,10 @@ its complete error enters the existing row/column error bounds. Rejected
 proposals fall back to ordinary QR compression. This is not a sampled-only
 error certificate or an asymptotically faster production assembly path.
 
-`frequency_preconditioner='reuse'` is also experimental and off by default.
-The run-local cache is limited to the smaller of 128 MiB and 5% of the solve
-RAM budget and stores inverse data only. A compatible mesh, DOF ordering,
-polarization and formulation are required, with frequency ratio at most 1.10.
-The operator is always assembled at the requested frequency. A reused inverse
-gets two correction steps and up to eight GMRES iterations before rebuilding;
-the original-coefficient backward-error gate is unchanged. Mesh-changing
-adaptive sweeps generally cannot use this cache.
+Each frequency builds its own operator and inverse. The experimental inverse
+cache has been removed. Older execution profiles with
+`frequency_preconditioner='off'` are normalized by dropping the retired field;
+explicit requests to enable it are rejected with a migration message.
 
 Native fixed-width far-kernel loops preserve the arithmetic order. The earlier
 frequency-scheduling comparison is included in the published measurement
@@ -1059,6 +1067,45 @@ direct SciPy kernels rather than GHOST's native assembled operator.
 Higher-order BoR remains a design proposal without an implementation or
 measured saving. None of these three research directions is enabled in the
 production solver.
+
+## Surface-wave and geometry prerequisites (October 2026 follow-up)
+
+Mesh certification checks actual polynomial intervals per bound wavelength
+for both opaque impedance boundaries (TYPE 2/4) and transmitting impedance
+sheets (TYPE 1). With the `exp(+j omega t)` convention and transverse decay
+`exp(-kappa y)`, opaque boundaries use
+`kappa/k0 = -j eps_r Zs/ETA0` (TE) or `-j ETA0 mu_r/Zs` (TM).
+The two-sided sheet operator in air instead gives `-2j Zs/ETA0` (TE) and
+`-j ETA0/(2 Zs)` (TM). Thin dielectric layer models keep their separate laws.
+The physical constants must satisfy `Re(kappa) > 0` and
+`abs(Im(beta)) <= abs(Re(beta))`, where
+`(beta/k0)^2 = eps_r mu_r + (kappa/k0)^2`. Testing these conditions before
+accounting for a complex material index can select the wrong bound waves.
+
+Automatic sizing remains capped at 16 times the material-based density.
+Explicit panel requests remain explicit. A mesh that does not resolve the
+bound wave can be used for a survey with an advisory, but cannot receive a
+mesh-convergence certificate merely because two coarse fields agree.
+The normal 5% panel-rounding allowance still applies to the nominal
+20 polynomial intervals per wavelength. The new finite-strip regressions
+compare certified fields against an independently refined numerical field;
+they do not establish an analytic error bound for arbitrary geometries.
+
+Shared geometry and mesh welding now require every member of an endpoint
+cluster to lie within the physical 1 nm tolerance of every other member.
+Rounded spatial cells only locate candidates. Distinct points in the same
+cell and chains of nearby points cannot silently collapse a longer element.
+BoR junction construction follows this same tolerance; radius snapping uses
+the existing numerical axis-zero tolerance rather than drawing proximity.
+Both geometry validation searches bound their broad-phase work and support
+cancellation. Winding area sums use coordinates relative to a contour vertex.
+
+Direct BoR regional descriptors require one air exterior, unique valid
+boundary references, opposite signs across dielectric interfaces, and one
+material side for conductor surfaces. Invalid incidence is rejected before
+operator construction. Dielectric IDs 900000 and above are reserved for
+solver-owned virtual sheet regions; user dielectric IDs must be 1–899999.
+This prevents a material definition from being silently interpreted as air.
 
 ## Running tests
 

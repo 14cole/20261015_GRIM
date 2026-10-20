@@ -197,7 +197,16 @@ response. Changing `N` or subdividing primitives can still change mesh density.
 
 The solver checks `k0*d*max(1,abs(sqrt(epsilon_r*mu_r))) <= 0.15` and
 `d/local_radius <= 0.05`. Here `d` is physical thickness in meters and `k0` is
-the free-space wavenumber. Check the full requested frequency band. Passing
+the free-space wavenumber. The radius estimate uses the fixed midsurface:
+collinear pieces are joined before measuring turns, so numerical refinement
+and collinear authoring subdivisions do not change curvature eligibility.
+Fine polygons are treated as approximations to a **smooth** midsurface, not as
+exact smooth geometry. Turns above 15 degrees are rejected, using the same
+corner threshold as the faceting/adaptive-mesh convention. An actual sharp
+corner needs explicit bulk geometry even if its turn is smaller; this input
+format cannot distinguish it from a faceted smooth curve. Refining `N` does
+not smooth a corner or reduce the geometric faceting error.
+Check the full requested frequency band. Passing
 these limits or converging the mesh does not certify the physical thin-layer
 approximation; compare important cases against explicit thickness.
 

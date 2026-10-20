@@ -1,5 +1,28 @@
 """Streaming broad-phase queries shared by editor and solver validation."""
 
+import math
+
+
+def point_proximity_pairs(points, radii, checkpoint=None):
+    """Candidates for distance <= min(radius_i, radius_j), without pair storage.
+
+    Half-radius boxes suffice: their combined reach is the mean of the two
+    radii, which is at least their minimum. Round the bounds outward so a pair
+    exactly at its threshold is not lost to coordinate-addition roundoff.
+    The caller must still apply the exact distance and topology predicates.
+    """
+    bounds = []
+    for index, (point, radius) in enumerate(zip(points, radii)):
+        if checkpoint is not None and index % 1024 == 0:
+            checkpoint()
+        x, y = point
+        half = 0.5 * radius
+        bounds.append((math.nextafter(x - half, -math.inf),
+                       math.nextafter(x + half, math.inf),
+                       math.nextafter(y - half, -math.inf),
+                       math.nextafter(y + half, math.inf)))
+    yield from overlapping_pairs(bounds, checkpoint=checkpoint)
+
 
 def overlapping_pairs(bounds, tolerance=0.0, checkpoint=None):
     """Yield candidate index pairs once, without retaining a quadratic pair list.

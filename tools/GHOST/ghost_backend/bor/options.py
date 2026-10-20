@@ -25,34 +25,6 @@ _ACTIVE = ScopedValue('ghost_bor_options', default=None)
 _ABORT = ScopedValue('ghost_bor_abort', default=None)
 _OUTPUT_GB = ScopedValue('ghost_bor_output_gb', default=0.)
 _RESUME = ScopedValue('ghost_bor_mode_resume', default=None)
-_RECYCLING = ScopedValue('ghost_bor_frequency_identity', default=(None, None))
-
-
-def current_recycling_parameters():
-    return _RECYCLING.get()
-
-
-def _recycling_parameters(function, arguments, options):
-    """Run-local identity of a modal equation, independent of frequency/RHS.
-
-    Include material values, geometry, formulation, basis and quadrature
-    controls. Dispersive values that change therefore conservatively miss.
-    Callbacks, output grids and resource controls do not change the operator.
-    """
-    if 'freq_hz' not in arguments or options['factorization'] != 'compressed':
-        return None, None
-    from ghost_backend.compressed.recycling import capacity_bytes
-    if not capacity_bytes():
-        return None, None
-    import hashlib
-    import pickle
-    excluded = {'freq_hz', 'thetas_deg', 'n_modes', 'workers', 'progress',
-                'check_abort', 'mode_tol', 'assembly', 'stream_budget_gb'}
-    values = {name: value for name, value in arguments.items() if name not in excluded}
-    controls = (options['near_refinement'], options['quadrature_check'])
-    identity = hashlib.sha256(pickle.dumps(
-        (function.__module__, function.__qualname__, values, controls), protocol=5)).digest()
-    return ('bor_modal_v1', identity), float(arguments['freq_hz'])
 
 
 def current_mode_resume():
@@ -294,9 +266,8 @@ def _run_configured(function, signature, bound, options, supplied, checkpoint, e
     direct_grid = bound.arguments.get('thetas_deg')
     import numpy as np
     direct_output = 0. if direct_grid is None else estimate_output_gb(1, np.size(direct_grid))
-    recycling = _recycling_parameters(function, bound.arguments, options)
     from ghost_backend.bor.preparation import numerical_preparation
-    with _ACTIVE.override(options), _RECYCLING.override(recycling), numerical_preparation() as prepared:
+    with _ACTIVE.override(options), numerical_preparation() as prepared:
         with _ABORT.override(checkpoint), _OUTPUT_GB.override(max(output_reserved_gb(),direct_output)):
             with cache_scope(cache):
                 resume_state = {} if automatic_modes else None

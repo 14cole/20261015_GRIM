@@ -9,6 +9,7 @@ import math
 import os
 import threading
 import weakref
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -54,11 +55,20 @@ from ghost_backend.bor.near_storage import mode_blocks, mode_sign
 from ghost_backend.bor.preparation import prepared_surface as _prepared_surface
 from ghost_backend.bor.preparation import prepared_cross as _prepared_cross
 from ghost_backend.bor.streaming import sampling_backend_name
+from ghost_backend.geometry.regions import PointWelder, numerical_bor_axis_tolerance
 
 
 BOR_LINEAR_RESIDUAL_MAX = 1.0e-8
 BOR_LINEAR_BACKWARD_ERROR_MAX = 1.0e-12
 BOR_CONDITION_EST_MAX = 1.0e12
+
+# Same physical endpoint tolerance as the shared 2-D/BoR geometry mesher.
+BOR_ENDPOINT_WELD_TOLERANCE_M = 1.0e-9
+
+
+def _bor_axis_tolerance(points):
+    """Numerical zero in radius; never a drawing/feature-size tolerance."""
+    return numerical_bor_axis_tolerance(points)
 
 
 # Per concurrent mode worker: the reduced system matrix plus its LAPACK LU copy
@@ -419,10 +429,7 @@ def estimate_bor_total_peak_gb(
         raise ValueError(
             "BoR peak-memory components must be finite and non-negative."
         )
-    from ghost_backend.compressed.recycling import capacity_bytes
-    # Optional inverses from completed frequencies remain live in either
-    # phase. Current modal factors are priced separately above, per worker.
-    raw_peak = assembly_peak + dense_peak + capacity_bytes() / 1.e9
+    raw_peak = assembly_peak + dense_peak
     return max(
         BOR_PEAK_FIXED_MARGIN_GB,
         BOR_PEAK_FIXED_MARGIN_GB + BOR_PEAK_SAFETY_FACTOR * raw_peak,
@@ -3048,8 +3055,6 @@ def _mode_sweep_impl(n_dofs: 'int', thetas, pols, m_max: 'int', mode_tol: 'float
     from scipy.sparse import issparse
     options = current_options()
     has_exact_far_cache = bool(exact_far_cache is not None and exact_far_cache())
-    from ghost_backend.bor.options import current_recycling_parameters
-    recycling_identity, recycling_frequency = current_recycling_parameters()
     batch_size = options['angle_batch_size']
     # Resolved here: mode tasks run on executor threads without this context.
     residual_storage = residual_storage_settings()
@@ -3086,8 +3091,6 @@ def _mode_sweep_impl(n_dofs: 'int', thetas, pols, m_max: 'int', mode_tol: 'float
             # The assembled system is this task's own buffer: a large one is
             # factored in place with its coefficients spooled for residuals.
             factor = (compressed_factor(A, m, monitor_cond, options, min(workers, m_max+1), checkpoint,
-                                        recycling_key=None if recycling_identity is None else (recycling_identity, int(m)),
-                                        recycling_frequency=recycling_frequency,
                                         exact_far_cache=has_exact_far_cache)
                       if isinstance(A, TileExpression)
                       else ModalFactor(A, m, monitor_cond, checkpoint, owned=True,
@@ -3159,9 +3162,6 @@ def _mode_sweep_impl(n_dofs: 'int', thetas, pols, m_max: 'int', mode_tol: 'float
             refinement_count += factor.event['refinement_steps']
             if monitor_cond:
                 cond = max(cond, factor.condition)
-            retain = getattr(factor, 'retain_preconditioner', None)
-            if retain is not None:
-                retain()
             events.append(dict(factor.event, mode=int(m)))
             # Release both factors and retained incident basis before assembling the next mode.
             close = getattr(factor, 'close', None)
@@ -3474,7 +3474,7 @@ def _validate_solve_bor_generatrix(points, formulation: 'str') -> 'np.ndarray':
         1.0e-15,
     )
     geom_tol = max(1.0e-14, 1.0e-10 * diag)
-    axis_tol = 1.0e-12 * max(1.0, float(np.max(np.abs(pts[:, 0]))))
+    axis_tol = _bor_axis_tolerance(pts)
     if np.any(pts[:, 0] < -axis_tol):
         bad = float(np.min(pts[:, 0]))
         raise ValueError(
@@ -3515,17 +3515,32 @@ def _validate_solve_bor_generatrix(points, formulation: 'str') -> 'np.ndarray':
     half = 0.5 * lengths
     max_half = float(np.max(half))
     tree = cKDTree(mids)
+    # A possible contact has center distance <= half[i]+half[j]+tol.
+    # Let the longer panel own the pair, so a single long panel does not
+    # inflate every short panel's query. Uniform meshes keep the cheaper
+    # index ordering, whose bound is already within a factor of two.
+    local_owner = max_half > 2.0 * float(np.min(half))
+    roundoff = 32.0 * np.finfo(float).eps * max(float(np.max(np.abs(pts))), diag)
+    checkpoint = current_checkpoint()
     for i in range(n_elem):
-        radius = float(half[i]) + max_half + geom_tol
-        for j in tree.query_ball_point(mids[i], radius):
+        if checkpoint is not None:
+            checkpoint()
+        radius = (2.0 * float(half[i]) if local_owner else float(half[i]) + max_half)
+        radius += geom_tol + roundoff
+        for candidate_index, j in enumerate(tree.query_ball_point(mids[i], radius)):
+            if checkpoint is not None and candidate_index % 256 == 0:
+                checkpoint()
             j = int(j)
-            if j <= i + 1:
+            if local_owner:
+                if abs(j - i) <= 1 or half[j] > half[i] or (half[j] == half[i] and j <= i):
+                    continue
+            elif j <= i + 1:
                 continue
             lower = (
                 float(np.linalg.norm(mids[i] - mids[j]))
                 - float(half[i]) - float(half[j])
             )
-            if lower > geom_tol:
+            if lower > geom_tol + roundoff:
                 continue
             if _segments_intersect_2d(
                 pts[i], pts[i + 1], pts[j], pts[j + 1], geom_tol
@@ -6256,10 +6271,7 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
             "validated full-wave formulation."
         )
 
-    all_nodes = np.vstack([sd_e.gen.nodes, s2_L.gen.nodes] +
-                          [b.gen.nodes for b in bares])
-    diag = max(float(np.ptp(all_nodes[:, 0])) + float(np.ptp(all_nodes[:, 1])), 1e-9)
-    jn_tol = 1e-8 * diag
+    endpoint_welder = PointWelder(BOR_ENDPOINT_WELD_TOLERANCE_M)
 
 
     def endpoints(solver):
@@ -6273,16 +6285,18 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
         return out
 
     junctions: 'List[Dict]' = []
+    junction_by_node = {}
 
     def register(kind_key, piece_idx, node, pos):
-        for jn in junctions:
-            if float(np.hypot(*(jn["pos"] - pos))) <= jn_tol:
-                if kind_key in jn:
-                    raise ValueError("Two same-role chain ends meet at one junction.")
-                jn[kind_key] = (piece_idx, node) if kind_key == "bare" else node
-                return
-        junctions.append({"pos": pos,
-                          kind_key: (piece_idx, node) if kind_key == "bare" else node})
+        key = endpoint_welder.key(pos)
+        jn = junction_by_node.get(key)
+        if jn is None:
+            jn = {"pos": pos}
+            junction_by_node[key] = jn
+            junctions.append(jn)
+        if kind_key in jn:
+            raise ValueError("Two same-role chain ends meet at one junction.")
+        jn[kind_key] = (piece_idx, node) if kind_key == "bare" else node
 
     for node, pos in endpoints(sd_e):
         if pos is not None:
@@ -6701,6 +6715,101 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
     }
 
 
+def _validate_bor_region_incidence(surfaces, regions):
+    """Validate public region descriptors before constructing any operators."""
+    surfaces, regions = list(surfaces), list(regions)
+    if not surfaces or not regions:
+        raise ValueError("BoR multi-region geometry needs surfaces and material regions.")
+    adjacency = [[] for _ in surfaces]
+    normalized = []
+    exterior = []
+    for ri, region in enumerate(regions):
+        if not isinstance(region, Mapping):
+            raise ValueError(f"BoR region {ri} must be a descriptor mapping.")
+        bounds = region.get('bounds')
+        if not isinstance(bounds, (list, tuple)) or not bounds:
+            raise ValueError(f"BoR region {ri} needs a nonempty boundary list.")
+        seen, checked = set(), []
+        for boundary in bounds:
+            if not isinstance(boundary, (list, tuple)) or len(boundary) != 2:
+                raise ValueError(f"BoR region {ri} boundary must be a (surface, sign) pair.")
+            si, sign = boundary
+            if isinstance(si, (bool, np.bool_)) or not isinstance(si, (int, np.integer)) or not 0 <= si < len(surfaces):
+                raise ValueError(f"BoR region {ri} has invalid surface index {si!r}.")
+            si = int(si)
+            if si in seen:
+                raise ValueError(f"BoR region {ri} repeats boundary surface {si}.")
+            if isinstance(sign, (bool, np.bool_)) or not isinstance(sign, (int, float, np.integer, np.floating)) or sign not in (-1, 1):
+                raise ValueError(f"BoR region {ri}, surface {si}: boundary sign must be +1 or -1.")
+            seen.add(si)
+            checked.append((si, int(sign)))
+            adjacency[si].append((ri, int(sign)))
+        medium = region.get('medium')
+        if medium is not None:
+            if not isinstance(medium, (tuple, list)) or len(medium) != 2:
+                raise ValueError(f"BoR region {ri} medium must be an (epsilon, mu) pair.")
+            _causal_medium(*medium)
+        if region.get('exterior'):
+            exterior.append(ri)
+            if medium is not None and tuple(map(complex, medium)) != (1.+0.j, 1.+0.j):
+                raise ValueError("BoR multi-region exterior medium must be air (epsilon=mu=1).")
+            if any(sign != 1 for _, sign in checked):
+                raise ValueError("Exterior-bounding surfaces must have sigma=+1.")
+        normalized.append(dict(region, medium=medium, bounds=checked))
+    if len(exterior) != 1:
+        raise ValueError("BoR multi-region geometry requires exactly one exterior region.")
+    for si, surface in enumerate(surfaces):
+        if not isinstance(surface, (list, tuple)) or len(surface) != 2:
+            raise ValueError(f"BoR surface {si} must be a (points, is_conductor) pair.")
+        if bool(surface[1]):
+            if len(adjacency[si]) != 1:
+                raise ValueError(f"BoR conductor surface {si} must bound exactly one material region.")
+        elif len(adjacency[si]) != 2 or sum(sign for _, sign in adjacency[si]) != 0:
+            raise ValueError(f"BoR interface surface {si} must bound exactly two regions with opposite signs.")
+    return surfaces, normalized
+
+
+def _validate_bor_region_faces(surfaces, regions):
+    """Require incidence labels to describe the actual meridian faces.
+
+    Each descriptor has its own label even when two media have equal material
+    properties: an internal air cavity is not the unbounded air exterior.
+    The shared face graph also handles boundaries assembled from several
+    open surface pieces, such as band junctions.
+    """
+    from ghost_backend.geometry.regions import (
+        AIR, CONDUCTOR, RegionPrimitive, analyze_regions, dielectric)
+
+    sides = [[CONDUCTOR, CONDUCTOR] for _ in surfaces]
+    for ri, region in enumerate(regions):
+        label = AIR if region.get("exterior") else dielectric(ri + 1)
+        for si, sign in region["bounds"]:
+            sides[si][0 if sign == 1 else 1] = label
+    primitives = []
+    checkpoint = current_checkpoint()
+    for si, ((points, conductor), (left, right)) in enumerate(zip(surfaces, sides)):
+        if checkpoint is not None:
+            checkpoint()
+        # Open exterior PEC plates are valid and enclose no conductor volume.
+        # Other interfaces must close, either alone or with neighboring pieces.
+        kind = 2 if conductor and AIR in (left, right) else (4 if conductor else 5)
+        primitives.extend(
+            RegionPrimitive(si, f"surface {si}", kind, 0, 0,
+                            tuple(a), tuple(b), left, right)
+            for a, b in zip(points[:-1], points[1:]))
+    report = analyze_regions(primitives, mode="bor", tol=BOR_ENDPOINT_WELD_TOLERANCE_M,
+                             near_miss_types=(), checkpoint=checkpoint)
+    if report.conflicts or report.closure_failures:
+        involved = sorted(
+            {si for conflict in report.conflicts for si in conflict.rows}
+            | {si for failure in report.closure_failures for si in failure.rows})
+        raise ValueError(
+            "BoR regional boundaries do not match the geometric material regions "
+            f"(surfaces {', '.join(map(str, involved))}). Check nesting, boundary "
+            "signs, and the surrounding region of each interface; a buried "
+            "surface cannot border the unbounded exterior.")
+
+
 class _MultiRegionBor:
     """surfaces: list of (points, is_conductor).  regions: list of dicts
     {"medium": None|(eps, mu), "bounds": [(surf_idx, sigma), ...],
@@ -6709,10 +6818,12 @@ class _MultiRegionBor:
 
     def __init__(self, surfaces, regions, freq_hz: 'float', gauss_order: 'int' = FAR_GAUSS_ORDER,
                  near_factor: 'float' = 2.0, near_order: 'int' = 12):
+        surfaces, regions = _validate_bor_region_incidence(surfaces, regions)
         surfaces = [
             (_validate_solve_bor_generatrix(points, "efie"), is_conductor)
             for points, is_conductor in surfaces
         ]
+        _validate_bor_region_faces(surfaces, regions)
         from ghost_backend.bor.geometry import require_containment
         for region in regions:
             for outer, outer_sign in region['bounds']:
@@ -6722,14 +6833,6 @@ class _MultiRegionBor:
                     po, pi = surfaces[outer][0], surfaces[inner][0]
                     if all(points[0, 0] == points[-1, 0] == 0 for points in (po, pi)):
                         require_containment(po, pi, 'BoR material region')
-        for region in regions:
-            medium = region.get("medium")
-            if medium is not None:
-                if not isinstance(medium, (tuple, list)) or len(medium) != 2:
-                    raise ValueError(
-                        "Each BoR region medium must be an (epsilon, mu) pair."
-                    )
-                _causal_medium(medium[0], medium[1])
         self.regions = regions
         self.n_surf = len(surfaces)
         self.is_cond = [bool(c) for (_, c) in surfaces]
@@ -6792,10 +6895,8 @@ class _MultiRegionBor:
         self.n_full = acc
 
 
-        all_pts = np.vstack([self.solv[(si, self.adj[si][0])].gen.nodes
-                             for si in range(self.n_surf)])
-        diag = max(float(np.ptp(all_pts[:, 0])) + float(np.ptp(all_pts[:, 1])), 1e-9)
-        jn_tol = 1e-8 * diag
+        endpoint_welder = PointWelder(BOR_ENDPOINT_WELD_TOLERANCE_M)
+        junction_by_node = {}
         self.junctions: 'List[List[Tuple[int, int]]]' = []
         for si in range(self.n_surf):
             gen = self.solv[(si, self.adj[si][0])].gen
@@ -6803,14 +6904,13 @@ class _MultiRegionBor:
                 if gen.node_on_axis(node):
                     continue
                 pos = gen.nodes[node]
-                for jn in self.junctions:
-                    s0, n0 = jn[0]
-                    p0 = self.solv[(s0, self.adj[s0][0])].gen.nodes[n0]
-                    if float(np.hypot(*(p0 - pos))) <= jn_tol:
-                        jn.append((si, node))
-                        break
-                else:
-                    self.junctions.append([(si, node)])
+                key = endpoint_welder.key(pos)
+                jn = junction_by_node.get(key)
+                if jn is None:
+                    jn = []
+                    junction_by_node[key] = jn
+                    self.junctions.append(jn)
+                jn.append((si, node))
         for jn in self.junctions:
             if len(jn) < 2:
                 si, node = jn[0]

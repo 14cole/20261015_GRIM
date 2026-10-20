@@ -57,6 +57,20 @@ NEAR_MISS_FRACTION = 0.05
 AXIS_EDGE = -1
 
 
+def numerical_bor_axis_tolerance(points, meters_scale: float = 1.0) -> float:
+    """Numerical zero in radius, expressed in the input coordinate units.
+
+    Axial extent and translation along z cannot turn a positive aperture
+    into the rotation axis. The absolute floor is one picometer.
+    """
+    meters_scale = float(meters_scale)
+    if not math.isfinite(meters_scale) or meters_scale <= 0.0:
+        raise ValueError("meters_scale must be positive and finite.")
+    points = np.asarray(points, dtype=float)
+    radius = float(np.max(np.abs(points[:, 0]))) if points.size else 0.0
+    return 1.0e-12 * max(1.0 / meters_scale, radius)
+
+
 def dielectric(flag: int) -> Medium:
     return ("dielectric", int(flag))
 
@@ -397,42 +411,96 @@ def default_tolerance(primitives: Sequence[RegionPrimitive]) -> float:
     return max(min(1e-9 * diag, 1e-3 * shortest), resolution)
 
 
-def _weld(points: Sequence[Point], tol: float) -> Tuple[List[int], List[Point]]:
-    """Cluster ids per point; a point joins a cluster only within ``tol`` of every member.
+class PointWelder:
+    """Incremental, diameter-bounded vertex identity shared by geometry and meshes.
 
-    A spatial hash with cells of size ``tol`` finds every candidate in the
-    3x3 neighborhood; no chain of near points can grow a cluster wider than
-    the tolerance, so two drawn vertices farther apart never merge.
+    A point joins a cluster only within ``tol`` of every registered member.
+    Grid cells accelerate candidate lookup; they never imply identity. Exact
+    repeats are cached, and a lookup does not enlarge the registered cluster.
     """
 
-    ids: List[int] = []
-    members: List[List[Point]] = []
-    if tol <= 0.0:
-        exact: Dict[Point, int] = {}
-        for p in points:
-            ids.append(exact.setdefault(p, len(exact)))
-            if ids[-1] == len(members):
-                members.append([p])
-        return ids, [m[0] for m in members]
-    grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
-    for p in points:
-        cx, cy = math.floor(p[0] / tol), math.floor(p[1] / tol)
-        best, best_distance = -1, math.inf
+    def __init__(self, tol: float):
+        self.tol = float(tol)
+        if not math.isfinite(self.tol) or self.tol < 0.0:
+            raise ValueError("Point welding tolerance must be non-negative and finite.")
+        self.points: List[Point] = []
+        # Most vertices have one exactly repeated coordinate. Store extra
+        # member lists only for the uncommon genuinely near-coincident case.
+        self._members: Dict[int, List[Point]] = {}
+        self._exact: Dict[Point, int] = {}
+        self._grid: Dict[Tuple[int, int], Any] = {}
+
+    def _nearest(self, p: Point) -> Optional[int]:
+        if self.tol == 0.0:
+            return None
+        cx, cy = math.floor(p[0] / self.tol), math.floor(p[1] / self.tol)
+        best, best_distance = None, math.inf
+        seen = set()
         for i in (cx - 1, cx, cx + 1):
             for j in (cy - 1, cy, cy + 1):
-                for cluster in grid.get((i, j), ()):
-                    distances = [math.hypot(q[0] - p[0], q[1] - p[1]) for q in members[cluster]]
-                    if max(distances) <= tol and min(distances) < best_distance:
-                        best, best_distance = cluster, min(distances)
-        if best < 0:
-            best = len(members)
-            members.append([])
-        if p not in members[best]:
-            members[best].append(p)
-            if best not in grid[(cx, cy)]:
-                grid[(cx, cy)].append(best)
-        ids.append(best)
-    return ids, [m[0] for m in members]
+                entry = self._grid.get((i, j))
+                if entry is None:
+                    continue
+                for cluster in entry if isinstance(entry, list) else (entry,):
+                    if cluster in seen:
+                        continue
+                    seen.add(cluster)
+                    members = self._members.get(cluster)
+                    if members is None:
+                        q = self.points[cluster]
+                        distance = math.hypot(q[0] - p[0], q[1] - p[1])
+                        if distance <= self.tol and distance < best_distance:
+                            best, best_distance = cluster, distance
+                        continue
+                    nearest = math.inf
+                    for q in members:
+                        distance = math.hypot(q[0] - p[0], q[1] - p[1])
+                        if distance > self.tol:
+                            break
+                        nearest = min(nearest, distance)
+                    else:
+                        if nearest < best_distance:
+                            best, best_distance = cluster, nearest
+        return best
+
+    def lookup(self, point: Point) -> Optional[int]:
+        p = (float(point[0]), float(point[1]))
+        known = self._exact.get(p)
+        return known if known is not None else self._nearest(p)
+
+    def key(self, point: Point) -> int:
+        p = (float(point[0]), float(point[1]))
+        known = self._exact.get(p)
+        if known is not None:
+            return known
+        if not all(math.isfinite(value) for value in p):
+            raise ValueError("Point coordinates must be finite.")
+        cluster = self._nearest(p)
+        if cluster is None:
+            cluster = len(self.points)
+            self.points.append(p)
+        elif cluster in self._members:
+            self._members[cluster].append(p)
+        else:
+            self._members[cluster] = [self.points[cluster], p]
+        self._exact[p] = cluster
+        if self.tol > 0.0:
+            cell = (math.floor(p[0] / self.tol), math.floor(p[1] / self.tol))
+            entry = self._grid.get(cell)
+            if entry is None:
+                self._grid[cell] = cluster
+            elif isinstance(entry, list):
+                if cluster not in entry:
+                    entry.append(cluster)
+            elif entry != cluster:
+                self._grid[cell] = [entry, cluster]
+        return cluster
+
+
+def _weld(points: Sequence[Point], tol: float) -> Tuple[List[int], List[Point]]:
+    """Cluster ids and representatives using the solver's diameter-bounded rule."""
+    welder = PointWelder(tol)
+    return [welder.key(p) for p in points], welder.points
 
 
 # --------------------------------------------------------------- analysis
@@ -444,20 +512,25 @@ def analyze_regions(
     mode: str = "2d",
     tol: Optional[float] = None,
     axis_tol: Optional[float] = None,
+    meters_scale: float = 1.0,
     near_miss_types: Optional[Tuple[int, ...]] = None,
+    checkpoint=None,
 ) -> RegionReport:
     """Region map, conflicts, dielectric closure failures and near-miss gaps.
 
     ``tol`` welds drawn vertices (default :func:`default_tolerance`); the
     solver passes its own mesh node tolerance so both see one topology.
-    ``axis_tol`` (BoR) marks vertices on the rotation axis, default
-    1e-6 * the larger coordinate span as in the BoR dispatcher. Near misses
+    ``axis_tol`` (BoR) marks vertices on the rotation axis, defaulting to
+    :func:`numerical_bor_axis_tolerance` in input units (``meters_scale``
+    meters per input unit). Near misses
     are searched from free ends of ``near_miss_types`` segments (TYPE 2 only
     in 2-D: a BoR shell may end anywhere).
     """
 
     mode = str(mode).strip().lower()
     bor = mode == "bor"
+    if checkpoint is not None:
+        checkpoint()
     if near_miss_types is None:
         near_miss_types = (3, 4, 5) if bor else (2, 3, 4, 5)
     prims = list(primitives)
@@ -466,10 +539,9 @@ def analyze_regions(
     tol = float(tol)
     if not prims:
         return RegionReport([], [], [], [], tol, mode)
-    xs = np.asarray([c for p in prims for c in (p.start[0], p.end[0])], dtype=float)
-    ys = np.asarray([c for p in prims for c in (p.start[1], p.end[1])], dtype=float)
     if axis_tol is None:
-        axis_tol = 1e-6 * max(float(np.ptp(xs)), float(np.ptp(ys)), 1e-9)
+        axis_tol = numerical_bor_axis_tolerance(
+            [q for p in prims for q in (p.start, p.end)], meters_scale)
 
     ids, verts = _weld([q for p in prims for q in (p.start, p.end)], tol)
 
@@ -775,7 +847,8 @@ def analyze_regions(
     dangling = [k for k in range(len(verts)) if real_degree[k] == 1 and not on_axis[k]]
     near_misses: List[NearMiss] = []
     if dangling:
-        near_misses = _near_misses(dangling, verts, edges, at_vertex, prims, near_miss_types)
+        near_misses = _near_misses(dangling, verts, edges, at_vertex, prims,
+                                   near_miss_types, checkpoint=checkpoint)
     miss_at = {miss.point: miss for miss in near_misses}
     for miss in near_misses:
         miss_at.setdefault(miss.other_point, miss)
@@ -816,7 +889,8 @@ def analyze_regions(
     return RegionReport(regions, conflicts, failures, near_misses, tol, mode)
 
 
-def _near_misses(dangling, verts, edges, at_vertex, prims, types) -> List[NearMiss]:
+def _near_misses(dangling, verts, edges, at_vertex, prims, types,
+                 checkpoint=None) -> List[NearMiss]:
     """Nearest primitive within NEAR_MISS_FRACTION of each free end's primitive length.
 
     Only gaps roughly along the end's extension (within 60 degrees), or two
@@ -832,6 +906,8 @@ def _near_misses(dangling, verts, edges, at_vertex, prims, types) -> List[NearMi
     grid: Dict[Tuple[int, int], List[int]] = defaultdict(list)
     wide: List[int] = []
     for e, (u, v, _) in enumerate(real):
+        if checkpoint is not None and e % 256 == 0:
+            checkpoint()
         a, b = verts[u], verts[v]
         x0, x1 = sorted((math.floor(a[0] / cell), math.floor(b[0] / cell)))
         y0, y1 = sorted((math.floor(a[1] / cell), math.floor(b[1] / cell)))
@@ -856,6 +932,8 @@ def _near_misses(dangling, verts, edges, at_vertex, prims, types) -> List[NearMi
 
     found = []
     for k in dangling:
+        if checkpoint is not None:
+            checkpoint()
         e = edge_at[k][0]
         u, v, index = real[e]
         prim = prims[index]
@@ -865,12 +943,23 @@ def _near_misses(dangling, verts, edges, at_vertex, prims, types) -> List[NearMi
         radius = NEAR_MISS_FRACTION * lengths[e]
         p, t = verts[k], outward(e, k)
         skip = set(edge_at[k]) | set(edge_at[other_end])
-        candidates = set(wide)
-        for i in range(math.floor((p[0] - radius) / cell), math.floor((p[0] + radius) / cell) + 1):
-            for j in range(math.floor((p[1] - radius) / cell), math.floor((p[1] + radius) / cell) + 1):
-                candidates.update(grid.get((i, j), ()))
+        x0, x1 = math.floor((p[0] - radius) / cell), math.floor((p[0] + radius) / cell)
+        y0, y1 = math.floor((p[1] - radius) / cell), math.floor((p[1] + radius) / cell)
+        # A long free end among small primitives can cover billions of empty
+        # cells. Scanning the actual edges then costs less and remains exact.
+        if (x1 - x0 + 1) * (y1 - y0 + 1) > min(4096, 4 * len(real)):
+            candidates = range(len(real))
+        else:
+            candidates = set(wide)
+            for i in range(x0, x1 + 1):
+                for j in range(y0, y1 + 1):
+                    candidates.update(grid.get((i, j), ()))
         best = None
-        for c in candidates - skip:
+        for checked, c in enumerate(candidates):
+            if checkpoint is not None and checked % 256 == 0:
+                checkpoint()
+            if c in skip:
+                continue
             a_k, b_k, c_index = real[c]
             gap, q = _closest_on_segment(p, verts[a_k], verts[b_k])
             if gap > radius or gap <= 0.0 or (best is not None and gap >= best[0]):

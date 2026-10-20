@@ -30,7 +30,6 @@ DEFAULTS = {
     'far_grading': True,
     'dense_residual_storage': 'auto',
     'compressed_far_method': 'full',
-    'frequency_preconditioner': 'off',
 }
 # compressed_storage_mib 0 sizes compressed storage from the solve's RAM limit at run time.
 AUTOMATIC_STORAGE_MIB = 0
@@ -71,6 +70,13 @@ _ENV_FIELDS = {
 
 def validate_options(value):
     """Return a complete independent JSON record; reject unsupported values."""
+    # Older saved GUI profiles included this disabled experimental setting.
+    # Normalize those profiles, but never silently accept a request to reuse.
+    if isinstance(value, dict) and 'frequency_preconditioner' in value:
+        if value['frequency_preconditioner'] != 'off':
+            raise ValueError('Frequency preconditioner reuse has been removed. '
+                             'Remove frequency_preconditioner from execution settings.')
+        value = {key: item for key, item in value.items() if key != 'frequency_preconditioner'}
     if not isinstance(value, dict) or set(value) - set(DEFAULTS):
         raise ValueError('Execution settings must contain supported fields only.')
     result = dict(DEFAULTS)
@@ -89,8 +95,6 @@ def validate_options(value):
         raise ValueError('Dense residual storage must be auto, memory, or disk.')
     if result['compressed_far_method'] not in ('full', 'verified_cur'):
         raise ValueError('Compressed far method must be full or verified_cur (experimental).')
-    if result['frequency_preconditioner'] not in ('off', 'reuse'):
-        raise ValueError('Frequency preconditioner must be off or reuse (experimental).')
     storage = result['compressed_storage_mib']
     if type(storage) is not int or not (storage == AUTOMATIC_STORAGE_MIB or 16 <= storage <= 1048576):
         raise ValueError('compressed_storage_mib must be 0 for automatic or an integer from 16 to 1048576.')

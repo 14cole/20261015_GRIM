@@ -99,6 +99,74 @@ def _continuous_oriented_mesh(mesh):
     return LinearMesh(nodes=[nodes_by_key[key] for key in keys], elements=elements)
 
 
+def _midsurface_geometry(mesh):
+    """Qualify the fixed polygonal midsurface, independent of panel subdivision.
+
+    Straight runs represent geometry, whereas the panels within each run only
+    resolve the unknown fields. Joining roundoff-collinear neighbors recovers
+    those runs even when a line was authored as several primitives/segments or
+    subdivided unevenly by the mesher. No segment names or mesh provenance are
+    needed, so the direct mesh API uses the same qualification.
+
+    A finely faceted curve is an approximation to a smooth midsurface, not an
+    exactly smooth polygon. Use the existing faceting/hp corner convention to
+    exclude clearly sharp turns; the implied radius does not certify the
+    physical approximation or infer a rounding radius at a real corner.
+    """
+    from ghost_backend.twod.geometry import FACET_ADVISORY_MAX_TURN_DEG
+
+    at_node = {}
+    parents = list(range(len(mesh.elements)))
+    for index, element in enumerate(mesh.elements):
+        for node in element.node_ids:
+            at_node.setdefault(node, []).append(index)
+
+    def root(index):
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    turns = []
+    for connected in at_node.values():
+        if len(connected) > 2:
+            raise ValueError("Thin-layer branching junctions require explicit bulk geometry.")
+        if len(connected) != 2:
+            continue
+        ia, ib = connected
+        a, b = mesh.elements[ia], mesh.elements[ib]
+        cross = float(a.tangent[0] * b.tangent[1] - a.tangent[1] * b.tangent[0])
+        dot = float(np.dot(a.tangent, b.tangent))
+        turn = math.atan2(abs(cross), dot)
+        coordinate_scale = max(float(np.max(np.abs(a.p0))), float(np.max(np.abs(a.p1))),
+                               float(np.max(np.abs(b.p0))), float(np.max(np.abs(b.p1))))
+        # Interpolation of a straight primitive can change its unit tangent in
+        # the last bits. Bound the roundoff allowance so it cannot erase a
+        # geometrically meaningful turn on poorly translated tiny geometry.
+        roundoff = min(1.0e-7, 32 * np.finfo(float).eps *
+                       (1 + coordinate_scale / min(a.length, b.length)))
+        if turn <= roundoff:
+            parents[root(ia)] = root(ib)
+        else:
+            turns.append((ia, ib, turn))
+
+    lengths = np.zeros(len(mesh.elements))
+    for index, element in enumerate(mesh.elements):
+        lengths[root(index)] += element.length
+    maximum_turn = max((turn for _, _, turn in turns), default=0.0)
+    if maximum_turn > math.radians(FACET_ADVISORY_MAX_TURN_DEG) + 1.0e-12:
+        raise ValueError(
+            f"Thin-layer midsurface has a sharp/coarsely faceted turn "
+            f"({math.degrees(maximum_turn):.4g} degrees; supported smooth-curve "
+            f"faceting is at most {FACET_ADVISORY_MAX_TURN_DEG:g} degrees). "
+            "Use explicit bulk geometry for sharp corners; draw a curved "
+            "midsurface more finely if it represents a smooth surface."
+        )
+    max_curvature = max((turn / (0.5 * (lengths[root(ia)] + lengths[root(ib)]))
+                         for ia, ib, turn in turns), default=0.0)
+    return max_curvature, math.degrees(maximum_turn)
+
+
 @timed_stage("thin_layer_operators_and_solve")
 def solve_thin_layer_fields(mesh, k0, incidence_angles_deg, polarization,
                             epsilon, permeability, thickness_m, *,
@@ -129,18 +197,7 @@ def solve_thin_layer_fields(mesh, k0, incidence_angles_deg, polarization,
             raise ValueError('A thin-layer solve needs finite observation angles.')
 
 
-    at_node = {}
-    for element in mesh.elements:
-        for node in element.node_ids:
-            at_node.setdefault(mesh.nodes[node].key, []).append(element)
-    max_curvature = 0.0
-    for connected in at_node.values():
-        if len(connected) > 2:
-            raise ValueError("Thin-layer branching junctions require explicit bulk geometry.")
-        if len(connected) == 2:
-            a, b = connected
-            turn = math.acos(float(np.clip(np.dot(a.tangent, b.tangent), -1, 1)))
-            max_curvature = max(max_curvature, turn / (0.5 * (a.length + b.length)))
+    max_curvature, maximum_turn_deg = _midsurface_geometry(mesh)
     curvature_ratio = d * max_curvature
     if curvature_ratio > 0.05:
         raise ValueError("Thin-layer thickness/curvature radius exceeds 0.05; use explicit bulk geometry.")
@@ -159,12 +216,17 @@ def solve_thin_layer_fields(mesh, k0, incidence_angles_deg, polarization,
         'normal_polarization_terms': True,
         'thickness_m': d, 'electrical_thickness': electrical,
         'thickness_curvature_ratio': curvature_ratio,
+        'curvature_geometry': 'collinear_coalesced_midsurface',
+        'maximum_geometric_turn_deg': maximum_turn_deg,
+        'smooth_midsurface_assumed': True,
         'unknowns': 0 if zero_contrast else n if B == 0 else 2*n,
         'estimated_peak_gib': required,
         'zero_field_jump_eliminated': B == 0,
         'zero_contrast_eliminated': zero_contrast,
         'approximation_error_certified': False,
-        'limits': 'electrical thickness <= 0.15; thickness/radius <= 0.05; validate against bulk for application',
+        'limits': ('electrical thickness <= 0.15; thickness/implied radius <= 0.05; '
+                   'smooth midsurface with fine faceting assumed; '
+                   'validate against bulk for application'),
     }
     limit = rcs._solve_memory_limit_gb()
     if required > limit:

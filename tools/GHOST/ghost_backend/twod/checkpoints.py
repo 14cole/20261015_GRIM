@@ -247,8 +247,8 @@ def _retained_bytes(value, seen=None):
 def run_checkpointed(solve, arguments, directory, options, precision, certified,
                      *, solver_kind='2d', merge=None, frequency_workers=1):
     from ghost_backend.twod.preparation import preparation_scope, sweep_mesh_scope
-    # Direct API callers need the same run-owned workers, material snapshot,
-    # and bounded inverse cache as the desktop's outer preparation scope.
+    # Direct API callers need the same run-owned workers and material snapshot
+    # as the desktop's outer preparation scope.
     # Nested scopes share ownership; the outermost scope alone closes resources.
     with preparation_scope(), sweep_mesh_scope(arguments['frequencies_ghz']):
         return _run_checkpointed(solve, arguments, directory, options, precision,

@@ -1,8 +1,8 @@
 """Immutable-input preparation shared for the lifetime of a 2-D run.
 
 Material tables are captured once per run. Small resource forecasts are also
-shared. Run-owned workers and the optional bounded inverse cache are closed at
-scope exit; nothing is reused across independent runs.
+shared. Run-owned workers are closed at scope exit; nothing is reused across
+independent runs.
 
 The shared ``MaterialLibrary`` also accumulates the run-level union of
 warnings and information.  Each solve reports (and quality-gates) only the
@@ -149,10 +149,16 @@ def material_fingerprints(snapshot, base_dir):
     return fingerprints
 
 
-def prepare_geometry(snapshot, material_base_dir=None, units='inches', mode='2d'):
+def prepare_geometry(snapshot, material_base_dir=None, units='inches', mode='2d', checkpoint=None):
     # Import lazily to preserve the public solver's validation hooks. ``mode``
     # 'bor' closes meridians on the rotation axis in the region check.
     from ghost_backend.twod import solver
+    if checkpoint is None:
+        from ghost_backend.execution.cpu import current_state
+        owner = current_state()
+        checkpoint = owner.checkpoint if owner is not None else None
+    if checkpoint is not None:
+        checkpoint()
     state = _ACTIVE.get()
     base_dir = solver._material_base_dir_for_snapshot(snapshot, material_base_dir)
     scale = solver._unit_scale_to_meters(units)
@@ -172,7 +178,8 @@ def prepare_geometry(snapshot, material_base_dir=None, units='inches', mode='2d'
             state['materials'][material_key] = library
             state['fingerprints'][material_key] = fingerprints
     report = solver.validate_geometry_snapshot_for_solver(
-        snapshot, base_dir=base_dir, meters_scale=scale, material_library=library, mode=mode)
+        snapshot, base_dir=base_dir, meters_scale=scale, material_library=library, mode=mode,
+        checkpoint=checkpoint)
     result = (base_dir, report, library, float(scale))
     if state is not None:
         state['geometry'][geometry_key] = result

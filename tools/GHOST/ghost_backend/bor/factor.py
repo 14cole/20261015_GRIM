@@ -367,7 +367,7 @@ def compressed_storage_budget(options, workers):
 
 
 def compressed_factor(oracle, mode, monitor_cond, options, workers, checkpoint=None,
-                      recycling_key=None, recycling_frequency=None, exact_far_cache=False):
+                      exact_far_cache=False):
     from scipy.sparse.linalg import LinearOperator, onenormest
     from ghost_backend.compressed.operator import StreamedOperator
     from ghost_backend.compressed.factor import CompressedFactor
@@ -383,9 +383,7 @@ def compressed_factor(oracle, mode, monitor_cond, options, workers, checkpoint=N
     operator = timed_stage('modal_compressed_assembly')(StreamedOperator)(oracle, coordinates,
         tile=tile, budget=budget, checkpoint=checkpoint)
     factor = CompressedFactor(operator, label='BoR mode m={}'.format(mode), checkpoint=checkpoint,
-                              storage_budget_bytes=budget, check_precision=False,
-                              recycling_key=recycling_key, recycling_frequency=recycling_frequency,
-                              recycling_coordinate_units='Hz')
+                              storage_budget_bytes=budget, check_precision=False)
     factor.event['compression_tile_requested'] = options['compression_tile']
     factor.event['compression_tile'] = tile
     factor.event['refinement_steps'] = 0

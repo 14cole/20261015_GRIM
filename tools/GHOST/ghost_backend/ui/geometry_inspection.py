@@ -123,6 +123,8 @@ class GeometryInspectionMixin:
         return "in" if self.geometry_units() == "inches" else "m"
 
     def _inspection_units_changed(self, *_):
+        self._schedule_regions()
+        self._cancel_validation()
         self._update_geometry_axes()
         self._update_gap_label()
         self._render_gap()

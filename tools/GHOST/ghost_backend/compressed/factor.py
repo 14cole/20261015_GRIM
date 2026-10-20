@@ -27,8 +27,7 @@ COMPACT_PRECONDITIONER_TOLERANCE=1e-6
 
 class CompressedFactor:
     def __init__(self,operator,diagnostics=None,label='compressed system',evidence=None,checkpoint=None,
-                 storage_budget_bytes=None, check_precision=True, recycling_key=None,recycling_frequency=None,
-                 recycling_coordinate_units='rad/m', **kwargs):
+                 storage_budget_bytes=None, check_precision=True):
         from ghost_backend.compressed.runtime import storage_budget
         from ghost_backend.linalg.refined_lu import requested_precision
         if check_precision and requested_precision()!='double':raise ValueError('Compressed factorization requires double precision.')
@@ -37,45 +36,17 @@ class CompressedFactor:
         self.matrix_inf=max(float(np.max(operator.row_norm-operator.row_error)),0.)
         self.relative_residual=np.empty(0)
         self.factor=None;self.reported=0
-        self.recycling_key=recycling_key;self.frequency=recycling_frequency
-        self.recycling_coordinate_units=recycling_coordinate_units
-        self.original_frequency=recycling_frequency;self.recycled=False
         allowance = storage_budget() if storage_budget_bytes is None else int(storage_budget_bytes)
         self.budget=allowance-operator.bytes-getattr(operator,'reserved_partner_bytes',0)
         from ghost_backend.twod.assembly.polynomial_pair import retained_bytes as polynomial_retained_bytes
         self.budget-=polynomial_retained_bytes('compressed')
-        from ghost_backend.compressed.recycling import take,live_bytes,reserve_current_inverse
-        borrowed=take(recycling_key,recycling_frequency,self.budget,self.checkpoint) if recycling_key is not None else None
-        from ghost_backend.compressed.memory import inverse_storage
-        needed=borrowed[0].bytes if borrowed is not None else inverse_storage(operator.n)[0]
-        reserve_current_inverse(needed,self.budget)
-        self.budget-=live_bytes()
         if self.budget<=0:raise MemoryError('No compressed inverse storage remains.')
         self.event=dict(unknowns=operator.n,factorizations=0,rhs_batches=0,max_rhs_columns=0,
             max_backward_error=0.,max_relative_residual=0.,compressed=operator.evidence,
             preconditioners=[],gmres_columns=0,max_refinements=0,refinement_steps=0)
         if evidence is not None:evidence.append(self.event)
-        if borrowed is not None and borrowed[0].bytes<=self.budget and borrowed[0].n==operator.n:
-            self.factor,self.original_frequency=borrowed
-            self.tolerance=self.factor.tolerance;self.recycled=True
-            self.event['frequency_preconditioner']=dict(self._frequency_evidence(),reused=True)
-            self.event['preconditioners'].append(self.factor.evidence)
-        else:
-            borrowed=None
-            self._fresh_build()
-        borrowed=None
+        self._fresh_build()
         if diagnostics is not None:self._condition()
-
-    def _frequency_evidence(self):
-        event=dict(original_frequency_coordinate=self.original_frequency,
-                   current_frequency_coordinate=self.frequency,
-                   coordinate_units=self.recycling_coordinate_units)
-        if self.recycling_coordinate_units=='rad/m':
-            # Preserve the existing 2D field; BoR's frequency is measured in Hz.
-            event['original_wavenumber']=self.original_frequency
-        elif self.recycling_coordinate_units=='Hz':
-            event['original_frequency_hz']=self.original_frequency
-        return event
 
     def _fresh_build(self):
         rejected=False
@@ -95,7 +66,6 @@ class CompressedFactor:
     @timed_stage('factorization')
     def _build(self,tolerance):
         self.factor=None
-        self.recycled=False;self.original_frequency=self.frequency
         self.checkpoint()
         self.factor=CompressedSystem(self.a,self.a.coordinates,tolerance=tolerance,
             budget=self.budget,checkpoint=self.checkpoint,inverse_only=True)
@@ -134,7 +104,7 @@ class CompressedFactor:
                 self.event['max_refinements']=max(self.event['max_refinements'],step)
                 return x,-residual
             worst=float(np.max(errors))
-            if step==(2 if self.recycled else 9) or not np.isfinite(worst) or step>1 and worst>previous*1.2:break
+            if step==9 or not np.isfinite(worst) or step>1 and worst>previous*1.2:break
             previous=worst;x[:,bad]+=self.factor.apply(residual[:,bad],solve=True,trans=trans)
             self.event['refinement_steps']+=1
         self.event['gmres_columns']+=int(np.sum(bad))
@@ -152,7 +122,7 @@ class CompressedFactor:
         rejects the preconditioner. Callers still check the physical backward error.
         """
         n,count=b.shape
-        iteration_cap=min(8,GMRES_ITERATION_CAP) if self.recycled else GMRES_ITERATION_CAP
+        iteration_cap=GMRES_ITERATION_CAP
         x=np.array(x,complex,copy=True);iterations=0;previous=np.inf
         basis_storage=work_storage=None
         while True:
@@ -229,16 +199,13 @@ class CompressedFactor:
         if b.ndim!=2 or b.shape[0]!=len(self.a) or not b.shape[1] or not np.all(np.isfinite(b)):
             raise ValueError('Invalid compressed RHS.')
         failed=False
-        reused=self.recycled
         try:x,residual=self._refine(b,trans)
         except (HierarchicalRejected,np.linalg.LinAlgError,RuntimeWarning) as exc:
-            if self.tolerance<=2e-10 and not reused:raise
-            if reused:self.event['frequency_preconditioner']['rejected']=str(exc)
-            else:self.event['coarse_rejection']=str(exc)
+            if self.tolerance<=2e-10:raise
+            self.event['coarse_rejection']=str(exc)
             failed=True
         if failed:
-            if reused:self._fresh_build()
-            else:self._build(2e-10)
+            self._build(2e-10)
             x,residual=self._refine(b,trans)
         errors=self.physical_errors(x,b,residual,trans)
         if not np.all(np.isfinite(errors)) or np.max(errors)>limit:
@@ -250,19 +217,6 @@ class CompressedFactor:
         solution=x[:,0] if vector else x
         if return_residual:return solution,residual[:,0] if vector else residual
         return solution
-
-    def retain_preconditioner(self):
-        """Transfer the inverse only after the complete field solve succeeded."""
-        if self.recycling_key is None or self.factor is None:return
-        from ghost_backend.compressed.recycling import save,capacity_bytes
-        capacity=capacity_bytes()
-        if not capacity:return
-        event=self.event.setdefault('frequency_preconditioner',self._frequency_evidence())
-        event.update(cached=False,cache_capacity_bytes=capacity)
-        if save(self.recycling_key,self.original_frequency,self.factor):
-            event['cached']=True
-            event['cached_frequency_coordinate']=self.original_frequency
-            self.factor=None
 
     @timed_stage('condition_estimation')
     def _condition(self):

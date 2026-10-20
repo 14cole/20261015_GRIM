@@ -74,7 +74,7 @@ class HMatrixSystem(CompressedSystem):
             raise ValueError('Inverse and operator trees differ.')
         self.reserve(self.permutation.nbytes)
         from ghost_backend.execution.options import single_thread_blas
-        with single_thread_blas():
+        with single_thread_blas(), operator.product_scope():
             self.root = self.build(PreparedAccess(operator), self.permutation)
         self.evidence = dict(bytes=self.bytes, max_rank=max(self.ranks or [0]), leaves=self.leaves,
             accesses=operator.entries, oracle_calls=operator.calls, max_query_entries=operator.max_entries,
@@ -108,18 +108,13 @@ class HMatrixFactor(CompressedFactor):
 
     def _refresh_inverse_budget(self):
         from ghost_backend.twod.assembly.polynomial_pair import retained_bytes
-        from ghost_backend.compressed.recycling import live_bytes, reserve_current_inverse
-        from ghost_backend.compressed.memory import inverse_storage
-        available = (self.storage_allowance - self.a.bytes
+        self.budget = (self.storage_allowance - self.a.bytes
                      - getattr(self.a, 'reserved_partner_bytes', 0) - retained_bytes('compressed'))
-        reserve_current_inverse(inverse_storage(self.a.n)[0], available)
-        self.budget = available - live_bytes()
         if self.budget <= 0:
             raise MemoryError('No compressed inverse storage remains after the operator rebuild.')
 
     def _build(self, tolerance):
         self.factor = None
-        self.recycled = False; self.original_frequency = self.frequency
         self.checkpoint()
         self.factor = timed_stage('factorization')(HMatrixSystem)(self.a, self.a.coordinates, tolerance,
                                                                   self.budget, self.checkpoint)

@@ -51,15 +51,11 @@ def _solve_fields(mesh, matrix, k0, angles, rhs_builder, diagnostics, label,
     # next TM assembly consumes it. No second dense RAM matrix is needed.
     pending = session.pending if session is not None else None
     retained = pending is not None and isinstance(pending[1],tuple) and pending[1][0] is matrix
-    ownership = {} if compressed else dict(owned_matrix=True)
-    if compressed:
-        identity=getattr(matrix,'recycling_identity',None)
-        ownership=dict(recycling_key=(identity,label) if identity is not None else None,
-                       recycling_frequency=float(k0))
+    ownership = {} if compressed else dict(owned_matrix=True, force_double=state is not None,
+                                           coordinates=coordinates)
     try:
         factor = None if gpu else factor_class(matrix, diagnostics, label,
-            evidence=state.systems if state is not None else None, checkpoint=checkpoint,
-            force_double=state is not None, coordinates=coordinates, **ownership)
+            evidence=state.systems if state is not None else None, checkpoint=checkpoint, **ownership)
     except BaseException:
         if retained:
             session.pending = None
@@ -131,8 +127,6 @@ def _solve_fields(mesh, matrix, k0, angles, rhs_builder, diagnostics, label,
             loads.pop('monostatic', None)
         if retained and not completed:
             session.pending = None
-        if factor is not None and compressed and completed:
-            factor.retain_preconditioner()
         if factor is not None and not compressed:
             try:
                 if retained and completed:

@@ -259,8 +259,7 @@ def _clean_success(metadata,mode):
     if (adaptation.get('fallback') or adaptation.get('conservative_retry')
         or any(step.get('failed_backends') or step.get('backend')!=mode
                                         for step in adaptation.get('steps',[]))):return False
-    if any(event.get('coarse_rejection') or event.get('compact_preconditioner') or
-           event.get('frequency_preconditioner',{}).get('reused')
+    if any(event.get('coarse_rejection') or event.get('compact_preconditioner')
            for event in metadata.get('compressed_factors',[])):return False
     hierarchical=metadata.get('hierarchical_factors',[])
     if isinstance(hierarchical,dict):hierarchical=[event for rows in hierarchical.values() for event in rows]

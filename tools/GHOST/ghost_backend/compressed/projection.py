@@ -4,7 +4,6 @@ The caller supplies compatible trial/test spaces and retains ownership of the
 fine operator. This module neither assumes nested interpolation nodes nor
 discards the fine operator's coefficient-error evidence.
 """
-import hashlib
 import collections
 import contextvars
 import threading
@@ -28,10 +27,6 @@ class ProjectedOracle:
             raise ValueError('Prolongation must be finite with one nonempty column per coarse unknown.')
         self.n=self.p.shape[1];self.calls=self.entries=0
         self.plans={};self.lock=threading.Lock()
-        digest=hashlib.sha256()
-        for value in (self.p.indptr,self.p.indices,self.p.data):digest.update(value.tobytes())
-        previous=getattr(fine,'recycling_identity',None)
-        self.recycling_identity=(previous,digest.digest()) if previous is not None else None
 
     def prepare_groups(self,groups):
         # Each sparse embedding is shared by an entire tile row/column.

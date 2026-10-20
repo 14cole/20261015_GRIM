@@ -11,17 +11,20 @@ and columns, then recompressed by QR/SVD. No dense or full-tile matrix is
 formed: storage and coefficient work are proportional to the retained ranks.
 
 The approximation is not certified by a deterministic bound. Its error is
-measured: every leaf cluster contributes exactly evaluated sample rows, whose
+measured: spread leaf clusters contribute exactly evaluated sample rows (every
+leaf while the sample-storage cap permits), whose
 complete row error ``sum_j |A_ij - H_ij|`` is compared with the operator norm
 after assembly, and the same exact rows check every published solve's
 residual (``hmatrix_factor``).
 """
 import math
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import numpy as np
 import scipy.linalg as la
 from ghost_backend.linalg.hierarchical import spatial_order, HierarchicalRejected
 from ghost_backend.execution.metrics import timed_stage
+from ghost_backend.execution.runtime import ScopedValue
 
 # Unknowns from which the compressed backend assembles this operator instead
 # of evaluating every coefficient tile (see NUMERICAL_METHODS.md, "Hierarchical
@@ -37,7 +40,7 @@ ETA = 1.
 TOLERANCE = 1e-12
 # The measured relative row error after assembly must stay below this.
 OPERATOR_ERROR_LIMIT = 1e-11
-# Exact sample rows: at least this many, one per leaf, at most this many bytes.
+# Aim for at least this many exact rows and one per leaf, subject to the byte cap.
 SAMPLE_MIN_ROWS = 64
 SAMPLE_BYTES = 256 * 1024**2
 # The coefficient oracles cap one query at 16 MiB of 24-byte entries.
@@ -50,6 +53,53 @@ DENSE_LIST_ENTRIES = 1 << 20
 # Lists of one level compressed first to calibrate the level's rank guess.
 PILOT_LISTS = 8
 MAX_PASSES = 64
+# Combined adjoint-result allowance across all active workers, instead of a
+# complete tree's block contributions. One oversized row per worker may exceed
+# its share; each such output is at most one n-by-RHS complex array.
+ADJOINT_BATCH_BYTES = 16 * 1024**2
+_PRODUCT_EXECUTOR = ScopedValue('ghost_hmatrix_product_executor', default=None)
+
+
+class _ProductExecutor:
+    """One lazily started team owned by a product/factorization scope.
+
+    No executor is attached to the operator, so overlapping callers cannot
+    borrow or close each other's workers. Failed calls cancel queued work and
+    join running functions before exposing the error or reusing this team.
+    """
+    def __init__(self, operator, workers):
+        self.operator, self.workers, self.pool = operator, workers, None
+
+    def map(self, function, items):
+        from concurrent.futures import wait
+        if self.pool is None:
+            self.pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix='ghost-hmatrix')
+        futures = []
+        finished = False
+        try:
+            for item in items:
+                self.operator.checkpoint()
+                futures.append(self.pool.submit(function, item))
+            result = []
+            for future in futures:
+                while not future.done():
+                    self.operator.checkpoint()
+                    wait((future,), timeout=.05)
+                self.operator.checkpoint()
+                result.append(future.result())
+            finished = True
+            return result
+        finally:
+            if not finished:
+                for future in futures:
+                    future.cancel()
+                if futures:
+                    wait(futures)
+
+    def close(self):
+        if self.pool is not None:
+            self.pool.shutdown(wait=True)
+            self.pool = None
 
 
 class HMatrixRejected(HierarchicalRejected):
@@ -210,7 +260,8 @@ class BlockRow:
 
     @property
     def nbytes(self):
-        return self.u.nbytes + (0 if self.v is None else self.v.nbytes) + self.columns.nbytes
+        return (self.u.nbytes + (0 if self.v is None else self.v.nbytes)
+                + self.columns.nbytes + self.offsets.nbytes)
 
     @property
     def rank(self):
@@ -558,7 +609,11 @@ def _assemble(oracle, targets):
     for target in targets:
         target.near, target.far, target.dense_far = [], [], []
         target.dense_far_rows = 0
-        target._reserve(sum(a.nbytes for a in (target.order, target.position, target.coordinates)) + 64*len(tree.start))
+        # Count all persistent numeric geometry, near-tail and norm vectors.
+        # Tree order/position alias the operator's fields and are counted once.
+        target._reserve(target.coordinates.nbytes + target.radius.nbytes
+                        + sum(a.nbytes for a in vars(target.tree).values() if isinstance(a, np.ndarray))
+                        + 48*n)
     # Inadmissible blocks: exact coefficients, one query set per row cluster.
     plans = []
     for k in sorted(near, key=lambda c: tree.start[c]):
@@ -566,7 +621,7 @@ def _assemble(oracle, targets):
         ranges = _ranges(tree, near[k])
         columns = _range_ids(ranges)
         for target in targets:
-            target._reserve(16*(b - a)*len(columns) + 8*len(columns))
+            target._reserve(16*(b - a)*len(columns) + 8*len(columns) + 8*(len(ranges) + 1))
         plans.append((k, a, b, ranges, columns))
     def exact(plan, check):
         k, a, b, ranges, columns = plan
@@ -585,7 +640,7 @@ def _assemble(oracle, targets):
         count(queries)
     _run([lambda check, p=p: exact(p, check) for p in plans], store_near, checkpoint)
     near_entries = statistics['coefficients']
-    # Operator scales from exactly evaluated sample rows (one per leaf at least).
+    # Operator scales from exact sample rows, with capped leaf coverage recorded.
     _sample(oracle, targets, count)
     scales = [float(target.sample_norm.max()) for target in targets]
     if not all(scale > 0 for scale in scales):
@@ -674,14 +729,17 @@ def _sample(oracle, targets, count):
     leaves = np.flatnonzero(tree.left < 0)
     total = max(SAMPLE_MIN_ROWS, len(leaves))
     total = max(1, min(total, SAMPLE_BYTES // (16*n), n))
-    # One row near the middle of every leaf (strata), then random rows.
+    # One middle row per leaf when it fits; otherwise a spread leaf subset.
     middle = ((tree.start[leaves] + tree.stop[leaves])//2).astype(np.int64)
     middle = middle[_spread(total, len(middle))] if len(middle) > total else middle
     used = np.zeros(n, bool); used[middle] = True
     rows = np.sort(np.r_[middle, _fresh(used, total - len(middle), first.rng)]).astype(np.int64)
+    covered = len(np.unique(np.searchsorted(tree.stop[leaves], rows, side='right')))
     for target in targets:
-        target._reserve(16*len(rows)*n + 8*len(rows))
+        # Row ids, exact coefficients, tails, norms and measured row errors.
+        target._reserve(16*len(rows)*n + 32*len(rows))
         target.sample_rows = rows
+        target.sample_leaf_count, target.sampled_leaf_count = len(leaves), covered
         # Exact rows in permuted column order; the tail holds dropped-route bounds.
         target.sample_values = np.empty((len(rows), n), complex)
         target.sample_tail = np.zeros(len(rows))
@@ -740,7 +798,14 @@ def forecast_storage(coordinates, radius, wavenumber, leaf=None, eta=ETA):
         far_entries += min(rank*(m + w), m*w)
         top_lists.append((rank*(m + w), m, w, rank))
     samples = max(1, min(max(SAMPLE_MIN_ROWS, int(np.count_nonzero(tree.left < 0))), SAMPLE_BYTES // (16*n), n))
-    operator = 16*(near_entries + far_entries + samples*n) + 24*n*int(tree.level.max() + 2) + 64*len(tree.start)
+    lists = list(near.items()) + list(far.items())
+    metadata = (coordinates.nbytes + radius.nbytes
+                + sum(a.nbytes for a in vars(tree).values() if isinstance(a, np.ndarray))
+                + 48*n + 32*samples)
+    metadata += sum(8*sum(tree.size(b) for b in partners) + 8*(len(partners) + 1)
+                    for _, partners in lists)
+    metadata += 16*(len(lists) + len({int(a) for a, _ in lists}))
+    operator = 16*(near_entries + far_entries + samples*n) + metadata
     # Inverse (compressed.inverse tree): per node v12, v21, e1, e2 and a
     # 2r Woodbury LU; leaves keep LU factors of their diagonal blocks.
     inverse = peak = 0
@@ -796,13 +861,12 @@ class HMatrixOperator:
         self.n = int(oracle.n); self.shape = (self.n, self.n)
         self.coordinates = coordinates.copy()
         self.checkpoint = checkpoint or (lambda: None)
-        self.recycling_identity = getattr(oracle, 'recycling_identity', None)
         self.density = multiplicity(coordinates)
         self.leaf = leaf_size(coordinates) if leaf is None else int(leaf)
         self.eta, self.tolerance = float(eta), float(tolerance)
         self.ledger = ledger or _Ledger(budget)
         self.budget = self.ledger.budget
-        self.radius = np.zeros(self.n) if radius is None else np.asarray(radius, float)
+        self.radius = np.zeros(self.n) if radius is None else np.array(radius, float, copy=True)
         self.tree = ClusterTree(self.coordinates, self.radius, self.leaf)
         self.order, self.position = self.tree.order, self.tree.position
         self.seed = int(seed)
@@ -831,6 +895,10 @@ class HMatrixOperator:
             shared_query_targets=self.shared_query_targets,
             near_coefficients=near_entries, coefficient_fraction=self.fetch_entries/float(self.n)**2,
             sampled_rows=len(self.sample_rows), sampled_row_error=self.sampled_row_error,
+            sample_leaf_count=self.sample_leaf_count, sampled_leaf_count=self.sampled_leaf_count,
+            sampled_leaf_fraction=self.sampled_leaf_count/float(self.sample_leaf_count),
+            sample_coverage_limited=self.sampled_leaf_count < self.sample_leaf_count,
+            sample_row_storage_bytes=self.sample_values.nbytes, sample_row_storage_limit_bytes=SAMPLE_BYTES,
             operator_error_limit=OPERATOR_ERROR_LIMIT,
             error_semantics='measured on exactly evaluated sample rows; not a deterministic bound')
 
@@ -845,6 +913,8 @@ class HMatrixOperator:
             for row in rows:
                 clusters.setdefault(level, {}).setdefault(row.start, []).append(row)
         self.group_index = {}
+        self._reserve(16*(sum(len(rows) for rows in self.groups.values())
+                          + sum(len(rows) for rows in clusters.values())))
         for key, rows in self.groups.items():
             rows.sort(key=lambda r: r.start)
             self.group_index[key] = (np.asarray([r.start for r in rows]), np.asarray([r.stop for r in rows]), rows)
@@ -857,19 +927,9 @@ class HMatrixOperator:
 
     def _passes(self, function):
         """``function(row)`` for every block row: groups in a fixed order, rows of one group on threads."""
-        from ghost_backend.compressed.operator import _thread_budget
-        workers = min(8, _thread_budget())
-        for key in sorted(self.groups):
-            group = self.groups[key]
-            self.checkpoint()
-            if workers < 2 or len(group) < 2:
-                for row in group:
-                    function(row)
-                continue
-            from ghost_backend.execution.options import single_thread_blas
-            with single_thread_blas(), ThreadPoolExecutor(max_workers=workers, thread_name_prefix='ghost-hmatrix') as pool:
-                for _ in pool.map(function, group):
-                    pass
+        with self.product_scope():
+            for key in sorted(self.groups):
+                self._map(function, self.groups[key])
 
     def _absolute(self, row_scale=None):
         """Row sums/maxima and column sums/maxima of |H| (optionally row-scaled), one pass.
@@ -969,15 +1029,38 @@ class HMatrixOperator:
             return out
         def adj(a):
             return a.T if trans == 1 else a.conj().T
-        parts = {}
-        def visit(row):
-            y = x[row.start:row.stop]
-            parts[(row.kind, row.row)] = (row, adj(row.u) @ y if row.v is None else adj(row.v) @ (adj(row.u) @ y))
-        self._passes(visit)
-        for key in sorted(parts):
-            row, value = parts.pop(key)
-            for (a, b), offset in zip(row.ranges, row.offsets):
-                out[a:b] += value[offset:offset + b - a]
+        from ghost_backend.compressed.operator import _thread_budget
+        workers = min(8, _thread_budget())
+        batch_bytes = max(1, ADJOINT_BATCH_BYTES // workers)
+        rows = sorted(self.near + self.far + self.dense_far, key=lambda row: (row.kind, row.row))
+        chunks, chunk, size = [], [], 0
+        for row in rows:
+            required = 16*len(row.columns)*x.shape[1]
+            if chunk and size + required > batch_bytes:
+                chunks.append(chunk)
+                chunk, size = [], 0
+            chunk.append(row)
+            size += required
+        if chunk:
+            chunks.append(chunk)
+        def visit(batch):
+            values = []
+            for row in batch:
+                self.checkpoint()
+                y = x[row.start:row.stop]
+                values.append(adj(row.u) @ y if row.v is None else adj(row.v) @ (adj(row.u) @ y))
+            return values
+        # Batches keep BLAS jobs coarse enough to amortize dispatch. At most
+        # one batch per worker is retained, reduced in the original order.
+        with self.product_scope():
+            for start in range(0, len(chunks), workers):
+                wave = chunks[start:start + workers]
+                results = self._map(visit, wave)
+                for batch, values in zip(wave, results):
+                    for row, value in zip(batch, values):
+                        for (a, b), offset in zip(row.ranges, row.offsets):
+                            out[a:b] += value[offset:offset + b - a]
+                del results, values, value
         return out
 
     def _blocks(self, positions):
@@ -1092,16 +1175,40 @@ class HMatrixOperator:
                     out[a:b] += value
         return out
 
+    @contextmanager
+    def product_scope(self):
+        """Reuse one thread team for nested products; always join on exit."""
+        from ghost_backend.compressed.operator import _thread_budget
+        workers = min(8, _thread_budget())
+        previous = _PRODUCT_EXECUTOR.get()
+        if previous is not None and previous.operator is self and previous.workers <= workers:
+            yield previous
+            return
+        owner = _ProductExecutor(self, workers)
+        from contextlib import ExitStack
+        from ghost_backend.execution.options import single_thread_blas
+        with ExitStack() as scope:
+            if workers > 1:
+                scope.enter_context(single_thread_blas())
+            scope.enter_context(_PRODUCT_EXECUTOR.override(owner))
+            try:
+                yield owner
+            finally:
+                owner.close()
+
     def _map(self, function, items):
         """Ordered results of ``function`` over items with disjoint outputs, on threads when large."""
         from ghost_backend.compressed.operator import _thread_budget
         workers = min(8, _thread_budget(), len(items))
         self.checkpoint()
         if workers < 2:
-            return [function(item) for item in items]
-        from ghost_backend.execution.options import single_thread_blas
-        with single_thread_blas(), ThreadPoolExecutor(max_workers=workers, thread_name_prefix='ghost-hmatrix') as pool:
-            return list(pool.map(function, items))
+            result = []
+            for item in items:
+                self.checkpoint()
+                result.append(function(item))
+            return result
+        with self.product_scope() as executor:
+            return executor.map(function, items)
 
     def equilibrate(self):
         row = np.where(self.row_max > 0, self.row_max, 1.)

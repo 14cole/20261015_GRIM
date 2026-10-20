@@ -26,13 +26,17 @@ def _parse_mesh_n_token(token: 'Any') -> 'int':
 
 
 class GeometryAudit:
-    def __init__(self, segments, ibcs, dielectrics, material_dir, checkpoint=None, mode="2d"):
+    def __init__(self, segments, ibcs, dielectrics, material_dir, checkpoint=None, mode="2d",
+                 meters_scale=1.0):
         self.segments = segments
         self.ibcs = ibcs
         self.dielectrics = dielectrics
         self.material_dir = material_dir
         self.checkpoint = checkpoint or (lambda: None)
         self.mode = str(mode).strip().lower()
+        self.meters_scale = float(meters_scale)
+        if not math.isfinite(self.meters_scale) or self.meters_scale <= 0.0:
+            raise ValueError("meters_scale must be positive and finite.")
         kinds = {self._parse_int_token(seg.properties[0], -1) if seg.properties else -1
                  for seg in self.segments}
         self._bor_sheet_layout = self.mode == "bor" and kinds in ({1}, {1, 2})
@@ -257,7 +261,8 @@ class GeometryAudit:
             analyze_regions, merge_orientation_findings, primitives_from_editor_segments)
         self.checkpoint()
         report = analyze_regions(primitives_from_editor_segments(self.segments, mode=self.mode),
-                                 mode=self.mode, tol=tol, axis_tol=axis_tol)
+                                 mode=self.mode, tol=tol, axis_tol=axis_tol,
+                                 checkpoint=self.checkpoint)
         self.checkpoint()
         for failure in report.closure_failures:
             if not failure.dangling and any(
@@ -296,7 +301,7 @@ class GeometryAudit:
                 _reject_unsupported_bor_ibc_interfaces,
             )
             _reject_unsupported_bor_ibc_interfaces(snapshot)
-            chains = _chains_from_snapshot(snapshot, 1.0)
+            chains = _chains_from_snapshot(snapshot, self.meters_scale)
             kind = _classify(chains)
             import numpy as np
             from ghost_backend.bor.solver import _validate_solve_bor_generatrix
@@ -395,12 +400,13 @@ class GeometryAudit:
                       for i in (0, 2)]
         xs, ys = ([point[0] for point in all_points],
                   [point[1] for point in all_points])
-        span = max(max(xs)-min(xs), max(ys)-min(ys), 1e-9) if all_points else 1.0
         diag = max(math.hypot(max(xs)-min(xs), max(ys)-min(ys)), 1.0) if all_points else 1.0
         # Match solver topology tolerance, not a display-sized clearance.
         # The previous 1e-6*diagonal weld merged distinct thin-layer vertices.
-        tol = max(1e-12, 1e-9 * (span if self.mode == "bor" else diag))
-        axis_tol = 1e-6 * span
+        tol = (1e-9 / self.meters_scale if self.mode == "bor"
+               else max(1e-12, 1e-9 * diag))
+        from ghost_backend.geometry.regions import numerical_bor_axis_tolerance
+        axis_tol = numerical_bor_axis_tolerance(all_points, self.meters_scale)
         endpoint_records = [(row, pidx, end)
                             for row, primitives in enumerate(primitives_by_row)
                             for pidx in range(len(primitives)) for end in (0, 1)]

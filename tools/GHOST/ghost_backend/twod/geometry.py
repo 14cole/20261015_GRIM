@@ -251,6 +251,8 @@ class MaterialLibrary:
         impedance_models: 'Dict[int, Union[complex, ComplexTable]]',
         dielectric_models: 'Dict[int, Union[Tuple[complex, complex], MediumTable]]',
     ):
+        for flag in dielectric_models:
+            _validate_dielectric_region_flag(flag)
         self.impedance_models = impedance_models
         self.dielectric_models = dielectric_models
         self.warnings: 'List[str]' = []
@@ -317,6 +319,7 @@ class MaterialLibrary:
             flag = _parse_material_definition_flag(
                 row[0], "Dielectric material definition flag"
             )
+            _validate_dielectric_region_flag(flag)
             if flag in seen_dielectric_flags:
                 raise ValueError(f"Duplicate dielectric material flag {flag}.")
             seen_dielectric_flags.add(flag)
@@ -493,6 +496,15 @@ def _parse_material_definition_flag(token: 'Any', context: 'str') -> 'int':
             f"{context} must be a positive integer; got {token!r}."
         )
     return value
+
+
+def _validate_dielectric_region_flag(flag: 'int') -> 'None':
+    """Keep user media disjoint from solver-owned virtual sheet regions."""
+    if flag >= VIRTUAL_SHEET_REGION_START:
+        raise ValueError(
+            f"Dielectric flag {flag} is reserved for virtual sheet regions. "
+            f"Use a dielectric flag from 1 to {VIRTUAL_SHEET_REGION_START - 1}."
+        )
 
 def _ensure_finite_complex(value: 'complex', context: 'str') -> 'complex':
     z = complex(value)
@@ -1247,6 +1259,7 @@ def _check_segment_orientation_or_raise(
     meters_scale: 'float' = 1.0,
     mode: 'str' = "2d",
     regions: 'bool' = True,
+    checkpoint=None,
 ):
     """
     Run the shared winding / air-side consistency checks (geometry_io) and
@@ -1302,6 +1315,7 @@ def _check_segment_orientation_or_raise(
     report = analyze_regions(
         primitives_from_snapshot_segments(segments, mode=mode),
         mode=mode, tol=NODE_WELD_TOLERANCE_M / meters_scale,
+        meters_scale=meters_scale, checkpoint=checkpoint,
     ) if regions else None
     old_errors = [msg for severity, _idx, msg in findings if severity == "ERROR"]
     merged = merge_orientation_findings(findings, report) if report is not None else findings
@@ -1313,7 +1327,7 @@ def _check_segment_orientation_or_raise(
     return report
 
 
-def check_bor_regions_or_raise(segments, meters_scale: 'float' = 1.0) -> 'None':
+def check_bor_regions_or_raise(segments, meters_scale: 'float' = 1.0, checkpoint=None) -> 'None':
     """Whole-meridian material-region check, closed by the rotation axis (BoR).
 
     Run by the BoR dispatcher after `_prepare_bor_groups`, so a layout error
@@ -1325,7 +1339,8 @@ def check_bor_regions_or_raise(segments, meters_scale: 'float' = 1.0) -> 'None':
     from ghost_backend.geometry.regions import analyze_regions, primitives_from_snapshot_segments
 
     report = analyze_regions(primitives_from_snapshot_segments(segments, mode="bor"), mode="bor",
-                             tol=NODE_WELD_TOLERANCE_M / float(meters_scale))
+                             tol=NODE_WELD_TOLERANCE_M / float(meters_scale),
+                             meters_scale=meters_scale, checkpoint=checkpoint)
     errors = report.errors()
     if errors:
         raise ValueError("BoR material-region check failed:\n  - " + "\n  - ".join(errors))
@@ -1469,6 +1484,7 @@ def validate_geometry_snapshot_for_solver(
     meters_scale: 'float' = 1.0,
     material_library: 'Optional[MaterialLibrary]' = None,
     mode: 'str' = "2d",
+    checkpoint=None,
 ) -> 'Dict[str, Any]':
     """
     Strict solver-side preflight for geometry/material consistency.
@@ -1508,6 +1524,8 @@ def validate_geometry_snapshot_for_solver(
         )
         for idx, row in enumerate(diel_rows)
     }
+    for flag in diel_flags:
+        _validate_dielectric_region_flag(flag)
 
 
     if material_library is None:
@@ -1519,6 +1537,8 @@ def validate_geometry_snapshot_for_solver(
     chain_discontinuities: 'List[Tuple[str, int]]' = []
 
     for seg_idx, seg in enumerate(segments):
+        if checkpoint is not None:
+            checkpoint()
         props = list(seg.get('properties', []) or [])
 
 
@@ -1710,9 +1730,7 @@ def validate_geometry_snapshot_for_solver(
     def local_tolerance(*features: 'float') -> 'float':
         return min(tol, proximity_fraction * min(features))
 
-    # Check welded identity independently of raw bounding boxes. Endpoints
-    # on opposite sides of an earlier weld anchor can share its key while
-    # being nearly twice the weld tolerance apart from each other.
+    # Check welded endpoint identity before spatial pruning.
     joined = {}
     for i, keys in enumerate(primitive_keys):
         edge = frozenset(keys)
@@ -1726,10 +1744,15 @@ def validate_geometry_snapshot_for_solver(
             )
         joined[edge] = i
     vertex_keys = list(vertex_point)
-    from ghost_backend.geometry.spatial import overlapping_pairs
-    endpoint_bounds = [(vertex_point[key][0], vertex_point[key][0],
-                        vertex_point[key][1], vertex_point[key][1]) for key in vertex_keys]
-    for i, j in overlapping_pairs(endpoint_bounds, tol):
+    from ghost_backend.geometry.spatial import overlapping_pairs, point_proximity_pairs
+    # Apply each endpoint's local feature scale before the broad-phase search.
+    # A global drawing tolerance otherwise creates many irrelevant candidates
+    # around thin features, even though the exact predicate rejects them.
+    endpoint_candidates = point_proximity_pairs(
+        (vertex_point[key] for key in vertex_keys),
+        (local_tolerance(vertex_feature[key]) for key in vertex_keys),
+        checkpoint=checkpoint)
+    for i, j in endpoint_candidates:
         key_i, key_j = vertex_keys[i], vertex_keys[j]
         px, py = vertex_point[key_i]
         qx, qy = vertex_point[key_j]
@@ -1762,7 +1785,7 @@ def validate_geometry_snapshot_for_solver(
             min(float(p1[1]), float(p2[1])),
             max(float(p1[1]), float(p2[1])),
         ))
-    for i, j in overlapping_pairs(primitive_bounds, snap_tol_m):
+    for i, j in overlapping_pairs(primitive_bounds, snap_tol_m, checkpoint=checkpoint):
         seg_i, prim_i, name_i, a1, a2 = primitives[i]
         seg_j, prim_j, name_j, b1, b2 = primitives[j]
         shared = None
@@ -1810,7 +1833,7 @@ def validate_geometry_snapshot_for_solver(
 
 
     region_report = _check_segment_orientation_or_raise(
-        segments, meters_scale, mode, regions=mode == "2d")
+        segments, meters_scale, mode, regions=mode == "2d", checkpoint=checkpoint)
     if mode == "2d":
         for miss in region_report.near_misses_of_type(2):
             warnings.append(
@@ -1848,6 +1871,8 @@ SURFACE_WAVE_MIN_SAMPLES_PER_WAVELENGTH = (
     float(DEFAULT_PANELS_PER_WAVELENGTH) / (1.0 + PANEL_COUNT_CEIL_TOLERANCE))
 # A tapered law is sampled at this many points along its segment.
 SURFACE_WAVE_TAPER_SAMPLES = 9
+# Transmitting sheets have their own dispersion, distinct from opaque IBCs.
+_SURFACE_WAVE_TYPES = (1, 2, 4)
 
 
 def _bound_surface_wave_index(
@@ -1855,14 +1880,24 @@ def _bound_surface_wave_index(
     eps_medium: 'complex' = 1.0 + 0.0j,
     mu_medium: 'complex' = 1.0 + 0.0j,
     polarization=None,
+    *,
+    transmitting_sheet=False,
 ) -> 'float':
     """Phase index (against free space) of the wave bound to a flat impedance surface.
 
     Under exp(+j*omega*t) the field above the surface varies as
     exp(-j*beta*x - kappa*y). The Robin laws of ``_surface_robin_alpha`` give
-    kappa/k = -j*Zs/eta (TE) and -j*eta/Zs (TM), and beta/k = sqrt(1 +
-    (kappa/k)^2). A wave counts when it is bound (Re kappa > 0) and propagates
-    (its attenuation per radian is below one, |Im beta| <= Re beta); the larger
+    kappa/k0 = -j*eps*Zs/ETA0 (TE) and -j*ETA0*mu/Zs (TM). Evaluate decay
+    and propagation in physical units: multiplying a normalized decay by a
+    complex or negative medium index can change which waves are bound.
+
+    TYPE 1's two-sided sheet equations have symbols S=-1/(2*kappa) and
+    W=-kappa/2. With the mass terms in formulations/sheet.py these instead
+    give kappa/k0=-2j*Zs/ETA0 (TE), -j*ETA0/(2*Zs) (TM), in air. These
+    factors must not be reused for opaque boundaries or thin-layer models.
+
+    A wave counts when it is bound (Re kappa > 0) and propagates
+    (its attenuation per radian is below one, |Im beta| <= |Re beta|); the larger
     of the two polarizations is returned unless one is selected, 0 when the
     selected polarization does not guide a wave.
     """
@@ -1870,27 +1905,30 @@ def _bound_surface_wave_index(
     z = complex(z_surface)
     if abs(z) <= EPS:
         return 0.0
-    n_medium = _causal_medium_index(eps_medium, mu_medium)
-    eta_medium = _medium_eta(eps_medium, mu_medium)
+    eps, mu = _validate_passive_medium(eps_medium, mu_medium, "Surface-wave medium")
+    if transmitting_sheet and (eps != 1.0 or mu != 1.0):
+        raise ValueError("The transmitting impedance sheet law requires air on both sides.")
     best = 0.0
-    ratios = {'TE': z / eta_medium, 'TM': eta_medium / z}
-    selected = ratios.values() if polarization is None else (ratios[str(polarization).upper()],)
-    for ratio in selected:
-        kappa = -1j * ratio
+    decay = {'TE': -1j * eps * z / ETA0, 'TM': -1j * ETA0 * mu / z}
+    if transmitting_sheet:
+        decay['TE'] *= 2.0
+        decay['TM'] *= 0.5
+    selected = decay.values() if polarization is None else (decay[str(polarization).upper()],)
+    for kappa in selected:
         if kappa.real <= 0.0:
             continue
-        beta = cmath.sqrt(1.0 - ratio * ratio)
-        if abs(beta.imag) > beta.real:
+        beta = cmath.sqrt(eps * mu + kappa * kappa)
+        if abs(beta.imag) > abs(beta.real):
             continue
-        best = max(best, float(abs((n_medium * beta).real)))
+        best = max(best, float(abs(beta.real)))
     return best
 
 
 def _segment_surface_wave_index(materials, seg_type: 'int', ibc_flag: 'int',
                                 pos_mat: 'int', freq_ghz: 'float', polarization=None) -> 'float':
-    """Largest bound-wave index of an opaque conductor segment's law at one frequency."""
+    """Largest bound-wave index of a supported impedance law at one frequency."""
 
-    if seg_type not in _OPAQUE_CONDUCTOR_TYPES or ibc_flag <= 0:
+    if seg_type not in _SURFACE_WAVE_TYPES or ibc_flag <= 0:
         return 0.0
     model = materials.impedance_models.get(ibc_flag)
     if model is None or isinstance(model, ThinLayerDefinition):
@@ -1905,14 +1943,15 @@ def _segment_surface_wave_index(materials, seg_type: 'int', ibc_flag: 'int',
         values = [materials.get_impedance(ibc_flag, freq_ghz, arc_s=float(s)) for s in positions]
     except ValueError:
         return 0.0      # an unevaluable law or medium: the field solve reports it
-    return max(_bound_surface_wave_index(z, eps, mu, polarization) for z in values)
+    return max(_bound_surface_wave_index(z, eps, mu, polarization,
+               transmitting_sheet=seg_type == 1) for z in values)
 
 
 def _surface_wave_mesh_wavelength(material_wavelength: 'float', materials, seg_type: 'int',
                                   ibc_flag: 'int', pos_mat: 'int', frequencies) -> 'float':
     """Mesh wavelength of a segment: its material wavelength or its bound surface wavelength."""
 
-    if materials is None or not frequencies or seg_type not in _OPAQUE_CONDUCTOR_TYPES or ibc_flag <= 0:
+    if materials is None or not frequencies or seg_type not in _SURFACE_WAVE_TYPES or ibc_flag <= 0:
         return material_wavelength
     shortest = material_wavelength
     for freq_ghz in frequencies:
@@ -1934,7 +1973,7 @@ def _surface_wave_sampling(mesh, materials, freq_ghz, polarization):
     """
     groups = {}
     for element in mesh.elements:
-        if element.seg_type not in _OPAQUE_CONDUCTOR_TYPES or element.ibc_flag <= 0:
+        if element.seg_type not in _SURFACE_WAVE_TYPES or element.ibc_flag <= 0:
             continue
         key = (element.name, element.seg_type, element.ibc_flag, element.pos_mat)
         group = groups.setdefault(key, [0., []])
@@ -1947,7 +1986,8 @@ def _surface_wave_sampling(mesh, materials, freq_ghz, polarization):
         if positions:
             eps, mu = materials.get_medium(medium, freq_ghz) if kind == 4 else (1., 1.)
             index = max(index, max(_bound_surface_wave_index(
-                materials.get_impedance(flag, freq_ghz, arc_s=float(s)), eps, mu, polarization)
+                materials.get_impedance(flag, freq_ghz, arc_s=float(s)), eps, mu, polarization,
+                transmitting_sheet=kind == 1)
                 for s in positions))
         if index <= 0.0:
             continue
@@ -2465,61 +2505,39 @@ def _linear_node_snap_key(xy: 'np.ndarray', tol: 'float' = 1.0e-9) -> 'Tuple[int
     return (int(round(float(xy[0]) * scale)), int(round(float(xy[1]) * scale)))
 
 
-# Distinct vertices closer than this are one mesh node. Validation calls such
-# endpoints connected (its crack scan and chain-continuity test use the same
-# distance), so the mesher must never split them.
+# A welded cluster's diameter cannot exceed this distance. The same rule
+# serves material-region validation and every endpoint mesh builder.
 NODE_WELD_TOLERANCE_M = 1.0e-9
 
 
 class _NodeWelder:
-    """Tolerance-based vertex identity for the mesh builders.
+    """Diameter-bounded vertex identity with stable ordinary mesh keys.
 
-    ``key(xy)`` returns the snap key of the node a point belongs to. A point
-    joins the first registered node that shares its rounded snap key (the
-    historical grid identity, so meshes without near-coincident vertices are
-    numbered exactly as before) or that lies within ``tol`` of it (Euclidean),
-    and otherwise opens a new node keyed by its own snap key. A fixed rounding
-    grid alone splits two copies of one vertex that are 1e-12 m apart but
-    straddle a grid line, meshing a closed contour as an open one.
+    Rounded keys label clusters; they do not decide whether points coincide.
+    A rare second cluster in the same rounded cell gets a distinct label.
     """
 
     def __init__(self, tol: 'float' = NODE_WELD_TOLERANCE_M) -> 'None':
+        from ghost_backend.geometry.regions import PointWelder
         self.tol = float(tol)
-        self._cell = 2.0 * max(self.tol, EPS)
-        self._alias: 'Dict[Tuple[int, int], Tuple[int, int]]' = {}
-        self._grid: 'Dict[Tuple[int, int], List[Tuple[float, float, Tuple[int, int]]]]' = {}
-
-    def _nearest(self, x: 'float', y: 'float') -> 'Optional[Tuple[int, int]]':
-        cx, cy = math.floor(x / self._cell), math.floor(y / self._cell)
-        best = None
-        for i in (cx - 1, cx, cx + 1):
-            for j in (cy - 1, cy, cy + 1):
-                for px, py, key in self._grid.get((i, j), ()):
-                    distance = math.hypot(px - x, py - y)
-                    if distance <= self.tol and (best is None or distance < best[0]):
-                        best = (distance, key)
-        return None if best is None else best[1]
+        self._welder = PointWelder(self.tol)
+        self._keys: 'List[Tuple[int, int]]' = []
+        self._used: 'Dict[Tuple[int, int], None]' = {}
 
     def lookup(self, xy) -> 'Optional[Tuple[int, int]]':
         """Key of the registered node this point belongs to, without registering it."""
-        known = self._alias.get(_linear_node_snap_key(xy, self.tol))
-        if known is not None:
-            return known
-        return self._nearest(float(xy[0]), float(xy[1]))
+        cluster = self._welder.lookup(xy)
+        return None if cluster is None else self._keys[cluster]
 
     def key(self, xy) -> 'Tuple[int, int]':
-        raw = _linear_node_snap_key(xy, self.tol)
-        known = self._alias.get(raw)
-        if known is not None:
-            return known
-        x, y = float(xy[0]), float(xy[1])
-        near = self._nearest(x, y)
-        canonical = raw if near is None else near
-        self._alias[raw] = canonical
-        self._grid.setdefault(
-            (math.floor(x / self._cell), math.floor(y / self._cell)), []
-        ).append((x, y, canonical))
-        return canonical
+        cluster = self._welder.key(xy)
+        if cluster == len(self._keys):
+            canonical = _linear_node_snap_key(xy, self.tol)
+            while canonical in self._used:
+                canonical = (canonical[0], canonical[1] + 1)
+            self._keys.append(canonical)
+            self._used[canonical] = None
+        return self._keys[cluster]
 
 
 class _JunctionVertices(set):
@@ -2571,6 +2589,9 @@ def _build_linear_mesh(
     for pidx, panel in enumerate(panels):
         n0 = get_node_id(panel.p0)
         n1 = get_node_id(panel.p1)
+        if n0 == n1:
+            raise ValueError(f"Panel '{panel.name}' collapses to one mesh node at the "
+                             f"{node_snap_tol:g} m welding tolerance; remove or merge it.")
         elements.append(
             LinearElement(
                 name=panel.name,
@@ -2723,6 +2744,9 @@ def _build_linear_mesh_interface_aware(
             sig = (sig[0], 0) + sig[2:4] + regions + sig[6:]
         n0 = get_node_id(panel.p0, sig)
         n1 = get_node_id(panel.p1, sig)
+        if n0 == n1:
+            raise ValueError(f"Panel '{panel.name}' collapses to one mesh node at the "
+                             f"{node_snap_tol:g} m welding tolerance; remove or merge it.")
         elements.append(
             LinearElement(
                 name=panel.name,

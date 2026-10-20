@@ -219,12 +219,10 @@ def forecast(n, d, count, batch, threads, storage_limit, resources=None, safety=
     moment_cache = resources.get('moment_cache_bytes', MOMENT_CACHE_BYTES if resources.get('basis_width', 2) > 2 else 0)
     from ghost_backend.compressed.pilots import CACHE_BYTES as PILOT_BYTES
     from ghost_backend.compressed.worker_pool import forecast_bytes
-    from ghost_backend.compressed.recycling import capacity_bytes
     worker_bytes = forecast_bytes(d, threads, groups=groups)
-    recycle_bytes = capacity_bytes()
     from ghost_backend.twod.assembly.polynomial_pair import retained_bytes as polynomial_retained_bytes
     polynomial_bytes=polynomial_retained_bytes('compressed')
-    overhead = 128*MIB + 6144*n + count*4096 + tile_metadata + moment_cache + PILOT_BYTES + worker_bytes + recycle_bytes + polynomial_bytes
+    overhead = 128*MIB + 6144*n + count*4096 + tile_metadata + moment_cache + PILOT_BYTES + worker_bytes + polynomial_bytes
 
     from ghost_backend.twod.operators import _ASSEMBLY_TILE
     from ghost_backend.execution.options import option
@@ -250,7 +248,6 @@ def forecast(n, d, count, batch, threads, storage_limit, resources=None, safety=
         process_geometry_bytes=int(overhead), rhs_workspace_bytes=int(solve_work),
         projection_cache_bytes=PROJECTION_CACHE_BYTES,
         retained_worker_allowance_bytes=worker_bytes,
-        frequency_preconditioner_cache_bytes=recycle_bytes,
         retained_polynomial_operator_bytes=polynomial_bytes,
         moment_cache_bytes=moment_cache,
         assembly_workspace_bytes=int(assembly_work),
@@ -274,8 +271,7 @@ def hmatrix_forecast(n, d, count, batch, threads, resources, model, floor_gb=0.)
     resident = 2*operator if 2*operator + inverse <= limit else operator
     from ghost_backend.twod.polynomial_quadrature import MOMENT_CACHE_BYTES
     moment_cache = resources.get('moment_cache_bytes', MOMENT_CACHE_BYTES if resources.get('basis_width', 2) > 2 else 0)
-    from ghost_backend.compressed.recycling import capacity_bytes
-    overhead = 128*MIB + 6144*n + count*4096 + moment_cache + capacity_bytes()
+    overhead = 128*MIB + 6144*n + count*4096 + moment_cache
     from ghost_backend.twod.assembly.kernels import PROJECTION_CACHE_BYTES
     solve_work = 32*MIB + 16*12*d*batch
     phases = dict(assembly=resident + (resident//operator)*model['assembly_workspace_bytes'] + overhead,

@@ -1672,7 +1672,7 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
             self._region_timer.start()
 
     def _region_signature(self):
-        return (self.geometry_mode(), tuple(
+        return (self.geometry_mode(), self.geometry_units(), tuple(
             (seg.name, tuple(self._ensure_prop_len(seg.properties, 5)), tuple(seg.x), tuple(seg.y))
             for seg in self.segments))
 
@@ -1682,8 +1682,11 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
         key = self._region_signature()
         if key != self._region_key:
             mode = self.geometry_mode()
+            meters_scale = .0254 if self.geometry_units() == "inches" else 1.0
             self._region_report = analyze_regions(
-                primitives_from_editor_segments(self.segments, mode=mode), mode=mode)
+                primitives_from_editor_segments(self.segments, mode=mode), mode=mode,
+                tol=1e-9 / meters_scale if mode == "bor" else None,
+                meters_scale=meters_scale)
             self._region_key = key
         return self._region_report
 
@@ -2186,7 +2189,8 @@ class GeometryTab(GeometryInspectionMixin, QWidget):
         worker = _GeometryValidationWorker()
         worker.audit = GeometryAudit(copy.deepcopy(self.segments),
             self._read_small_table(self.table_ibc), self._read_small_table(self.table_diel),
-            material_dir, worker.checkpoint, mode=self.geometry_mode())
+            material_dir, worker.checkpoint, mode=self.geometry_mode(),
+            meters_scale=.0254 if self.geometry_units() == "inches" else 1.0)
         worker.version = self._validation_version
         self._validation_worker = worker
         worker.ready.connect(self._validation_ready)

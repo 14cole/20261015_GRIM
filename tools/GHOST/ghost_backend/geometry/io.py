@@ -621,10 +621,13 @@ def _chain_is_closed(points: 'List[Tuple[float, float]]', tol: 'float') -> 'bool
 
 
 def _chain_area2(points: 'List[Tuple[float, float]]') -> 'float':
-    area2 = 0.0
-    for (x0, y0), (x1, y1) in zip(points[:-1], points[1:]):
-        area2 += x0 * y1 - x1 * y0
-    return area2
+    if not points:
+        return 0.0
+    # Translation must not change winding. Products of absolute coordinates
+    # lose a small body's area when an imported drawing has a large offset.
+    ox, oy = points[0]
+    return math.fsum((x0 - ox) * (y1 - oy) - (x1 - ox) * (y0 - oy)
+                     for (x0, y0), (x1, y1) in zip(points[:-1], points[1:]))
 
 
 def _point_in_polygon(px: 'float', py: 'float', poly: 'List[Tuple[float, float]]') -> 'bool':
@@ -696,28 +699,10 @@ def _revisited_vertex(points: 'List[Tuple[float, float]]', tol: 'float') -> 'Opt
 
 
 def _weld_point_keys(points: 'List[Tuple[float, float]]', tol: 'float') -> 'List[int]':
-    """Cluster ids for points, joining points within ``tol`` (Euclidean) of an earlier one.
-
-    A rounding grid alone splits two copies of one vertex that straddle a
-    grid line, hiding the junction of two chains from the checks below.
-    """
-
-    cell = 2.0 * max(float(tol), 1e-300)
-    grid: 'Dict[Tuple[int, int], List[Tuple[float, float, int]]]' = {}
-    result: 'List[int]' = []
-    for x, y in points:
-        cx, cy = math.floor(x / cell), math.floor(y / cell)
-        best = None
-        for i in (cx - 1, cx, cx + 1):
-            for j in (cy - 1, cy, cy + 1):
-                for px, py, cluster in grid.get((i, j), ()):
-                    distance = math.hypot(px - x, py - y)
-                    if distance <= tol and (best is None or distance < best[0]):
-                        best = (distance, cluster)
-        cluster = len(result) if best is None else best[1]
-        grid.setdefault((cx, cy), []).append((x, y, cluster))
-        result.append(cluster)
-    return result
+    """Use the same diameter-bounded vertex identity as region checks and meshes."""
+    from ghost_backend.geometry.regions import PointWelder
+    welder = PointWelder(tol)
+    return [welder.key(point) for point in points]
 
 
 def _geometry_tolerance(chains: 'List["ChainSpec"]') -> 'float':

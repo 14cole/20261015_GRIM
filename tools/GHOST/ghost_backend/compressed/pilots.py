@@ -93,13 +93,6 @@ def take(identity, operator):
 def attach(oracle, mesh, infos, pol, kind, k0=0., layer=None, obs_order=8, src_order=8):
     oracle.pilot_identity = key(mesh, infos, pol, kind, k0, layer, obs_order, src_order,
                                getattr(oracle, 'far_order_floors', None), getattr(oracle, 'cut', None))
-    from ghost_backend.twod.assembly.kernels import mesh_key
-    topology = tuple((i.minus_region,i.plus_region,i.bc_kind,i.seg_type) for i in infos or [])
-    layout = getattr(oracle,'layout',{})
-    identity = (mesh_key(mesh),topology,pol,kind,oracle.n,
-                layout.get('dof_map') if isinstance(layout,dict) else None,
-                layer,obs_order,src_order)
-    oracle.recycling_identity = hashlib.sha256(pickle.dumps(identity,protocol=4)).digest()
 
 
 def assembled_partner(mesh, infos, pol, kind, dofs):

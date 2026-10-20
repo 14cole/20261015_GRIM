@@ -168,11 +168,10 @@ that argument, API results remain in memory and count against the run's RAM
 allowance. Direct solve calls retain their normal sequential frequency loop.
 Legacy explicit checkpoint utilities remain separate from desktop execution.
 
-Two explicit experimental execution options remain off in automatic runs:
+The explicit experimental option below remains off in automatic runs:
 `compressed_far_method='verified_cur'` proposes low-rank far tiles but checks
-every coefficient before acceptance, and `frequency_preconditioner='reuse'`
-tries a bounded inverse cache for nearby frequencies with identical mesh and
-DOF ordering. Reuse always tests the current operator's residual and rebuilds
-the inverse if its short iteration allowance is exhausted. Changing the
-default adaptive mesh generally prevents inverse reuse. Neither option is a
-general speed guarantee.
+every coefficient before acceptance. It is not a general speed guarantee.
+Every frequency builds a fresh inverse; experimental frequency inverse reuse
+has been removed. Saved profiles with `frequency_preconditioner='off'` still
+load, with that retired field removed. An explicit request to enable reuse
+raises an error asking the caller to remove the setting.

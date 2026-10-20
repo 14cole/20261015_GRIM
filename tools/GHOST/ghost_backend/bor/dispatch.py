@@ -25,7 +25,10 @@ from ghost_backend.bor.solver import (
     solve_bor_coating_patch,
     solve_bor_banded_multiregion,
     _bor_mode_limits,
+    _bor_axis_tolerance,
+    BOR_ENDPOINT_WELD_TOLERANCE_M,
 )
+from ghost_backend.geometry.regions import PointWelder
 from ghost_backend.twod.solver import (
     MaterialLibrary,
     _conservative_mesh_wavelength_for_frequencies,
@@ -209,8 +212,7 @@ def _stitch_generatrix(chains: 'List[_SegChain]', what: 'str',
     if len(chains) == 1:
         return chains
 
-    def key(p) -> 'Tuple[int, int]':
-        return (int(round(p[0] / tol)), int(round(p[1] / tol)))
+    key = PointWelder(tol).key
 
     start_of = {}
     end_of = {}
@@ -476,8 +478,7 @@ def _sharp_run_levels(run: 'List[_SegChain]', wavelength: 'float') -> 'Dict[Tupl
     # the axis meets another run there (the covered and bare cores of a
     # partial coating, which continue each other) or is the free rim of a
     # TYPE 1 sheet, a knife edge (alpha = 2 pi, nu = 1/2, as in 2D).
-    extent = float(np.ptp(np.asarray([q for p in prims for q in p[2:4]]), axis=0).max()) if prims else 0.0
-    on_axis_tol = 1.0e-6 * max(extent, 1.0e-9)    # _prepare_bor_groups' axis tolerance
+    on_axis_tol = _bor_axis_tolerance([q for p in prims for q in p[2:4]]) if prims else 0.0
     for k, slot, inward in ((0, 0, (0.0, -1.0)), (len(prims) - 1, 1, (0.0, 1.0))):
         if not prims or not prims[k][6]:
             continue
@@ -535,15 +536,15 @@ def _mesh_generatrix(ordered: 'List[_SegChain]', lam_target: 'float',
             arc0 += plen
     pts = np.asarray(points, dtype=float)
 
-    # Only the run's end points may sit on the axis (the drawing tolerance
-    # snaps them there). Interior nodes keep their radius: a graded needle tip
-    # puts nodes within 1e-6 * diagonal of the axis, and snapping one gave a
-    # zero-area element whose rows vanished (LAPACK info = 1).
+    # Axis regularity uses numerical zero, not drawing proximity: a positive
+    # endpoint can describe a real aperture or an off-axis coating junction.
+    # Also cap an older caller's broad axis_tol at the common numerical rule.
+    axis_tol = min(axis_tol, _bor_axis_tolerance(pts))
     for end in (0, -1):
         if abs(pts[end, 0]) <= axis_tol:
             pts[end, 0] = 0.0
     interior = pts[1:-1, 0]
-    interior[np.abs(interior) <= 1.0e-12 * max(1.0, float(np.max(np.abs(pts[:, 0]))))] = 0.0
+    interior[np.abs(interior) <= axis_tol] = 0.0
     pts[:, 0] = np.maximum(pts[:, 0], 0.0)
     if len(pts) - 1 > max_elements:
         raise ValueError(f"BoR mesh would need {len(pts) - 1} elements "
@@ -768,7 +769,7 @@ def _direct_surface_layout(supplied):
     layout, radius = [], 0.0
     for piece, conductor in _direct_pieces(supplied):
         # The generatrix validator snaps radii within this tolerance onto the axis.
-        axis_tol = 1.0e-12 * max(1.0, float(np.max(np.abs(piece[:, 0]))))
+        axis_tol = _bor_axis_tolerance(piece)
         closed = abs(piece[0, 0]) <= axis_tol and abs(piece[-1, 0]) <= axis_tol
         layout.append((len(piece) - 1, conductor, bool(closed)))
         radius = max(radius, float(np.max(piece[:, 0])))
@@ -1431,8 +1432,7 @@ def _stitch_pieces(chains: 'List[_SegChain]', what: 'str',
     """Order chains head-to-tail into MULTIPLE maximal open runs (used for
     the bare-conductor pieces of a partial coating)."""
 
-    def key(p) -> 'Tuple[int, int]':
-        return (int(round(p[0] / tol)), int(round(p[1] / tol)))
+    key = PointWelder(tol).key
 
     start_of = {}
     end_of = {}
@@ -1469,12 +1469,8 @@ def _prepare_bor_groups(chains: 'List[_SegChain]', kind: 'str'):
     formulation that will eventually be assembled.
     """
 
-    diag = max(
-        float(np.ptp(np.vstack([chain.pts for chain in chains]), axis=0).max()),
-        1e-9,
-    )
-    tol = max(1e-12, 1e-9 * diag)
-    axis_tol = 1e-6 * diag
+    tol = BOR_ENDPOINT_WELD_TOLERANCE_M
+    axis_tol = _bor_axis_tolerance(np.vstack([chain.pts for chain in chains]))
 
     if kind == "coated":
         outer_chains = _stitch_generatrix(
@@ -2047,9 +2043,14 @@ def solve_monostatic_rcs_bor(
     if workers is None:
         workers = max(1, (os.cpu_count() or 2) - 1)
 
+    def check_abort():
+        if abort_event is not None and abort_event.is_set():
+            raise InterruptedError("Solve canceled by user.")
+
+    check_abort()
     _reject_unsupported_bor_ibc_interfaces(geometry_snapshot)
     base_dir, preflight, prepared_materials, scale = prepare_geometry(
-        geometry_snapshot, base_dir, geometry_units, mode="bor")
+        geometry_snapshot, base_dir, geometry_units, mode="bor", checkpoint=check_abort)
     # Parsed models are immutable for this run. Notices belong to this solve:
     # sharing the library's warning lists would contaminate later frequencies
     # and the fine certification pass with earlier numerical warnings.
@@ -2088,11 +2089,7 @@ def solve_monostatic_rcs_bor(
         kind, assembly_key, table_precision_key, stream_budget
     )
     groups, tol, axis_tol = _prepare_bor_groups(chains, kind)
-    check_bor_regions_or_raise(geometry_snapshot.get("segments", []) or [], scale)
-
-    def check_abort():
-        if abort_event is not None and abort_event.is_set():
-            raise InterruptedError("Solve canceled by user.")
+    check_bor_regions_or_raise(geometry_snapshot.get("segments", []) or [], scale, checkpoint=check_abort)
 
     from ghost_backend.bor.samples import channel_buffers, finish_channels, nonfinite_sample_count
     samples_by_pol = channel_buffers(len(frequencies), aspects, expand_to_360)
@@ -2329,8 +2326,7 @@ def solve_monostatic_rcs_bor(
             def run_ends(run):
                 return (run[0].pts[0], run[-1].pts[-1])
 
-            def key(p):
-                return (int(round(p[0] / tol)), int(round(p[1] / tol)))
+            key = PointWelder(tol).key
 
             def lam_for(flags):
 
