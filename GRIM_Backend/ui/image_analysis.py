@@ -206,7 +206,21 @@ class LinkedImageCuts:
         self.artists = []
         units_by_axes = {}
         records_by_axes = {}
+        shared_horizontal = shared_vertical = None
         for _image, cut_axes, record in panels:
+            horizontal, vertical = cut_axes
+            # Compare each panel on the same value scale while its coordinate
+            # axis remains linked to the corresponding heatmap.
+            if horizontal is not None:
+                if shared_horizontal is None:
+                    shared_horizontal = horizontal
+                elif horizontal is not shared_horizontal:
+                    horizontal.sharey(shared_horizontal)
+            if vertical is not None:
+                if shared_vertical is None:
+                    shared_vertical = vertical
+                elif vertical is not shared_vertical:
+                    vertical.sharex(shared_vertical)
             for ax in cut_axes:
                 if ax is not None:
                     units_by_axes.setdefault(ax, set()).add(record.value_unit)
@@ -296,8 +310,11 @@ class LinkedImageCuts:
                 vy,vx,_ = decimate_line(*line_with_gaps(ys,column,breaks=record.metadata.get("y_cut_breaks")))
                 vline.set_data(vx, vy)
                 vcursor.set_xdata([px,px])
-        for (ax, direction, axis, unit), values in cut_selections.items():
+        # Refresh every sibling's bounds before autoscaling the shared value
+        # axes, so previous cuts cannot influence the new common range.
+        for ax, _direction, _axis, _unit in cut_selections:
             ax.relim()
+        for (ax, direction, axis, unit), values in cut_selections.items():
             ax.autoscale_view(scalex=direction == "Vertical", scaley=direction == "Horizontal")
             label = f"{min(values):.6g}" if min(values) == max(values) else f"{min(values):.6g}–{max(values):.6g} (per panel)"
             separator = "\n" if direction == "Vertical" else " · "

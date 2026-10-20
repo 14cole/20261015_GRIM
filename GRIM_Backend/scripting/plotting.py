@@ -170,6 +170,8 @@ def plot_datasets(
     starts at the center sample of the first panel. Horizontal cuts appear
     below their image and share its X axis; vertical cuts appear to the right
     with response on X and the image's physical Y coordinate on Y.
+    Across panels, horizontal cuts share their response Y axis and vertical
+    cuts share their response X axis, independently of colorbar sharing.
     ``waterfall_style`` is retained for compatibility with existing scripts;
     Waterfall uses the physical two-axis image for every style value.
     """
@@ -321,6 +323,7 @@ def plot_datasets(
                 old = norms.get(response, (np.inf, -np.inf))
                 norms[response] = (min(old[0], float(np.min(finite))), max(old[1], float(np.max(finite))))
         callbacks, image_axes, meshes, cut_views = [], [], [], []
+        shared_horizontal = shared_vertical = None
         global_limits = (min(v[0] for v in norms.values()), max(v[1] for v in norms.values())) if norms else None
         for i, (title, x, y, data, response, prepared) in enumerate(panels):
             individual_bar = bool(show_colorbar and not shared_colorbar)
@@ -347,7 +350,10 @@ def plot_datasets(
                 iy = int(np.argmin(abs(y - cut_position[1])))
                 horizontal = vertical = row = column = hline = vline = None
                 if horizontal_cuts:
-                    horizontal = figure.add_subplot(panel_spec[1, 0], sharex=ax)
+                    horizontal = figure.add_subplot(panel_spec[1, 0], sharex=ax,
+                                                    sharey=shared_horizontal)
+                    if shared_horizontal is None:
+                        shared_horizontal = horizontal
                     row, = horizontal.plot(*line_with_gaps(x, data[:, iy]))
                     hline = ax.axhline(y[iy], color="white", linewidth=.8)
                     horizontal.set(xlabel=plot_common.axis_label(reference, x_axis), ylabel=response,
@@ -356,7 +362,10 @@ def plot_datasets(
                     ax.set_xlabel("")
                     ax.tick_params(axis="x", labelbottom=False)
                 if vertical_cuts:
-                    vertical = figure.add_subplot(panel_spec[0, 1], sharey=ax)
+                    vertical = figure.add_subplot(panel_spec[0, 1], sharey=ax,
+                                                  sharex=shared_vertical)
+                    if shared_vertical is None:
+                        shared_vertical = vertical
                     coordinates, values = line_with_gaps(y, data[ix, :])
                     column, = vertical.plot(values, coordinates)
                     vline = ax.axvline(x[ix], color="white", linewidth=.8)
@@ -386,13 +395,18 @@ def plot_datasets(
                         row.set_data(*line_with_gaps(x, data[:, iy]))
                         hline.set_ydata([y[iy], y[iy]])
                         horizontal.set_title(f"{y_axis} = {y[iy]:g} {plot_common.axis_unit(reference, y_axis)}")
-                        horizontal.relim(); horizontal.autoscale_view(scalex=False)
+                        horizontal.relim()
                     if vertical is not None:
                         coordinates, values = line_with_gaps(y, data[ix, :])
                         column.set_data(values, coordinates)
                         vline.set_xdata([x[ix], x[ix]])
                         vertical.set_title(f"{x_axis} = {x[ix]:g} {plot_common.axis_unit(reference, x_axis)}")
-                        vertical.relim(); vertical.autoscale_view(scaley=False)
+                        vertical.relim()
+                # Refresh every panel's bounds before scaling the shared axes.
+                if shared_horizontal is not None:
+                    shared_horizontal.autoscale_view(scalex=False)
+                if shared_vertical is not None:
+                    shared_vertical.autoscale_view(scaley=False)
                 figure.canvas.draw_idle()
             callbacks.append(figure.canvas.mpl_connect("button_press_event", update))
         if show_colorbar and shared_colorbar:
