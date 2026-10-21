@@ -137,6 +137,7 @@ class _SegChain:
         # chain whose evaluated surface impedance jumps.
         self.grade_start = False
         self.grade_end = False
+        self.surface_wave_wavelength = math.inf
 
 
 def _chains_from_snapshot(snapshot: 'Dict[str, Any]', scale: 'float') -> 'List[_SegChain]':
@@ -286,6 +287,7 @@ def _chain_element_count(
 ) -> 'int':
     """Return a primitive count, refining the realized base discretization."""
 
+    lam_target = min(float(lam_target), chain.surface_wave_wavelength)
     factor = float(chain.certification_refinement_factor)
     if factor > 1.0:
         base_count = _element_count(
@@ -824,8 +826,27 @@ def _resolve_direct_plan(supplied):
     frequency = float(supplied['freq_hz'])
     if not math.isfinite(frequency) or frequency <= 0:
         raise ValueError('BOR frequency must be positive and finite.')
+    guided_bandwidth = float(supplied.get('surface_wave_mode_bandwidth', 0.0))
+    if supplied.get('points') is not None and 'eps_r' not in supplied:
+        from ghost_backend.bor.surface_waves import direct_surface_wave_sampling
+        sheet = supplied.get('sheet_zs')
+        impedance = sheet if sheet is not None else supplied.get('zs')
+        if impedance is not None:
+            report = direct_surface_wave_sampling(supplied['points'], impedance, frequency,
+                                                  transmitting_sheet=sheet is not None)
+            guided_bandwidth = max(guided_bandwidth, report['surface_wave_mode_bandwidth'])
+    elif supplied.get('bare_zs') is not None:
+        from ghost_backend.bor.surface_waves import direct_surface_wave_sampling
+        pieces, impedances = supplied.get('bare_pieces', ()), supplied['bare_zs']
+        if len(pieces) != len(impedances):
+            raise ValueError('bare_zs must have one entry per bare piece.')
+        for points, impedance in zip(pieces, impedances):
+            if impedance is not None:
+                report = direct_surface_wave_sampling(points, impedance, frequency)
+                guided_bandwidth = max(guided_bandwidth, report['surface_wave_mode_bandwidth'])
     modes, _ = _bor_mode_limits(2*np.pi*frequency/C0, radius,
-                               supplied['thetas_deg'], supplied.get('n_modes'))
+                               supplied['thetas_deg'], supplied.get('n_modes'),
+                               surface_wave_bandwidth=guided_bandwidth)
     order = int(supplied.get('gauss_order', FAR_GAUSS_ORDER))
     if order < 1:
         raise ValueError('BOR Gauss order must be positive.')
@@ -1010,6 +1031,7 @@ def estimate_bor_resources(
     )
     groups, _tol, _axis_tol = _prepare_bor_groups(chains, kind)
     check_bor_regions_or_raise(preview_snapshot.get("segments", []) or [], scale)
+    _configure_surface_wave_mesh(chains, materials, [frequency], wavelength)
     # Operator families of a conductor solve, as solve_bor states them: every
     # family keeps its own near contractions (three for an impedance CFIE).
     surface_kinds = None
@@ -1025,11 +1047,14 @@ def estimate_bor_resources(
     element_count = _enforce_total_element_limit(
         surface_layout, max_elements
     )
+    surface_sampling = _surface_wave_sampling(groups, kind, materials, frequency,
+        wavelength, _axis_tol, max_elements)
     pair_counts = _preview_near_pair_counts(groups, kind, wavelength, _axis_tol, max_elements)
     radius = max(float(np.max(chain.pts[:, 0])) for chain in chains)
     k0 = 2.0 * math.pi * frequency * 1.0e9 / C0
     mode_cap, mode_tail_start = _bor_mode_limits(
-        k0, radius, aspects, n_modes
+        k0, radius, aspects, n_modes,
+        surface_wave_bandwidth=surface_sampling['surface_wave_mode_bandwidth'],
     )
     from ghost_backend.bor.solver import plan_bor_mode_workers
 
@@ -1069,6 +1094,7 @@ def estimate_bor_resources(
             output_grid_gb=output_gb,
             near_preparation=near_plan,
             mesh_certification=bool(mesh_certification),
+            surface_wave_sampling=surface_sampling,
             memory_estimate_method='compressed_payload_cap_and_workspace',
             angle_batch_size=current_options()['angle_batch_size'],
             compression_tile_estimate=resolved_compression_tile(current_options(), stream_mode_block is not None),
@@ -1421,6 +1447,7 @@ def estimate_bor_resources(
         "estimated_peak_gb": float(peak_gb),
         "output_grid_gb": output_gb,
         "mesh_certification": bool(mesh_certification),
+        "surface_wave_sampling": surface_sampling,
         "stream_spill_gb_estimate": float(spill_gb),
         "stream_spill_candidate_gb": float(spill_candidate_gb),
         "stream_spill_directory": spill_directory,
@@ -1764,6 +1791,71 @@ def _bor_surface_layout(groups, kind: 'str', wavelength: 'float'):
             for run,conductor in _bor_surface_runs(groups,kind)]
 
 
+def _configure_surface_wave_mesh(chains, materials, frequencies, wavelength):
+    """Use each segment's bound wavelength in both admission and meshing."""
+    from ghost_backend.twod.geometry import _surface_wave_mesh_wavelength
+    for chain in chains:
+        chain.surface_wave_wavelength = _surface_wave_mesh_wavelength(
+            wavelength, materials, chain.seg_type, chain.ibc_flag,
+            chain.pos_mat, frequencies)
+
+
+def _surface_wave_sampling(groups, kind, materials, frequency, wavelength,
+                           axis_tol, max_elements, check_abort=None):
+    """Measure achieved meridian intervals, including every represented taper sample."""
+    from ghost_backend.twod.geometry import (
+        _segment_surface_wave_index, SURFACE_WAVE_MAX_DENSITY_FACTOR,
+        SURFACE_WAVE_MIN_SAMPLES_PER_WAVELENGTH,
+    )
+    from ghost_backend.bor.surface_waves import surface_wave_indices
+    records = []
+    for run, _conductor in _bor_surface_runs(groups, kind):
+        if not any(c.ibc_flag > 0 and c.seg_type in (1, 2) for c in run):
+            continue
+        if check_abort:
+            check_abort()
+        points, indices, arcs = _mesh_generatrix(run, wavelength, max_elements, axis_tol)
+        lengths = np.linalg.norm(np.diff(points, axis=0), axis=1)
+        for ci, chain in enumerate(run):
+            if chain.ibc_flag <= 0 or chain.seg_type not in (1, 2):
+                continue
+            if check_abort:
+                check_abort()
+            selected = indices == ci
+            local_arcs = arcs[selected]
+            values = np.array([materials.get_impedance(chain.ibc_flag, frequency,
+                arc_s=float(s)) for s in local_arcs])
+            represented_indices = surface_wave_indices(values, transmitting_sheet=chain.seg_type == 1)
+            index = max(_segment_surface_wave_index(materials, chain.seg_type,
+                chain.ibc_flag, chain.pos_mat, frequency), float(np.max(represented_indices)))
+            if not math.isfinite(index):
+                raise ValueError('BoR surface-wave phase index exceeds the numerical range.')
+            if index <= 0.0:
+                continue
+            bound_wavelength = C0 / (float(frequency) * 1.e9 * index)
+            interval = float(np.max(lengths[selected]))
+            sampling = bound_wavelength / interval
+            required = SURFACE_WAVE_MIN_SAMPLES_PER_WAVELENGTH
+            # Match a law's largest index with that segment's radius, never an
+            # unrelated surface's global maximum. The whole law is checked,
+            # including its endpoints, so a taper peak between panels counts.
+            bandwidth = 2.0 * math.pi / bound_wavelength * float(np.max(chain.pts[:, 0]))
+            if not math.isfinite(bandwidth):
+                raise ValueError('BoR surface-wave modal bandwidth exceeds the numerical range.')
+            records.append(dict(segment=chain.name, ibc_flag=int(chain.ibc_flag),
+                phase_index=float(index), wavelength_m=float(bound_wavelength),
+                samples_per_wavelength=float(sampling),
+                required_samples_per_wavelength=float(required),
+                resolved=bool(sampling >= required * (1.0 - 1.e-9)),
+                surface_wave_mode_bandwidth=float(bandwidth)))
+    return dict(frequency_ghz=float(frequency), polarization='both local tangential branches',
+                resolved=all(row['resolved'] for row in records), segments=records,
+                automatic_density_factor_limit=SURFACE_WAVE_MAX_DENSITY_FACTOR,
+                sampling_definition='P1 meridional intervals per bound surface wavelength',
+                surface_wave_mode_bandwidth=max((row['surface_wave_mode_bandwidth'] for row in records), default=0.0),
+                modal_sampling_definition='measured Fourier tail starts beyond local beta*rho; exact axial incidence uses only |m|=1')
+
+
 def _preview_near_pair_counts(groups, kind, wavelength, axis_tol, max_elements):
     """Price geometric close pairs without quadrature or dense point matrices."""
     return _near_pair_counts([_mesh_generatrix(run, wavelength, max_elements, axis_tol)[0]
@@ -2105,12 +2197,20 @@ def solve_monostatic_rcs_bor(
         freq_hz = freq_ghz * 1e9
         current_mesh = mesh_controls[float(freq_ghz)]
         lam0 = float(current_mesh[0])
+        control_frequencies = [freq_ghz] + ([mesh_ref_ghz] if mesh_ref_ghz is not None else [])
+        _configure_surface_wave_mesh(chains, materials, control_frequencies, lam0)
         graded_junctions = (_mark_impedance_junctions(groups[0], materials, freq_ghz)
                             if kind == "conductor" else 0)
         surface_layout = _bor_surface_layout(groups, kind, lam0)
         total_mesh_elements = _enforce_total_element_limit(
             surface_layout, max_elements
         )
+        surface_sampling = _surface_wave_sampling(groups, kind, materials, freq_ghz,
+            lam0, axis_tol, max_elements, check_abort=check_abort)
+        if geometry_snapshot.get('_bor_require_surface_wave_sampling'):
+            from ghost_backend.bor.surface_waves import require_resolved_surface_waves
+            require_resolved_surface_waves(surface_sampling,
+                'fine' if geometry_snapshot.get('_bor_certification_refinement_factor', 1.) > 1. else 'base')
 
         def report(modes_done, m_cap):
             if progress_callback is not None:
@@ -2136,6 +2236,7 @@ def solve_monostatic_rcs_bor(
                             cfie_alpha=cfie_alpha,
                             zs=zs_elem if has_ibc and kind != "sheet" else None,
                             sheet_zs=zs_elem if kind == "sheet" else None,
+                            surface_wave_mode_bandwidth=surface_sampling['surface_wave_mode_bandwidth'],
                             n_modes=n_modes, mode_tol=mode_tol,
                             workers=workers, progress=report,
                             check_abort=check_abort,
@@ -2257,6 +2358,7 @@ def solve_monostatic_rcs_bor(
                 bare_zs.append(zs_elem if has else None)
             out = solve_bor_partial_coating(pts_i, pts_c, bare_pts, freq_hz,
                                             aspects, eps, mu, bare_zs=bare_zs,
+                                            surface_wave_mode_bandwidth=surface_sampling['surface_wave_mode_bandwidth'],
                                             n_modes=n_modes,
                                             mode_tol=mode_tol, workers=workers,
                                             progress=report,
@@ -2545,6 +2647,7 @@ def solve_monostatic_rcs_bor(
             "mesh_wavelength_m": float(current_mesh[0]),
             "mesh_max_refractive_index": float(current_mesh[1]),
             "mesh_material_flags": list(current_mesh[2]),
+            "surface_wave_sampling": surface_sampling,
         })
         if progress_callback is not None:
             try:
@@ -2708,6 +2811,13 @@ def solve_monostatic_rcs_bor(
             "BoR quality gate failed: " + quality_gate["reason"]
         )
     solver_warnings = list(materials.warnings)
+    surface_wave_sampling = [row['surface_wave_sampling'] for row in per_freq_meta
+                             if row['surface_wave_sampling']['segments']]
+    if any(not row['resolved'] for row in surface_wave_sampling):
+        solver_warnings.append(
+            'Bound surface waves remain unresolved on the BoR meridian mesh. '
+            'Increase the affected segment N; a converged Fourier tail or linear '
+            'residual does not establish meridional accuracy.')
     if "PMCHWT" in formulation_label and condition_max > BOR_PMCHWT_LOW_FREQUENCY_CONDITION:
         # PMCHWT conditioning grows as 1/(ka)^2; above ~1e8 the dielectric
         # result loses accuracy (2.6 dB at ka=0.003) while still passing the
@@ -2740,6 +2850,7 @@ def solve_monostatic_rcs_bor(
                 if expand_to_360 else set())),
             "expanded_to_360": bool(expand_to_360),
             "per_frequency": per_freq_meta,
+            "surface_wave_sampling": surface_wave_sampling,
             "residual_norm_max": residual_max,
             "residual_nonfinite_count": residual_nonfinite_count,
             "residual_norm_refinement_advisory": (
@@ -2878,14 +2989,15 @@ def solve_monostatic_rcs_bor_certified(
 
         return report
 
+    base_snapshot = dict(geometry_snapshot, _bor_require_surface_wave_sampling=True)
     base_result = solve_monostatic_rcs_bor(
-        geometry_snapshot=geometry_snapshot,
+        geometry_snapshot=base_snapshot,
         progress_callback=phase_progress(0),
         **common
     )
     _require_touching_quadrature(base_result, 'base')
     fine_snapshot = scale_snapshot_panel_density(
-        geometry_snapshot, policy["fine_factor"]
+        base_snapshot, policy["fine_factor"]
     )
     fine_snapshot["_bor_certification_refinement_factor"] = float(
         policy["fine_factor"]
@@ -3011,6 +3123,8 @@ def solve_monostatic_rcs_bor_certified(
         "published_mesh": "fine",
         "geometry_model": "piecewise_linear_generatrix",
         "geometry_approximation_certified": False,
+        "surface_wave_sampling_checked": True,
+        "surface_wave_sampling_scope": "local_planar_prerequisite_for_both_tangential_branches",
         "co_solved_polarizations": ["VV", "HH"],
         "policy": policy,
         "polarizations": per_polarization,

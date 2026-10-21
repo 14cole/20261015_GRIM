@@ -1669,7 +1669,7 @@ class DatasetOpsMixin:
                 "btn_decimate", "btn_mirror", "btn_wrap", "btn_shift",
                 "btn_round", "btn_offset", "btn_flip_phase", "btn_medianize", "btn_duplicate",
                 "btn_time_gate",
-                "btn_audit", "btn_provenance",
+                "btn_provenance",
                 "btn_axis_units", "btn_el_to_az360", "btn_swap_el_az",
                 "btn_sentri_elevation", "btn_extrusion",
                 "btn_wedge_to_conic", "btn_phase_center",
@@ -1680,7 +1680,7 @@ class DatasetOpsMixin:
             (
                 "btn_coherent_add", "btn_coherent_sub", "btn_incoherent_add",
                 "btn_incoherent_sub", "btn_join", "btn_overlap",
-                "btn_align", "btn_compatibility",
+                "btn_align",
             ),
             selected_count >= 2,
         )
@@ -1690,14 +1690,14 @@ class DatasetOpsMixin:
             selected_count >= 1 and row_count - selected_count >= 2,
         )
         enable(
-            ("btn_dataset_save", "btn_dataset_export", "btn_dataset_delete"),
+            ("btn_dataset_save", "btn_dataset_export"),
             selected_count >= 1,
         )
         enable(("btn_dataset_save_all",), row_count >= 1)
-        enable(
-            ("btn_dataset_undo_delete",),
-            bool(getattr(self, "_last_deleted_dataset_rows", ())),
-        )
+        has_deleted_rows = bool(getattr(self, "_last_deleted_dataset_rows", ()))
+        # Keep the Delete menu reachable after deleting the final table row.
+        enable(("btn_dataset_delete",), selected_count >= 1 or has_deleted_rows)
+        enable(("action_dataset_undo_delete",), has_deleted_rows)
         self._set_inline_edits_locked(busy)
 
     def _set_inline_edits_locked(self, locked: bool) -> None:
@@ -3726,18 +3726,6 @@ class DatasetOpsMixin:
         action_pbp_density = pbp_menu.addAction("Heatmap (Valid-Cut Coverage)")
         action_pbp_density.setCheckable(True)
         action_pbp_density.setChecked(self.pbp_fill_mode == "heatmap_density")
-        controls = getattr(self, "analysis_controls", None)
-        band_actions = {}
-        if controls is not None:
-            band_menu = menu.addMenu("PBP Band")
-            percentiles = controls.pbp_percentiles()
-            low, high = controls.spin_pbp_low.value(), controls.spin_pbp_high.value()
-            for mode, text in (("minmax", "Min–Max"),
-                               ("percentile", f"Percentiles (P{low:g}–P{high:g})")):
-                band_action = band_menu.addAction(text)
-                band_action.setCheckable(True)
-                band_action.setChecked((percentiles is not None) == (mode == "percentile"))
-                band_actions[band_action] = mode
         action_clear_markers = (
             menu.addAction("Clear markers") if getattr(self, "_plot_markers", None) else None
         )
@@ -3748,9 +3736,6 @@ class DatasetOpsMixin:
             else None
         )
         action = menu.exec(self.plot_canvas.mapToGlobal(pos))
-        if action is not None and action in band_actions:
-            controls.set_pbp_band(band_actions[action])
-            return
         if action is not None and action is action_clear_markers:
             self._clear_plot_markers()
             return
@@ -5200,7 +5185,7 @@ class DatasetOpsMixin:
     def _convert_extrusion_selected(self) -> None:
         datasets = self._selected_datasets_ordered(
             use_selection_order=True,
-            empty_message="Select one or more datasets for an extrusion estimate.",
+            empty_message="Select one or more datasets for dBke ↔ dBsm conversion.",
         )
         if datasets is None:
             return
@@ -5217,7 +5202,7 @@ class DatasetOpsMixin:
         length_label = dlg.display_text()
         dlg.deleteLater()
         if length_m <= 0.0 or not np.isfinite(length_m):
-            self.status.showMessage("Extrusion estimate: length must be positive.")
+            self.status.showMessage("dBke ↔ dBsm: extrusion length must be positive.")
             return
         label = "dBke" if destination == "dbke" else "dBsm"
         source_label = "dBsm" if destination == "dbke" else "dBke"
@@ -5238,6 +5223,7 @@ class DatasetOpsMixin:
                     f"Extrusion estimate {source_label} → {label} "
                     f"(broadside uniform body, L={length_label}, {length_m:.6g} m): {name}"
                 )
+                # Keep the UI arrow out of result names and suggested filenames.
                 output_name = f"{name} [to {label} L={length_label}]"
                 output_id = self._add_dataset_row(
                     result, output_name, history, file_name=""
@@ -5255,7 +5241,7 @@ class DatasetOpsMixin:
             if destination == "dbsm":
                 conversion_offset_db = -conversion_offset_db
             message = (
-                f"Extrusion estimate to {label} created {len(results)} dataset(s) "
+                f"{source_label} → {label} created {len(results)} dataset(s) "
                 f"(L={length_label} → constant offset {conversion_offset_db:+.2f} dB)."
             )
             if skipped:
@@ -5263,7 +5249,7 @@ class DatasetOpsMixin:
             self.status.showMessage(message)
 
         self._start_dataset_map_job(
-            "Extrusion estimate",
+            "dBke ↔ dBsm",
             datasets,
             operation,
             publish,

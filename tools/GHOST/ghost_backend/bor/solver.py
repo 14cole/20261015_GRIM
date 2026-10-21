@@ -4103,10 +4103,14 @@ def _all_axial_aspects(thetas):
 
 
 def _bor_mode_limits(k, rho_max: 'float', thetas,
-                     n_modes: 'Optional[int]') -> 'Tuple[int, int]':
+                     n_modes: 'Optional[int]', *,
+                     surface_wave_bandwidth: 'float' = 0.0) -> 'Tuple[int, int]':
     """Return (mode_cap, physical_tail_start) for a BoR sweep.
 
-    Plane-wave bandwidth scales as k*rho*sin(theta). The cap includes at least
+    Plane-wave bandwidth scales as k*rho*sin(theta). Bound surface waves can
+    resonate at higher azimuthal order: when present, the measured tail must
+    start beyond their local beta*rho band. This local planar prerequisite is
+    independent of meridional mesh convergence. The cap includes at least
     twelve modes and a growing cube-root transition margin for large bodies;
     the adaptive tail starts after the physical bandwidth, with a 0.05 axial-look floor.
     """
@@ -4116,6 +4120,12 @@ def _bor_mode_limits(k, rho_max: 'float', thetas,
     bandwidth = int(math.ceil(
         abs(complex(k)) * float(rho_max) * max(sin_max, 0.05)
     ))
+    guided_band = float(surface_wave_bandwidth)
+    if not math.isfinite(guided_band) or guided_band < 0.0:
+        raise ValueError('surface_wave_bandwidth must be finite and non-negative.')
+    axial = _all_axial_aspects(theta_array)
+    if not axial:
+        bandwidth = max(bandwidth, int(math.ceil(guided_band)))
     if n_modes is None:
         # A starting-cap heuristic, never a substitute for the measured tail.
         mode_cap = bandwidth + max(12, int(math.ceil(4.05*bandwidth**(1./3.)+2.)))
@@ -4126,8 +4136,13 @@ def _bor_mode_limits(k, rho_max: 'float', thetas,
             raise ValueError("n_modes must be a non-negative integer or None.") from exc
         if mode_cap != n_modes or mode_cap < 0:
             raise ValueError("n_modes must be a non-negative integer or None.")
-    if _all_axial_aspects(theta_array):
+    if axial:
         return min(mode_cap, 1), 1
+    if mode_cap < math.ceil(guided_band):
+        raise ValueError(
+            f'BoR n_modes={mode_cap} cannot cover the bound surface-wave band '
+            f'through |m|={math.ceil(guided_band)}. Increase n_modes or use automatic modes; '
+            'an early quiet incident-wave tail cannot certify reactive sheets.')
     return mode_cap, bandwidth
 
 
@@ -4206,7 +4221,8 @@ def solve_bor(points, freq_hz: 'float', thetas_deg, formulation: 'str' = "auto",
               progress: 'Optional[Callable]' = None,
               check_abort: 'Optional[Callable]' = None,
               table_precision: 'str' = "auto", assembly: 'str' = "auto",
-              stream_budget_gb: 'float' = 8.0, sheet_zs=None) -> 'Dict':
+              stream_budget_gb: 'float' = 8.0, sheet_zs=None,
+              surface_wave_mode_bandwidth: 'float' = 0.0) -> 'Dict':
     """
     Monostatic RCS of a closed BoR at aspect angles thetas_deg (from +z).
 
@@ -4242,11 +4258,6 @@ def solve_bor(points, freq_hz: 'float', thetas_deg, formulation: 'str' = "auto",
     k = solver.k
     thetas = _validated_bor_aspects(thetas_deg)
     rho_max = float(np.max(solver.gen.nodes[:, 0]))
-    m_max, mode_tail_start = _bor_mode_limits(
-        k, rho_max, thetas, n_modes
-    )
-
-
     zs_pt = None
     zs_elem = None
     zs_nodes = None
@@ -4292,6 +4303,15 @@ def solve_bor(points, freq_hz: 'float', thetas_deg, formulation: 'str' = "auto",
             raise ValueError("sheet_zs must have one value per meridian element.")
         sheet_values = _validate_bor_surface_impedance(sheet_values, "BoR transmitting sheet")
         sheet_weights = sheet_values[solver.g.elem]
+
+    from ghost_backend.bor.surface_waves import direct_surface_wave_sampling
+    surface_sampling = direct_surface_wave_sampling(
+        points, sheet_values if sheet_values is not None else zs_elem if zs_elem is not None else 0.0j,
+        freq_hz, transmitting_sheet=sheet_values is not None)
+    surface_wave_mode_bandwidth = max(float(surface_wave_mode_bandwidth),
+                                      surface_sampling['surface_wave_mode_bandwidth'])
+    m_max, mode_tail_start = _bor_mode_limits(
+        k, rho_max, thetas, n_modes, surface_wave_bandwidth=surface_wave_mode_bandwidth)
 
     alpha = float(cfie_alpha) if form == "cfie" else (1.0 if form == "efie" else 0.0)
     n_dofs = 2 * solver.Nn
@@ -4539,6 +4559,9 @@ def solve_bor(points, freq_hz: 'float', thetas_deg, formulation: 'str' = "auto",
 
 
     solve_warnings: 'List[str]' = []
+    if not surface_sampling['resolved']:
+        solve_warnings.append('Bound surface waves remain unresolved on this BoR meridian mesh; '
+                              'refine the meridian before using a mesh-convergence certificate.')
     if table_note:
         solve_warnings.append(table_note)
     closed = solver.gen.node_on_axis(0) and solver.gen.node_on_axis(solver.Nn - 1)
@@ -4603,6 +4626,8 @@ def solve_bor(points, freq_hz: 'float', thetas_deg, formulation: 'str' = "auto",
         "n_unknowns": int(n_dofs),
         "formulation": form,
         "boundary_model": "transmitting_electric_sheet" if sheet_zs is not None else "opaque_ibc" if zs_pt is not None else "pec",
+        "surface_wave_sampling": surface_sampling,
+        "surface_wave_mode_bandwidth": float(surface_wave_mode_bandwidth),
         "assembly": "streaming" if use_streaming else "tables",
         "table_precision": "single" if use_single else "double",
         "near_quadrature": near_summary,
@@ -6154,7 +6179,8 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
                               check_abort: 'Optional[Callable]' = None,
                               table_precision: 'str' = "auto",
                               assembly: 'str' = "auto",
-                              stream_budget_gb: 'float' = 8.0) -> 'Dict':
+                              stream_budget_gb: 'float' = 8.0,
+                              surface_wave_mode_bandwidth: 'float' = 0.0) -> 'Dict':
     """Monostatic RCS of a PEC body PARTIALLY covered by a homogeneous coating:
     the dielectric interface S_d (points_interface) terminates on the PEC
     surface at junction circles where air, coating, and conductor meet.
@@ -6355,8 +6381,17 @@ def solve_bor_partial_coating(points_interface, points_covered, bare_pieces,
     rho_max = max([float(np.max(sd_e.gen.nodes[:, 0])),
                    float(np.max(s2_L.gen.nodes[:, 0]))] +
                   [float(np.max(b.gen.nodes[:, 0])) for b in bares])
+    from ghost_backend.bor.surface_waves import direct_surface_wave_sampling
+    for bare, impedance in zip(bares, zs_elems):
+        if impedance is not None:
+            report = direct_surface_wave_sampling(bare.gen.nodes, impedance, freq_hz)
+            surface_wave_mode_bandwidth = max(float(surface_wave_mode_bandwidth),
+                                              report['surface_wave_mode_bandwidth'])
+            if not report['resolved']:
+                solve_warnings.append('Bound surface waves remain unresolved on a bare BoR IBC piece; '
+                                      'refine its meridian before mesh certification.')
     m_max, mode_tail_start = _bor_mode_limits(
-        k, rho_max, thetas, n_modes
+        k, rho_max, thetas, n_modes, surface_wave_bandwidth=surface_wave_mode_bandwidth
     )
     eta_ratio2 = (ETA0 / sd_L.eta) ** 2
     weight = _region_equation_weights([None, (eps_r, mu_r)])[1]

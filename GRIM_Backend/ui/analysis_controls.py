@@ -34,9 +34,9 @@ def _percent_spin(value: float, tooltip: str) -> QDoubleSpinBox:
 
 
 class PlotAnalysisControls(QObject):
-    """PBP band, CDF, sector-statistics, and range-frequency settings.
+    """Sweep, CDF, sector-statistics, and range-frequency settings.
 
-    ``changed`` carries which feature changed ("pbp", "cdf", "sector",
+    ``changed`` carries which feature changed ("cdf", "sector",
     "range", "sweep") so only the matching plot type re-renders.
     """
 
@@ -44,17 +44,6 @@ class PlotAnalysisControls(QObject):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.combo_pbp_band = QComboBox()
-        self.combo_pbp_band.addItem("Min–Max", "minmax")
-        self.combo_pbp_band.addItem("Percentiles", "percentile")
-        self.combo_pbp_band.setToolTip(
-            "Each dataset and polarization gets its own band. Min–Max bounds its "
-            "selected series; Percentiles bounds the chosen "
-            "lower and upper percentiles at each point, ignoring outliers."
-        )
-        self.spin_pbp_low = _percent_spin(10.0, "Lower percentile of the PBP band.")
-        self.spin_pbp_high = _percent_spin(90.0, "Upper percentile of the PBP band.")
-
         self.combo_cdf = QComboBox()
         self.combo_cdf.addItem("Cumulative: samples at or below level", "cdf")
         self.combo_cdf.addItem("Exceedance: samples at or above level", "exceedance")
@@ -107,21 +96,15 @@ class PlotAnalysisControls(QObject):
         self.combo_range_unit.addItems(["m", "cm", "mm", "in", "ft"])
         self.combo_range_unit.setCurrentText("in")
 
-        self.combo_pbp_band.currentIndexChanged.connect(self._pbp_band_changed)
         self.spin_range_subband.valueChanged.connect(lambda: self.changed.emit("range"))
         self.combo_range_window.currentIndexChanged.connect(lambda: self.changed.emit("range"))
         self.combo_range_unit.currentIndexChanged.connect(lambda: self.changed.emit("range"))
-        self.spin_pbp_low.valueChanged.connect(self._pbp_low_changed)
-        self.spin_pbp_high.valueChanged.connect(self._pbp_high_changed)
         self.combo_cdf.currentIndexChanged.connect(self._cdf_options_changed)
-        self._pbp_band_changed(emit=False)
 
     def add_rows(self, grid, row: int) -> int:
         """Add labeled rows to the Plot Settings grid; returns the next row."""
         rows = (
             (("Sweep statistic", self.combo_sweep_aggregation), ("Sweep percentile", self.spin_sweep_percentile)),
-            (("PbP Band", self.combo_pbp_band), ("Lower", self.spin_pbp_low),
-             ("Upper", self.spin_pbp_high)),
             (("CDF", self.combo_cdf), ("Details", self.btn_cdf_settings)),
             (("Range–Freq Sub-band", self.spin_range_subband),
              ("Window", self.combo_range_window), ("Range Unit", self.combo_range_unit)),
@@ -135,16 +118,6 @@ class PlotAnalysisControls(QObject):
         return row
 
     # --- values ------------------------------------------------------------
-
-    def pbp_percentiles(self) -> tuple[float, float] | None:
-        if self.combo_pbp_band.currentData() != "percentile":
-            return None
-        return float(self.spin_pbp_low.value()), float(self.spin_pbp_high.value())
-
-    def set_pbp_band(self, mode: str) -> None:
-        index = self.combo_pbp_band.findData(mode)
-        if index >= 0:
-            self.combo_pbp_band.setCurrentIndex(index)
 
     def cdf_exceedance(self) -> bool:
         return self.combo_cdf.currentData() == "exceedance"
@@ -324,35 +297,6 @@ class PlotAnalysisControls(QObject):
 
     def range_unit(self) -> str:
         return self.combo_range_unit.currentText()
-
-    # --- keep percentile pairs valid -----------------------------------------
-
-    def _pbp_band_changed(self, *_args, emit: bool = True) -> None:
-        enabled = self.combo_pbp_band.currentData() == "percentile"
-        self.spin_pbp_low.setEnabled(enabled)
-        self.spin_pbp_high.setEnabled(enabled)
-        if emit:
-            self.changed.emit("pbp")
-
-    def _pbp_low_changed(self, value: float) -> None:
-        if value >= self.spin_pbp_high.value():
-            blocked = self.spin_pbp_high.blockSignals(True)
-            self.spin_pbp_high.setValue(min(100.0, value + 1.0))
-            self.spin_pbp_high.blockSignals(blocked)
-            if value >= self.spin_pbp_high.value():
-                self.spin_pbp_low.setValue(self.spin_pbp_high.value() - 1.0)
-                return
-        self.changed.emit("pbp")
-
-    def _pbp_high_changed(self, value: float) -> None:
-        if value <= self.spin_pbp_low.value():
-            blocked = self.spin_pbp_low.blockSignals(True)
-            self.spin_pbp_low.setValue(max(0.0, value - 1.0))
-            self.spin_pbp_low.blockSignals(blocked)
-            if value <= self.spin_pbp_low.value():
-                self.spin_pbp_high.setValue(self.spin_pbp_low.value() + 1.0)
-                return
-        self.changed.emit("pbp")
 
 
 class PlotSliderBar(QFrame):

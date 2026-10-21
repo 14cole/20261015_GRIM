@@ -1931,9 +1931,14 @@ def _segment_surface_wave_index(materials, seg_type: 'int', ibc_flag: 'int',
     if seg_type not in _SURFACE_WAVE_TYPES or ibc_flag <= 0:
         return 0.0
     model = materials.impedance_models.get(ibc_flag)
-    if model is None or isinstance(model, ThinLayerDefinition):
+    if model is None:
         return 0.0
     try:
+        if isinstance(model, ThinLayerDefinition):
+            from .formulations.thin_layer_qualification import thin_layer_surface_wave_index
+            eps, mu = materials.get_medium(model.dielectric_flag, freq_ghz)
+            return thin_layer_surface_wave_index(eps, mu, model.thickness_m,
+                2. * math.pi * float(freq_ghz) * 1.e9 / C0, polarization)
         eps, mu = (materials.get_medium(pos_mat, freq_ghz) if seg_type == 4
                    else (1.0 + 0.0j, 1.0 + 0.0j))
         if isinstance(model, ImpedanceTaper) and model.kind != "constant":

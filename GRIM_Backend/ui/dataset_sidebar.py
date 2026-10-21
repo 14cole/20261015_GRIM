@@ -159,7 +159,7 @@ class DatasetSidebar(QScrollArea):
     export_csv_requested = Signal()
     WIDGET_BINDINGS = (
         "table", "btn_dataset_load", "btn_dataset_save", "btn_dataset_save_all",
-        "btn_dataset_export", "btn_dataset_delete", "btn_dataset_undo_delete",
+        "btn_dataset_export", "btn_dataset_delete", "action_dataset_undo_delete",
         "btn_dataset_cancel", "list_pol", "list_freq", "list_elev", "list_az",
         "lbl_pol", "lbl_freq", "lbl_elev", "lbl_az", "dataset_parameter_splitter",
     )
@@ -203,10 +203,17 @@ class DatasetSidebar(QScrollArea):
             "CSV. Native .grim storage uses Save."
         )
         self.btn_dataset_delete = QToolButton(text="Delete")
-        self.btn_dataset_undo_delete = QToolButton(text="Undo Delete")
-        self.btn_dataset_undo_delete.setToolTip(
+        self.btn_dataset_delete.setPopupMode(QToolButton.MenuButtonPopup)
+        delete_menu = QMenu(self.btn_dataset_delete)
+        self.action_dataset_undo_delete = delete_menu.addAction("Undo Delete")
+        self.action_dataset_undo_delete.setEnabled(False)
+        self.action_dataset_undo_delete.setToolTip(
             "Restore the most recently deleted batch of dataset rows, including "
             "their stable identities, unsaved changes, and provenance."
+        )
+        self.btn_dataset_delete.setMenu(delete_menu)
+        self.btn_dataset_delete.setToolTip(
+            "Delete selected dataset rows. Use the arrow to undo the last deleted batch."
         )
         self.btn_dataset_cancel = QToolButton(text="Cancel Job")
         self.btn_dataset_cancel.setVisible(False)
@@ -216,10 +223,11 @@ class DatasetSidebar(QScrollArea):
         )
         for index, button in enumerate((
             self.btn_dataset_load, self.btn_dataset_save, self.btn_dataset_save_all,
-            self.btn_dataset_export, self.btn_dataset_delete, self.btn_dataset_undo_delete,
+            self.btn_dataset_export, self.btn_dataset_delete,
         )):
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            dataset_actions.addWidget(button, index // 3, index % 3)
+            dataset_actions.addWidget(button, index // 3, index % 3, 1,
+                                      2 if button is self.btn_dataset_delete else 1)
         dataset_actions.addWidget(self.btn_dataset_cancel, 2, 0, 1, 3)
         for column in range(3):
             dataset_actions.setColumnStretch(column, 1)

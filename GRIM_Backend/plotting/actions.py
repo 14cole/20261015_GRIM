@@ -113,7 +113,6 @@ class _PbpBands:
                 envelope.close()
                 continue
             lower, upper, density = envelope.result()
-            percentiles = envelope.percentiles
             envelope.close()
             x_segmented, lower_segmented, upper_segmented, density_segmented = plot_common.insert_plot_breaks(
                 break_before, x_values, lower, upper, density)
@@ -138,13 +137,9 @@ class _PbpBands:
             )
             if to_plot_x is not None:
                 x_display = to_plot_x(x_display)
-            prefix = (
-                "PBP" if percentiles is None
-                else f"PBP P{percentiles[0]:g}–P{percentiles[1]:g}"
-            )
             name = self._names[identity[0]]
             band_description = description.removeprefix(f"Pol {identity[1]}, ")
-            label = f"{prefix} {name} | Pol {identity[1]}, {band_description}"
+            label = f"PBP {name} | Pol {identity[1]}, {band_description}"
             color = owner.plot_ax._get_lines.get_next_color()
             key = self._band_key()
             if zero_notice is not None:
@@ -868,10 +863,6 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
     def _new_pbp_bands(self, datasets) -> _PbpBands:
         return _PbpBands(self, datasets)
 
-    def _pbp_percentiles(self) -> tuple[float, float] | None:
-        controls = getattr(self, "analysis_controls", None)
-        return controls.pbp_percentiles() if controls is not None else None
-
     def _style_axes(self, ax) -> None:
         bg = self._current_plot_bg()
         grid = self._current_plot_grid()
@@ -1557,15 +1548,9 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
 
     def _new_pbp_envelope(self):
         phase = self._button_checked(self.btn_phase)
-        percentiles = self._pbp_percentiles()
         if phase:
             self._note_plot_render("Phase bands use a continuous branch of shortest containing arcs and may extend beyond ±180°.")
-            if percentiles is not None:
-                self._note_plot_render("Percentile PBP bands apply to magnitude; phase uses min–max arcs.")
-                percentiles = None
-        if percentiles is not None:
-            self._note_plot_render("PBP percentiles interpolate in displayed units; missing samples are excluded, zero power is retained.")
-        return plot_common.StreamingEnvelope(phase_degrees=phase, percentiles=percentiles,
+        return plot_common.StreamingEnvelope(phase_degrees=phase,
                                              include_negative_infinity=not phase and not self._plot_scale_is_linear())
 
     def _configure_line_budget(self, candidate_count):

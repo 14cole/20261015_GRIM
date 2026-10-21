@@ -641,31 +641,16 @@ class StreamingEnvelope:
     circular coverage needs the observations: spool them to a temporary file
     and sort bounded column blocks, rather than keep every curve in RAM.
     Equal largest gaps choose the smallest start angle in [-180,180).
-
-    ``percentiles=(low, high)`` replaces min/max with those percentiles of
-    the finite samples at each X (linear interpolation between samples),
-    using the same spooled, column-blocked reduction.
     """
 
     phase_degrees: bool = False
     include_negative_infinity: bool = False
-    percentiles: tuple[float, float] | None = None
     lower: np.ndarray | None = None
     upper: np.ndarray | None = None
     count: np.ndarray | None = None
     _phase_file: object = field(default=None, init=False, repr=False)
     _phase_rows: int = field(default=0, init=False, repr=False)
     _phase_dirty: bool = field(default=False, init=False, repr=False)
-
-    def __post_init__(self):
-        if self.percentiles is None:
-            return
-        if self.phase_degrees:
-            raise ValueError("phase bands do not support percentiles")
-        low, high = (float(value) for value in self.percentiles)
-        if not (0.0 <= low < high <= 100.0):
-            raise ValueError("percentiles must satisfy 0 <= low < high <= 100")
-        self.percentiles = (low, high)
 
     def update(self, values) -> None:
         values = np.asarray(values, dtype=float)
@@ -680,7 +665,7 @@ class StreamingEnvelope:
             raise ValueError("all envelope series must have the same shape")
 
         assert self.upper is not None and self.count is not None
-        if self.phase_degrees or self.percentiles is not None:
+        if self.phase_degrees:
             if self._phase_file is None:
                 self._phase_file = tempfile.TemporaryFile(
                     prefix="grim-envelope-", dir=snapshot_directory())
@@ -704,45 +689,6 @@ class StreamingEnvelope:
     def result(self, *, cancel=None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if self.lower is None or self.upper is None or self.count is None:
             raise ValueError("cannot read an empty envelope")
-        if self.percentiles is not None and self._phase_dirty and self.lower.size:
-            self._phase_file.flush()
-            samples = np.memmap(self._phase_file, dtype=np.float64, mode="r",
-                                shape=(self._phase_rows, self.lower.size))
-            block_columns = max(1, REDUCTION_BLOCK_CELLS // self._phase_rows)
-            try:
-                for start in range(0, self.lower.size, block_columns):
-                    if cancel is not None and cancel():
-                        from ..requests import PlotCancelled
-                        raise PlotCancelled()
-                    stop = min(self.lower.size, start + block_columns)
-                    block = np.array(samples[:, start:stop])
-                    with warnings.catch_warnings():
-                        # All-missing columns stay NaN.
-                        warnings.simplefilter("ignore", category=RuntimeWarning)
-                        if self.include_negative_infinity and np.any(np.isneginf(block)):
-                            # Extended-real interpolation: an interior quantile
-                            # between zero (−inf dB) and a finite return is −inf;
-                            # an exact finite rank remains finite. Missing is NaN.
-                            block.sort(axis=0)
-                            count = self.count.flat[start:stop]
-                            positions = np.asarray(self.percentiles)[:, None] / 100. * np.maximum(count - 1, 0)
-                            lo = np.floor(positions).astype(int)
-                            hi = np.ceil(positions).astype(int)
-                            columns = np.arange(stop - start)
-                            a, b = block[lo, columns], block[hi, columns]
-                            fraction = positions - lo
-                            with np.errstate(invalid="ignore"):
-                                reduced = a + fraction * (b - a)
-                            reduced = np.where(lo == hi, a, reduced)
-                            reduced = np.where((lo != hi) & np.isneginf(a), -np.inf, reduced)
-                            low, high = np.where(count > 0, reduced, np.nan)
-                        else:
-                            low, high = np.nanpercentile(block, self.percentiles, axis=0)
-                    self.lower.flat[start:stop] = low
-                    self.upper.flat[start:stop] = high
-            finally:
-                del samples
-            self._phase_dirty = False
         if self.phase_degrees and self._phase_dirty and self.lower.size:
             self._phase_file.flush()
             samples = np.memmap(self._phase_file, dtype=np.float64, mode="r",

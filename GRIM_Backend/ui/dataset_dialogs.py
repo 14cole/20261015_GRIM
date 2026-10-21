@@ -1225,7 +1225,7 @@ class ExtrusionConversionDialog(QDialog):
         destination: str = "dbke",
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Extrusion Estimate")
+        self.setWindowTitle("dBke ↔ dBsm")
         self.setMinimumWidth(560)
         layout = QVBoxLayout(self)
         self._direction = QComboBox()

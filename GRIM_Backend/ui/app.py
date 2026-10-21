@@ -88,6 +88,7 @@ from GRIM_Backend.ui.palette import (
 
 SPLASH_DURATION_MS = 4000
 APPLICATION_ICON_PATH = Path(__file__).resolve().parent / "assets" / "GRIM.png"
+ASSEMBLY_TAB_TITLE = "Assembly (BETA)"
 
 
 def _application_icon() -> QIcon:
@@ -160,7 +161,7 @@ PLOT_OPS_SPECS = {
     "isar": (
         (
             ("Clear", "clear"),
-            ("ISAR Image", "isar_image"),
+            ("ISAR Image (BETA)", "isar_image"),
             ("Az. vs D.R.", "az_vs_range"),
             ("Overlays", "overlays"),
         ),
@@ -476,14 +477,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         ops_panel_title = QLabel("Dataset Operations")
         ops_panel_title.setObjectName("plotTitle")
         ops_panel_layout.addWidget(ops_panel_title)
-        self.btn_result_storage = QToolButton(text='Result storage…')
-        self.btn_result_storage.setToolTip('Choose Auto, RAM, or Disk for new operation results.')
-        self.btn_result_storage.clicked.connect(self._show_result_storage_options)
-        ops_panel_layout.addWidget(self.btn_result_storage)
-        self.btn_storage_usage = QToolButton(text='Storage usage…')
-        self.btn_storage_usage.setToolTip('Inspect retained buffers, clear Undo, and clean abandoned temporary files.')
-        self.btn_storage_usage.clicked.connect(self._show_storage_usage)
-        ops_panel_layout.addWidget(self.btn_storage_usage)
 
         ops_scroll = QScrollArea()
         ops_scroll.setWidgetResizable(True)
@@ -534,38 +527,30 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             ("Percentile", "btn_percentile"),
             ("Align", "btn_align"),
             ("Regrid", "btn_interpolate"),
-            ("Decimate…", "btn_decimate"),
             ("Mirror", "btn_mirror"),
             ("Wrap", "btn_wrap"),
             ("Shift", "btn_shift"),
             ("Round", "btn_round"),
             ("Offset", "btn_offset"),
+            ("dBke ↔ dBsm", "btn_extrusion"),
             ("Flip Phase", "btn_flip_phase"),
             ("Medianize", "btn_medianize"),
             ("Duplicate", "btn_duplicate"),
-            ("Time Gate…", "btn_time_gate"),
         ))
-        _ops_pad("Calibration, Geometry & Quality", (
-            ("Range Cal", "btn_range_cal"),
-            ("Audit…", "btn_audit"),
-            ("Compatibility…", "btn_compatibility"),
+        _ops_pad("Geometry & Metadata", (
             ("Provenance…", "btn_provenance"),
             ("Axis Units…", "btn_axis_units"),
-            ("El→Az360", "btn_el_to_az360"),
             ("Swap El/Az", "btn_swap_el_az"),
-            ("SENTRi El→GRIM", "btn_sentri_elevation"),
-            ("Extrusion…", "btn_extrusion"),
+        ))
+        _ops_pad("BETA", (
             ("Wedge → Conic", "btn_wedge_to_conic"),
             ("Phase Center…", "btn_phase_center"),
+            ("Time Gate…", "btn_time_gate"),
+            ("El→Az360", "btn_el_to_az360"),
+            ("Range Cal", "btn_range_cal"),
+            ("Decimate…", "btn_decimate"),
+            ("SENTRi El→GRIM", "btn_sentri_elevation"),
         ))
-        self.btn_audit.setToolTip(
-            "Run the bounded, read-only dataset health audit and show axis, "
-            "sample, phase, metadata, seam, and readiness findings."
-        )
-        self.btn_compatibility.setToolTip(
-            "Compare selected datasets against the first operand for exact-grid, "
-            "physical-unit, coordinate-frame, and coherent-combination readiness."
-        )
         self.btn_provenance.setToolTip(
             "Inspect copyable source, history, unit, coordinate, and derived-operation "
             "metadata without expanding large embedded arrays."
@@ -610,7 +595,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "btn_coherent_add": (
                 "Add complex fields as supplied, in the displayed operand order. "
                 "Axes and units must match. Convention differences are advisory; "
-                "use Compatibility to compare them."
+                "check that the datasets share a suitable phase reference."
             ),
             "btn_coherent_sub": (
                 "Subtract complex fields in the displayed operand order: first minus "
@@ -713,6 +698,11 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         }
         for attr, tooltip in operation_tooltips.items():
             getattr(self, attr).setToolTip(tooltip)
+
+        for button in (self.btn_wedge_to_conic, self.btn_phase_center, self.btn_time_gate,
+                       self.btn_el_to_az360, self.btn_range_cal, self.btn_decimate,
+                       self.btn_sentri_elevation):
+            button.setToolTip("BETA: validation is not complete.\n\n" + button.toolTip())
 
         ops_content_layout.addStretch(1)
 
@@ -818,7 +808,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             ("Plotting", self.tab_simple_plots, "plotting"),
             ("FREDDY", self.freddy_integration, None),
             ("GHOST", self.ghost_integration, None),
-            ("Assembly", self._assembly_placeholder, None),
+            (ASSEMBLY_TAB_TITLE, self._assembly_placeholder, None),
             ("PPT", self.ppt_workspace, None),
             ("Python", self.tab_python, None),
         ):
@@ -1032,10 +1022,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         self.btn_offset.clicked.connect(self._offset_selected)
         self.btn_flip_phase.clicked.connect(self._flip_phase_selected)
         self.btn_range_cal.clicked.connect(self._range_cal_selected)
-        self.btn_audit.clicked.connect(self._audit_selected_datasets)
-        self.btn_compatibility.clicked.connect(
-            self._compatibility_selected_datasets
-        )
         self.btn_provenance.clicked.connect(self._provenance_selected_datasets)
         self.btn_medianize.clicked.connect(self._medianize_selected)
         self.btn_duplicate.clicked.connect(self._duplicate_selected)
@@ -1053,13 +1039,18 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         load_menu = QMenu(self.btn_dataset_load)
         load_menu.addAction('Load options…', self._show_load_options)
         load_menu.addAction('Load a region from .grim…', self._load_native_region)
+        load_menu.addSeparator()
+        self._dataset_storage_menu = storage_menu = QMenu('Storage', load_menu)
+        load_menu.addMenu(storage_menu)
+        storage_menu.addAction('Result storage…', self._show_result_storage_options)
+        storage_menu.addAction('Storage usage…', self._show_storage_usage)
         self.btn_dataset_load.setMenu(load_menu)
         self.btn_dataset_load.setPopupMode(QToolButton.MenuButtonPopup)
-        self.btn_dataset_load.setToolTip('Load datasets. Use the arrow for memory, disk storage, and region options.')
+        self.btn_dataset_load.setToolTip('Load datasets. Use the arrow for load options, regions, and Storage settings or usage.')
         self.btn_dataset_save.clicked.connect(self._save_selected_datasets)
         self.btn_dataset_save_all.clicked.connect(self._save_all_datasets)
         self.btn_dataset_delete.clicked.connect(self._delete_selected_datasets)
-        self.btn_dataset_undo_delete.clicked.connect(
+        self.action_dataset_undo_delete.triggered.connect(
             self._undo_last_deleted_datasets
         )
         self.btn_dataset_cancel.clicked.connect(self._cancel_background_job)
@@ -1954,9 +1945,10 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
                     "elevation, or azimuth) and re-plots at each value."
                 ),
                 "pbp": (
-                    "Separate point-by-point bands for each dataset and polarization. "
+                    "Separate point-by-point min–max bands for each dataset and polarization. "
                     "Hold keeps existing bands and adds the next plot colors. "
-                    "Choose Min–Max or percentile bands in Plot Settings."
+                    "For percentile summaries, first use Dataset Operations → Percentile or Stats, "
+                    "then plot the resulting datasets with PbP."
                 ),
             }
             if role in tooltips:
@@ -2186,7 +2178,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             tree_panel = workspace.assembly_tree_panel
             tree_panel.storage_options_provider = self._current_result_storage_options
             tree_panel.dirty_changed.connect(
-                lambda dirty: self._set_main_tab_dirty(workspace, "Assembly", dirty)
+                lambda dirty: self._set_main_tab_dirty(workspace, ASSEMBLY_TAB_TITLE, dirty)
             )
             workspace.files_to_load.connect(self._handle_files_dropped)
             workspace.platform_built.connect(self._on_platform_built)
@@ -2234,7 +2226,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         try:
             # Insert before removing the selected placeholder so Qt never
             # briefly selects (and initializes) a different tool tab.
-            tabs.insertTab(index, workspace, "Assembly")
+            tabs.insertTab(index, workspace, ASSEMBLY_TAB_TITLE)
             if current is self._assembly_placeholder:
                 tabs.setCurrentWidget(workspace)
             tabs.removeTab(tabs.indexOf(self._assembly_placeholder))

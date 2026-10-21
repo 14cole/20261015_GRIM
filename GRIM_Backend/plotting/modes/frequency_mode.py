@@ -125,7 +125,7 @@ def render(self) -> None:
     request = PlotRequest("frequency", reference,
         tuple(PlotPlan(name, dataset, (sel[1], sel[2], sel[0], sel[3])) for name, dataset, sel in plans),
         phase=self._button_checked(self.btn_phase), scale=self._plot_scale_mode(),
-        options=dict(config, pbp=pbp_active, pbp_percentiles=self._pbp_percentiles() if pbp_active else None),
+        options=dict(config, pbp=pbp_active),
         selectors={"azimuth": az_values, "frequency": freq_values},
         max_series=None if pbp_active else common.MAX_LINE_SERIES, preserve_zeros=pbp_active)
 

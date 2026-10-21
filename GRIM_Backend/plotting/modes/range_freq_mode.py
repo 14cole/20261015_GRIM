@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 
 from GRIM_Backend.datasets.constants import C0
-from GRIM_Backend.datasets.transforms import _declared_time_sign
+from GRIM_Backend.datasets.phase_conventions import declared_range_phase_sign, declared_time_sign
 from GRIM_Backend.datasets.result_storage import allocate_result, operation_result_storage, result_blocks
 from GRIM_Backend.plotting.requests import PlotPlan, PlotRequest, PlotResult, check_cancel
 
@@ -58,7 +58,13 @@ class SelectedSweeps:
         self.dataset, self.selection = dataset, selection
         self.shape = (len(selection[0]) * len(selection[1]), len(selection[2]))
         self.complete_count = 0
-        self.conjugate = _declared_time_sign(dataset) == "-jwt"
+        # The declared range law directly defines the frequency slope of a
+        # positive-range target. Time convention is only a fallback when that
+        # law is absent. Parse both so conflicting declarations never pass.
+        self.time_sign = declared_time_sign(dataset)
+        self.range_phase_sign = declared_range_phase_sign(dataset)
+        self.conjugate = (self.range_phase_sign == 1 if self.range_phase_sign is not None
+                          else self.time_sign == "-jwt")
 
     def __getitem__(self, rows):
         azimuth, elevation, frequency, polarization = self.selection
@@ -77,7 +83,7 @@ def range_frequency_map(sweeps, frequencies_hz, *, width: int, window: str,
     """Return ``(ranges_m, starts, power)`` with power shaped (sub-bands, ranges).
 
     ``sweeps`` are complex (n_sweeps, n_frequencies) arrays on a uniform
-    frequency grid in GRIM's exp(+jwt) law. Incomplete sweeps are omitted as
+    frequency grid with exp(-j2kR) range phase. Incomplete sweeps are omitted as
     entire sweeps, so every sub-band averages the same population.
     """
     frequencies_hz = np.asarray(frequencies_hz, dtype=float)
@@ -150,6 +156,11 @@ def prepare_range_frequency(request, cancel=None):
             for plan in request.plans:
                 check_cancel(cancel)
                 dataset = plan.dataset
+                try:
+                    sweeps = SelectedSweeps(dataset, plan.selection)
+                except ValueError as exc:
+                    result.skipped.append(f"{plan.name} ({exc})")
+                    continue
                 native = np.asarray(dataset.frequencies[plan.selection[2]], dtype=float)
                 frequencies_hz = np.asarray(dataset._frequency_value_to_hz(native), dtype=float)
                 problem = _uniform_problem(frequencies_hz)
@@ -159,7 +170,6 @@ def prepare_range_frequency(request, cancel=None):
                     result.skipped.append(f"{plan.name} ({problem})")
                     continue
                 width = int(min(native.size, max(8, round(percent / 100.0 * native.size))))
-                sweeps = SelectedSweeps(dataset, plan.selection)
                 try:
                     ranges_m, starts, power = range_frequency_map(
                         sweeps, frequencies_hz, width=width, window=window, cancel=cancel)
@@ -189,8 +199,14 @@ def prepare_range_frequency(request, cancel=None):
                 panel = dict(name=plan.name, pol=str(dataset.polarizations[plan.selection[3][0]]),
                     sweeps=sweeps.complete_count, x=x_display, y=y_display, image=image,
                     resolution=C0 / (2.0 * float(np.mean(np.diff(frequencies_hz))) * width) * scale,
-                    width=width, count=native.size, selected_band=selected_band, snapshot=None)
+                    width=width, count=native.size, selected_band=selected_band, snapshot=None,
+                    phase_normalization=dict(time_sign=sweeps.time_sign,
+                        range_phase_sign=sweeps.range_phase_sign, conjugated=sweeps.conjugate))
                 result.items.append(panel)
+                if sweeps.range_phase_sign is not None:
+                    law = "exp(+j2kR)" if sweeps.range_phase_sign == 1 else "exp(-j2kR)"
+                    normalization = "; conjugated for the range transform" if sweeps.conjugate else ""
+                    result.notes.append(f"{plan.name}: Range–Freq uses declared {law} range phase{normalization}.")
                 if reduced:
                     check_cancel(cancel)
                     snapshot = common.NativeSamples.image(power)

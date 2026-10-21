@@ -177,6 +177,27 @@ about 8.8 MB retained with compact rows versus 92 MB with dictionary rows.
 These are component measurements, not whole-solve speedup or peak-RAM
 guarantees. Linux timing and native-build qualification require a Linux host.
 
+## Thin-layer and reactive-sheet qualification
+
+The 2-D thin-dielectric model is a first-order thickness approximation. Along
+with thickness and curvature checks, it compares local reflection/transmission
+and guided-wave dispersion against an independent finite-thickness slab. Cases
+outside these local comparison limits require explicit bulk geometry. Matched
+guided waves inside the thin-layer expansion's domain enter the mesh-size
+estimate and the achieved-resolution check. Higher spatial-frequency modes
+outside that domain remain unchecked and are identified in the report.
+The solve report shows these comparisons separately from mesh convergence:
+passing local slab checks does not establish the full geometry's error against
+a bulk model, especially near resonances or open ends.
+
+BoR transmitting impedance sheets use both local surface-wave branches when
+planning the meridional mesh. Unresolved surface waves cannot receive a mesh
+certificate. Oblique-incidence modal convergence also accounts for the
+surface-wave azimuthal bandwidth; exact axial incidence retains its single
+azimuthal order. These prerequisites preserve panel, mode and memory limits,
+so a strongly reactive sheet may need explicit refinement or exceed available
+resources instead of receiving a certificate from an unresolved mesh plateau.
+
 ## GPU scope
 
 Configured 2-D solves, including GUI, driver, survey, and certified entry points,

@@ -184,6 +184,8 @@ def solve_thin_layer_fields(mesh, k0, incidence_angles_deg, polarization,
     pol = str(polarization).upper()
     if pol not in {"TM", "TE"}:
         raise ValueError("Thin layer polarization must be TM or TE.")
+    from .thin_layer_qualification import local_bulk_reference
+    local_reference = local_bulk_reference(eps, mu, d, k0, pol)
     mesh = _continuous_oriented_mesh(mesh)
     n = len(mesh.nodes)
     alpha, beta = (eps, mu) if pol == "TM" else (mu, eps)
@@ -224,7 +226,9 @@ def solve_thin_layer_fields(mesh, k0, incidence_angles_deg, polarization,
         'zero_field_jump_eliminated': B == 0,
         'zero_contrast_eliminated': zero_contrast,
         'approximation_error_certified': False,
+        'local_bulk_reference': local_reference,
         'limits': ('electrical thickness <= 0.15; thickness/implied radius <= 0.05; '
+                   'local bulk-slab propagating-wave and in-domain sheet-mode comparisons passed; '
                    'smooth midsurface with fine faceting assumed; '
                    'validate against bulk for application'),
     }

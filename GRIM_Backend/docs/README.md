@@ -4,7 +4,7 @@ The Python entry points for a source checkout are listed under
 [Running from a development checkout](#running-from-a-development-checkout).
 
 GRIM is the host application for this distribution. Its desktop tabs are
-**Plotting | FREDDY | GHOST | Assembly | PPT | Python**. GHOST and FREDDY remain
+**Plotting | FREDDY | GHOST | Assembly (BETA) | PPT | Python**. GHOST and FREDDY remain
 self-contained tools under `tools/`; GRIM embeds their authoritative user
 interfaces instead of copying their numerical implementations into the
 plotting code.
@@ -15,7 +15,7 @@ plots. The first use may take a moment; afterward each workspace stays loaded
 and retains its state when switching tabs. Theme changes, dataset updates, and
 closing GRIM do not initialize an unused workspace.
 
-The Plotting workspace contains **Plots | ISAR | Plot Manipulation**. ISAR Image
+The Plotting workspace contains **Plots | ISAR | Plot Manipulation**. ISAR Image (BETA)
 and Az. vs D.R. live on the ISAR page. Fit, zoom, pan, overlays, measurement,
 phase/polarization analysis and image comparison are shared on Plot Manipulation;
 they act on the last selected Plots or ISAR view. The two views retain their own
@@ -28,6 +28,20 @@ and the active view's Settings button aligned on the right. Hold, trace markers 
 the parameter slider are disabled for ISAR. The selected tab has a filled
 background. Parameter lists use plain row highlights without an additional
 colored selection marker.
+
+Dataset Operations has a **BETA** group containing **Wedge → Conic**,
+**Phase Center…**, **Time Gate…**, **El→Az360**, **Range Cal**, **Decimate…**,
+and **SENTRi El→GRIM**. **Transform** includes **dBke ↔ dBsm**, the broadside
+uniform-extrusion estimate; its generated result names use ASCII `to` rather
+than arrows. Dataset Audit and Compatibility are no longer offered in the GUI.
+The **ISAR Image (BETA)** button,
+**Assembly (BETA)** tab, and FREDDY's **Material Mix (BETA)** tab also identify
+features whose validation is not complete. These labels do not change their
+calculations or availability.
+
+**Delete → Undo Delete** restores the most recently deleted batch, including
+unsaved datasets. **Load → Storage** contains result-storage options and
+storage usage/cleanup; automatic RAM/disk handling remains the default.
 
 The [vehicle assembly guide](ASSEMBLY_WORKFLOW.md) describes the Body, Points,
 Line features, and Build workflow, including direct feature authoring and reusable
@@ -97,6 +111,12 @@ not share one). `-p no:cacheprovider` stops pytest from writing
 launchers skip on other platforms.
 
 ## Reading and comparing complex returns
+
+**Range–Freq** uses an explicit two-way range-phase declaration when supplied:
+`exp(-j2kR)` is used directly and `exp(+j2kR)` is conjugated for the power-profile
+transform. The plot reports this normalization and leaves the dataset unchanged.
+When no range law is declared, it uses the time-convention fallback. Conflicting
+range-phase or time declarations cause that dataset to be skipped with an explanation.
 
 Open **Phase Analysis** in the existing Plotting or ISAR workspace, then choose
 an I/Q view. **Interpret** shows a short explanation for the current view;
@@ -286,8 +306,11 @@ entries name the polarization, the fixed cut, the azimuth statistic (P50 by
 default), and how many of the selected azimuth samples were finite, for
 example n9/9. All data curves default to solid lines; use the line-type
 controls to choose another style.
-PBP draws a separate band for each selected dataset and polarization, bounding
-that dataset's selected cuts. Bands follow the normal plot color sequence
+PBP draws a separate min–max band for each selected dataset and polarization,
+bounding that dataset's selected cuts. To plot percentile datasets, first use
+**Dataset Operations → Transform → Percentile** (or **Stats** for other axes),
+then select those results and enable PBP. PBP does not calculate an additional
+percentile. Bands follow the normal plot color sequence
 (blue first) with transparent fills. With Hold enabled, each Plot adds new
 bands in the next colors and preserves the existing bands, including repeat
 plots of the same dataset. Turn off Hold or Clear to start again. Each band

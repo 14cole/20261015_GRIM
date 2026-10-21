@@ -94,8 +94,7 @@ def prepare_sweep(request: PlotRequest, cancel=None) -> PlotResult:
                 if identity not in envelopes:
                     envelope = common.StreamingEnvelope(
                         phase_degrees=request.phase,
-                        include_negative_infinity=not request.phase and request.scale != "linear",
-                        percentiles=None if request.phase else request.options.get("pbp_percentiles"))
+                        include_negative_infinity=not request.phase and request.scale != "linear")
                     envelopes[identity] = envelope
                     result.envelopes.append((plan, envelope))
                 for _x, values, _label, _key in sweep_analysis.iter_series(

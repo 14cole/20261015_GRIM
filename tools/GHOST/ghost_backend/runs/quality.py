@@ -122,6 +122,11 @@ def solver_report_text(metadata):
                          min(row['samples_per_wavelength'] for row in waves),
                          max(row['required_samples_per_wavelength'] for row in waves),
                          max(row['phase_index'] for row in waves)))
+    modal_bandwidth = max((record.get('surface_wave_mode_bandwidth', 0)
+                          for record in metadata.get('surface_wave_sampling', [])), default=0)
+    if modal_bandwidth:
+        lines.append(f'Local reactive-sheet azimuthal bandwidth estimate: order {math.ceil(modal_bandwidth)}; '
+                     'exact axial incidence requires only order 1. Modal convergence is checked separately.')
     for title, key in (("Maximum linear residual", "residual_norm_max"),
                        ("Maximum backward error", "backward_error_max"),
                        ("Condition estimate", "condition_est_max")):
@@ -144,6 +149,23 @@ def solver_report_text(metadata):
     layers = metadata.get("thin_layer", [])
     if (any(layers.values()) if isinstance(layers, dict) else bool(layers)):
         lines.append("Thin layer: first-order thickness approximation. Mesh certification does not certify its difference from bulk material.")
+        layer_records = ([row for channel in layers.values() for row in channel]
+                         if isinstance(layers, dict) else layers)
+        local_bulk = [row['local_bulk_reference'] for row in layer_records
+                      if isinstance(row, dict) and isinstance(row.get('local_bulk_reference'), dict)]
+        if local_bulk:
+            lines.append('Thin-layer local bulk checks: {} (largest planar reflection/transmission '
+                         'difference {:.4g}% of incident amplitude; largest guided-wave propagation-index '
+                         'difference {:.4g}%). These checks do not bound the error of the full geometry.'.format(
+                             'passed' if all(row.get('passed') is True for row in local_bulk) else 'failed',
+                             100. * max(row['maximum_absolute_rt_error'] for row in local_bulk),
+                             100. * max(row.get('maximum_guided_index_relative_error',
+                                               row['maximum_guided_phase_index_relative_error']) for row in local_bulk)))
+            excluded = max(row.get('excluded_out_of_domain_sheet_mode_count', 0) for row in local_bulk)
+            if excluded:
+                lines.append(f'Thin-layer modes outside the checked thickness domain: up to {excluded} per comparison. '
+                             'These remain in the approximation and are not qualified by the local bulk checks; '
+                             'use explicit bulk geometry when short spatial scales matter.')
     lines.append("Linear backend: "+str(metadata.get("linear_backend", "see per-frequency details")))
     selection = metadata.get('backend_selection')
     if selection:

@@ -1036,12 +1036,12 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         self.nav_group.setExclusive(True)
         self._mode_labels = []
 
-        def _add_mode(label: str, page: QWidget) -> None:
+        def _add_mode(label: str, page: QWidget, *, display_label: str | None = None) -> None:
             index = self.mode_stack.count()
             self.mode_stack.addWidget(page)
             button = QToolButton()
             button.setObjectName("ModeNavButton")
-            button.setText(label.replace("&", "&&"))
+            button.setText((display_label or label).replace("&", "&&"))
             button.setCheckable(True)
             button.setToolButtonStyle(Qt.ToolButtonTextOnly)
             button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -1630,7 +1630,7 @@ class ImpedanceGui(ProjectStateMixin, AnalysisWorkflowMixin, InverseResultsMixin
         mix_content = QWidget()
         mix_tab.setWidget(mix_content)
         mix_layout = QVBoxLayout(mix_content)
-        _add_mode("Material Mix", mix_tab)
+        _add_mode("Material Mix", mix_tab, display_label="Material Mix (BETA)")
 
         intro = QLabel(
             "Build a volume-based recipe from measured material CSV files. "
