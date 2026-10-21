@@ -1451,6 +1451,54 @@ class ExportCsvDialog(QDialog):
             self._chk_phase.isChecked(),
         )
 
+def _percentile_interpolation_checkbox() -> QCheckBox:
+    checkbox = QCheckBox("Interpolate between percentile samples")
+    checkbox.setChecked(False)
+    checkbox.setToolTip(
+        "Checked: linearly interpolate between sorted sample values. "
+        "Unchecked: use the nearest-rank percentile, selecting the sample at "
+        "ceil(percentile / 100 × sample count), with rank 1 as the minimum. "
+        "Missing values are excluded."
+    )
+    return checkbox
+
+
+class PercentileDialog(QDialog):
+    """Choose the azimuth percentile and whether to interpolate its value."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Azimuth Percentile")
+        layout = QVBoxLayout(self)
+        row = QHBoxLayout()
+        label = QLabel("Linear-power percentile across azimuth (0–100):")
+        self.spin_pct = QDoubleSpinBox()
+        self.spin_pct.setRange(0.0, 100.0)
+        self.spin_pct.setDecimals(3)
+        self.spin_pct.setSingleStep(5.0)
+        self.spin_pct.setValue(90.0)
+        label.setBuddy(self.spin_pct)
+        row.addWidget(label)
+        row.addWidget(self.spin_pct)
+        layout.addLayout(row)
+
+        self.chk_interpolate = _percentile_interpolation_checkbox()
+        layout.addWidget(self.chk_interpolate)
+        note = QLabel(
+            "Uncheck to select an actual sample value using the nearest-rank method."
+        )
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_params(self) -> tuple[float, bool]:
+        return self.spin_pct.value(), self.chk_interpolate.isChecked()
+
+
 class StatisticsDialog(QDialog):
     """Single dialog for statistics dataset: all options in one place."""
 
@@ -1477,6 +1525,10 @@ class StatisticsDialog(QDialog):
         params_grid.addWidget(self.spin_pct, 0, 3)
 
         layout.addLayout(params_grid)
+
+        self.chk_interpolate = _percentile_interpolation_checkbox()
+        self.chk_interpolate.setEnabled(False)
+        layout.addWidget(self.chk_interpolate)
 
         axes_group = QGroupBox("Axes to Reduce")
         axes_row = QHBoxLayout(axes_group)
@@ -1523,9 +1575,12 @@ class StatisticsDialog(QDialog):
         self.combo_stat.currentTextChanged.connect(
             lambda t: self.spin_pct.setEnabled(t == "percentile")
         )
+        self.combo_stat.currentTextChanged.connect(
+            lambda t: self.chk_interpolate.setEnabled(t == "percentile")
+        )
 
-    def get_params(self) -> tuple[str, float, list[str], bool]:
-        """Return (statistic, percentile, axes, broadcast_reduced)."""
+    def get_params(self) -> tuple[str, float, list[str], bool, bool]:
+        """Return (statistic, percentile, axes, broadcast_reduced, interpolate)."""
         statistic = self.combo_stat.currentText()
         percentile = self.spin_pct.value()
         axes = [
@@ -1538,7 +1593,10 @@ class StatisticsDialog(QDialog):
             )
             if chk.isChecked()
         ]
-        return statistic, percentile, axes, self.chk_broadcast.isChecked()
+        return (
+            statistic, percentile, axes, self.chk_broadcast.isChecked(),
+            self.chk_interpolate.isChecked(),
+        )
 
 
 class TimeGateDialog(QDialog):

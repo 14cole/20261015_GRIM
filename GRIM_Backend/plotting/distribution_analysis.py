@@ -190,7 +190,20 @@ def prepare_curve(name, dataset, selection, group, config, *, scale, cancel=None
         median = levels[min(int(np.searchsorted(cdf, 50.)), len(levels)-1)]
     else:
         middle = len(values) // 2
-        median = float(values[middle]) if len(values) % 2 else float(np.mean([values[middle - 1], values[middle]]))
+        median = float(values[middle])
+        if len(values) % 2 == 0:
+            lower = float(values[middle - 1])
+            if scale == "linear":
+                # Nonnegative finite powers: this midpoint cannot overflow.
+                median = lower + (median - lower) / 2.
+            elif not np.isneginf(median):
+                # Average linear equivalents, not dB values. Computing only
+                # this pair in log space preserves zero (-inf), subnormal
+                # powers and large dBke levels without another population.
+                # For pooled dBke populations the linear equivalent is
+                # k(f)*width, normalized per sample before ranking above;
+                # a pooled width has no single frequency for conversion.
+                median += 10. * np.log10(.5 + .5 * 10. ** ((lower - median) / 10.))
     counts = pop["counts"]
     label = (f"{name} | Pol {pol}, {counts['valid']:,} samples, "
              f"{'weighted P50' if weighted else 'median'} {median:.4g} {unit}")
@@ -210,7 +223,7 @@ def prepare_curve(name, dataset, selection, group, config, *, scale, cancel=None
            tuple(float(v) for v in dataset.frequencies[selection[2]]), str(pol))
     # Sorted population is transient: retain only the distinct levels and mass.
     pop.pop("values"); pop.pop("weights")
-    curve = dict(dataset=dataset, name=name, pol=str(pol), group=group, unit=unit,
+    curve = dict(dataset=dataset, name=name, pol=str(pol), group=group, unit=unit, median=median,
                  levels=levels, cdf=cdf, exceed=exceed, population=pop, label=label, key=key)
     curve["lookup"] = threshold_lookup(curve, config["threshold"])
     return curve

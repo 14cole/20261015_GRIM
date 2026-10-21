@@ -638,6 +638,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             ),
             "btn_percentile": (
                 "Compute a linear-power percentile across azimuth (90th by default). "
+                "Choose interpolated values or nearest-rank samples. "
                 "Repeat the result at every original azimuth, separately for "
                 "each frequency, elevation and polarization."
             ),

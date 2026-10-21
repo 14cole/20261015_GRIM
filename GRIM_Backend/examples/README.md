@@ -126,19 +126,23 @@ For P90 across an inclusive azimuth band at every frequency:
 AZIMUTH = None
 AZIMUTH_BAND = (-10.0, 10.0)
 AZIMUTH_PERCENTILE = 90.0
+AZIMUTH_INTERPOLATE = False  # True interpolates between sorted powers
 ELEVATION = 0.0
 POLARIZATIONS = ("VV",)
 ```
 
 When a band is active, `AZIMUTH_PERCENTILE = None` uses P50. A descending band,
 such as `(170.0, -170.0)` on a signed degree axis, crosses the periodic seam.
-The percentile is calculated independently at each frequency in the displayed
-logarithmic RCS domain, using only common stored azimuth samples. Periodic
-endpoint aliases are counted once. Ordinary percentiles are not meaningful for
+The percentile is calculated independently at each frequency in linear power,
+then converted to the dataset's logarithmic RCS unit, using only common stored
+azimuth samples. Valid zero powers participate. `AZIMUTH_INTERPOLATE = False`
+is the default and selects the nearest-rank sample; `True` interpolates between
+sorted powers.
+Periodic endpoint aliases are counted once. Ordinary percentiles are not meaningful for
 wrapped phase, so phase frequency sweeps require an exact `AZIMUTH`.
 
-Coordinate selections use the first dataset's stored units. There is no hidden
-interpolation or extrapolation.
+Coordinate selections use the first dataset's stored units. Coordinates are
+matched without interpolation or extrapolation.
 
 ## Query one sample by coordinate value
 

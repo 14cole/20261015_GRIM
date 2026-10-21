@@ -15,7 +15,8 @@ def options(values=None):
     percentile = float(values.get("percentile", 90.))
     if not np.isfinite(percentile) or not 0 <= percentile <= 100:
         raise ValueError("Sweep percentile must be between 0 and 100")
-    return {"mode": mode, "percentile": percentile}
+    return {"mode": mode, "percentile": percentile,
+            "interpolate": bool(values.get("interpolate", False))}
 
 
 def owner_options(owner):
@@ -29,8 +30,9 @@ def statistic_name(config, *, phase=False):
         return {"individual": "Individual phase", "mean": "Circular mean phase",
                 "median": "P50 circular phase", "percentile": f"Phase of P{percentile:g} nearest-rank power sample",
                 "max": "Phase of strongest return"}[mode]
+    method = "interpolated" if config.get("interpolate", False) else "nearest rank"
     return {"individual": "Individual cut", "mean": "Mean linear power", "median": "P50",
-            "percentile": f"P{percentile:g} linear power", "max": "Worst case (maximum power)"}[mode]
+            "percentile": f"P{percentile:g} linear power ({method})", "max": "Worst case (maximum power)"}[mode]
 
 
 def short_statistic(config, *, phase=False):
@@ -38,8 +40,9 @@ def short_statistic(config, *, phase=False):
     if phase:
         return {"individual": "Phase", "mean": "Circular mean", "median": "P50",
                 "percentile": f"Phase@P{percentile:g} power", "max": "Phase@max power"}[mode]
+    method = "" if config.get("interpolate", False) else " nearest rank"
     return {"individual": "Cut", "mean": "Mean power", "median": "P50",
-            "percentile": f"P{percentile:g}", "max": "Max"}[mode]
+            "percentile": f"P{percentile:g}{method}", "max": "Max"}[mode]
 
 
 def axis_tag(config, *, phase=False):
@@ -47,7 +50,11 @@ def axis_tag(config, *, phase=False):
 
 
 def reduce_power(power, config):
-    """Equal-sample reduction along azimuth; no mean of dB or coherent field."""
+    """Reduce finite nonnegative linear powers along axis 0, retaining zeros.
+
+    Percentiles either interpolate powers or select the nearest-rank sample.
+    Median always averages the middle two powers for an even population.
+    """
     power = np.asarray(power, dtype=float)
     valid = np.isfinite(power) & (power >= 0.)
     clean = np.where(valid, power, np.nan)
@@ -60,7 +67,8 @@ def reduce_power(power, config):
             value = np.nanmax(clean, axis=0)
         else:
             q = 50. if mode == "median" else config["percentile"]
-            value = np.nanpercentile(clean, q, axis=0, method="linear")
+            method = "linear" if mode == "median" or config.get("interpolate", False) else "inverted_cdf"
+            value = np.nanpercentile(clean, q, axis=0, method=method)
     return value, np.sum(valid, axis=0)
 
 
@@ -69,7 +77,7 @@ def reduce_phase(field, config):
 
     Phase has no scalar worst-case or ordered percentile. For max/percentile
     we explicitly select the strongest/nearest-rank power observation and
-    show its phase; the magnitude percentile itself still interpolates power.
+    show its phase. The interpolation option only affects magnitude percentiles.
     """
     field = np.asarray(field)
     power = np.abs(field) ** 2
@@ -163,6 +171,7 @@ def iter_series(name, dataset, reference, selection, *, sweep_axis, config=None,
             coverage = f"n{low_count}/{len(group)}" if low_count == high_count else f"n{low_count}–{high_count}/{len(group)}"
             label = (f"{name} | Pol {dataset.polarizations[pol_idx]}, {fixed_name} {fixed_display:.6g} "
                      f"{common.axis_unit(reference, fixed_axis)}, {description}; {coverage}")
+            method = ("linear" if config["interpolate"] else "inverted_cdf") if not phase and config["mode"] == "percentile" else None
             key = ("sweep", sweep_axis, config["mode"], config["percentile"], az_identity,
-                   tuple(float(v) for v in native_sweep), fixed_native, str(dataset.polarizations[pol_idx]))
+                   tuple(float(v) for v in native_sweep), fixed_native, str(dataset.polarizations[pol_idx]), method)
             yield np.asarray(x), np.asarray(display), label, key

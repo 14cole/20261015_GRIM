@@ -47,7 +47,7 @@ def _population_blocks(dataset, axes, output_index, domain, field_reader=None):
         yield np.asarray(domain_values(dataset, selection, domain, field_reader)).reshape(-1)
 
 
-def _exact_rank(blocks, population_size, dtype, statistic, percentile):
+def _exact_rank(blocks, population_size, dtype, statistic, percentile, *, interpolate=False):
     values = workspace_array(population_size, dtype)
     count = 0
     for block in blocks:
@@ -63,6 +63,12 @@ def _exact_rank(blocks, population_size, dtype, statistic, percentile):
         q = float(percentile) / 100.
         if not 0. <= q <= 1.:
             raise ValueError("Percentiles must be in the range [0, 100]")
+        if not interpolate:
+            # Empirical inverse CDF: select the first observed value whose
+            # cumulative fraction reaches q, with q=0 selecting the minimum.
+            rank = max(int(np.ceil(q * count)) - 1, 0)
+            values.partition(rank)
+            return values[rank]
         position = (count - 1) * q
         lower = int(np.floor(position))
         # NumPy's linear method retains the following neighbor even when the
@@ -130,7 +136,7 @@ def _stream_scalar(blocks, statistic, dtype):
 _VECTORIZED_RANK = {"median": np.median, "percentile": np.percentile}
 
 
-def _vectorized_nan_rank(values, axes, rank, args):
+def _vectorized_nan_rank(values, axes, rank, args, kwargs=None):
     """``np.nanmedian``/``np.nanpercentile`` over ``axes`` without a lane loop.
 
     Without NaN the nan-function equals the plain function. Otherwise lanes
@@ -138,10 +144,13 @@ def _vectorized_nan_rank(values, axes, rank, args):
     after the exact compaction numpy's ``_remove_nan_1d`` applies per lane
     (NaN holes among the first n samples are filled, in order, by the
     trailing non-NaN samples), so ties such as -0.0/+0.0 select identically.
+    Percentiles default to the empirical inverse CDF unless ``kwargs``
+    explicitly selects another method; median retains its usual definition.
     """
+    kwargs = {"method": "inverted_cdf"} if kwargs is None and rank is np.percentile else (kwargs or {})
     nan = np.isnan(values)
     if not nan.any():
-        return rank(values, *args, axis=axes, keepdims=True)
+        return rank(values, *args, axis=axes, keepdims=True, **kwargs)
     keep = [axis for axis in range(values.ndim) if axis not in axes]
     order = keep + list(axes)
     lanes = np.transpose(values, order).reshape(
@@ -162,15 +171,15 @@ def _vectorized_nan_rank(values, axes, rank, args):
             tail = group[:, count:]
             head[lane_nan[rows, :count]] = tail[~lane_nan[rows, count:]]
             group = head
-        reduced[rows] = rank(group, *args, axis=1)
+        reduced[rows] = rank(group, *args, axis=1, **kwargs)
     shape = [1] * values.ndim
     for position, axis in enumerate(keep):
         shape[axis] = values.shape[axis]
     return reduced.reshape(shape)
 
 
-def reduce_dataset(dataset, domain, axes, statistic, percentile=50.):
-    """Exact ranks or stable streaming reductions over each complete population."""
+def reduce_dataset(dataset, domain, axes, statistic, percentile=50., *, interpolate=False):
+    """Reduce complete populations; percentiles use nearest rank by default."""
     reduced_shape = tuple(1 if axis in axes else count for axis, count in enumerate(dataset.shape))
     probe = tuple(slice(0, 1) for _axis in dataset.shape)
     field_reader = dataset._bounded_complex_slice_reader()[0] if domain == "complex" else None
@@ -178,7 +187,8 @@ def reduce_dataset(dataset, domain, axes, statistic, percentile=50.):
     reducer = {"mean": np.nanmean, "std": np.nanstd, "median": np.nanmedian,
                "min": np.nanmin, "max": np.nanmax, "percentile": np.nanpercentile}[statistic]
     args = (float(percentile),) if statistic == "percentile" else ()
-    result_dtype = np.asarray(reducer(np.ones(1, dtype=dtype), *args)).dtype
+    kwargs = {"method": "linear" if interpolate else "inverted_cdf"} if statistic == "percentile" else {}
+    result_dtype = np.asarray(reducer(np.ones(1, dtype=dtype), *args, **kwargs)).dtype
     result = allocate_result(reduced_shape, result_dtype)
     population_size = math.prod(dataset.shape[axis] for axis in axes)
     # Small populations stay vectorized across independent outputs. Larger
@@ -196,14 +206,14 @@ def reduce_dataset(dataset, domain, axes, statistic, percentile=50.):
                 # nanmedian/nanpercentile with an axis fall back to a Python
                 # loop over every output lane (apply_along_axis); the
                 # vectorized form below returns the same bits.
-                result[selection] = _vectorized_nan_rank(values, axes, vectorized, args)
+                result[selection] = _vectorized_nan_rank(values, axes, vectorized, args, kwargs)
             else:
-                result[selection] = reducer(values, *args, axis=axes, keepdims=True)
+                result[selection] = reducer(values, *args, axis=axes, keepdims=True, **kwargs)
         return result
     for index in np.ndindex(reduced_shape):
         blocks = _population_blocks(dataset, axes, index, domain, field_reader)
         if statistic in {"median", "percentile"}:
-            value = _exact_rank(blocks, population_size, dtype, statistic, percentile)
+            value = _exact_rank(blocks, population_size, dtype, statistic, percentile, interpolate=interpolate)
         else:
             value = _stream_scalar(blocks, statistic, dtype)
         result[index] = value

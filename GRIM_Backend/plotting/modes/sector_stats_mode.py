@@ -25,7 +25,9 @@ STATISTICS = (
 )
 
 
-def _sector_linear_statistics(linear, members, percentile: float) -> dict[str, float]:
+def _sector_linear_statistics(
+    linear, members, percentile: float, interpolate: bool = False
+) -> dict[str, float]:
     values = linear[members]
     values = values[np.isfinite(values) & (values >= 0.0)]
     if values.size == 0:
@@ -37,12 +39,17 @@ def _sector_linear_statistics(linear, members, percentile: float) -> dict[str, f
         "median": float(np.median(values)),
         "max": float(np.max(values)),
         "min": float(np.min(values)),
-        "percentile": float(np.percentile(values, percentile)),
+        "percentile": float(np.percentile(
+            values, percentile, method="linear" if interpolate else "inverted_cdf"
+        )),
     }
 
 
-def statistic_tag(statistic: str, percentile: float) -> str:
-    return f"P{percentile:g}" if statistic == "percentile" else statistic
+def statistic_tag(statistic: str, percentile: float, interpolate: bool = False) -> str:
+    if statistic != "percentile":
+        return statistic
+    suffix = "" if interpolate else " (nearest rank)"
+    return f"P{percentile:g}{suffix}"
 
 
 def render(self) -> None:
@@ -76,6 +83,7 @@ def render(self) -> None:
     controls = getattr(self, "analysis_controls", None)
     statistic = controls.sector_statistic() if controls is not None else "mean"
     percentile = controls.sector_percentile() if controls is not None else 90.0
+    interpolate = controls.sector_interpolate() if controls is not None else False
     period = float(common.convert_axis_values(
         [360.0], "azimuth", "deg", self._plot_axis_unit(reference, "azimuth")
     )[0])
@@ -104,7 +112,7 @@ def render(self) -> None:
             previous_zero_note.remove()
         self.plot_ax._grim_sector_zero_note = None
 
-    tag = statistic_tag(statistic, percentile)
+    tag = statistic_tag(statistic, percentile, interpolate)
     freq_unit = self._plot_axis_unit(reference, "frequency")
     elev_unit = self._plot_axis_unit(reference, "elevation")
     elev_name = self._plot_axis_name(reference, "elevation")
@@ -142,7 +150,7 @@ def render(self) -> None:
                 for sector, members in zip(sectors, memberships):
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore", category=RuntimeWarning)
-                        stats = _sector_linear_statistics(linear, members, percentile)
+                        stats = _sector_linear_statistics(linear, members, percentile, interpolate)
                     keys = ("mean", "median", "max", "min", "percentile")
                     values = np.asarray([stats[key] for key in keys])
                     if not self._plot_scale_is_linear():
@@ -178,7 +186,9 @@ def render(self) -> None:
                     f"{elev_name} {elevation:.12g} {elev_unit}, sector {tag}"
                 )
                 trace_key = (
-                    "sector", statistic, percentile, tuple((s.start, s.width) for s in sectors),
+                    "sector", statistic, percentile,
+                    interpolate if statistic == "percentile" else None,
+                    tuple((s.start, s.width) for s in sectors),
                     tuple(float(v) for v in dataset.azimuths[az_indices]),
                     native_frequency, float(dataset.elevations[elev_idx]), str(pol_value),
                 )
@@ -192,6 +202,8 @@ def render(self) -> None:
     self.plot_figure._grim_sector_table = {
         "unit": unit,
         "percentile": percentile,
+        "interpolate": interpolate,
+        "percentile_method": "linear" if interpolate else "inverted_cdf",
         "rows": table,
         "row_units": row_units,
     }
@@ -241,10 +253,13 @@ def table_text(table) -> str:
     row_units = table.get("row_units", [])
     mixed_units = len(set(row_units)) > 1
     suffix = "" if mixed_units else f" ({unit})"
+    percentile_tag = statistic_tag(
+        "percentile", table["percentile"], table.get("interpolate", False)
+    )
     header = (
         "Dataset", "Pol", "Frequency", "Elevation", "Sector", "Samples",
         f"Mean{suffix}", f"Median{suffix}", f"Min{suffix}", f"Max{suffix}",
-        f"P{table['percentile']:g}{suffix}",
+        f"{percentile_tag}{suffix}",
     )
     if mixed_units:
         header += ("Unit",)

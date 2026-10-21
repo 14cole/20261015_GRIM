@@ -14,6 +14,7 @@ COMBOS = ('plot_type_combo', 'frequency_azimuth_mode_combo', 'elevation_combo', 
 SPINS = ('azimuth_band_min_spin', 'azimuth_band_max_spin', 'azimuth_percentile_spin',
          'x_min_spin', 'x_max_spin', 'x_step_spin', 'y_min_spin', 'y_max_spin', 'y_step_spin', 'global_line_width_spin')
 TEXTS = ('deck_title_edit', 'template_edit', 'azimuth_layout_edit', 'frequency_layout_edit')
+CHECKS = ('azimuth_interpolate_check',)
 
 
 def write_report_recipe(path, state):
@@ -181,6 +182,7 @@ class ReportWorkflowMixin:
         return dict(combos={key:_plain(getattr(self,key).currentData()) for key in COMBOS},
                     spins={key:getattr(self,key).value() for key in SPINS},
                     texts={key:getattr(self,key).text() for key in TEXTS},
+                    checks={key:getattr(self,key).isChecked() for key in CHECKS},
                     frequencies=[_plain(v) for v in self.selected_frequencies()],
                     order=list(self.dataset_ids_in_order()), selected=list(self.selected_dataset_ids()),
                     datasets={key:{'name':entry.name,'source':str(entry.source or getattr(entry.grid,'source_path','') or '')} for key,entry in self._catalog.items()},
@@ -192,12 +194,17 @@ class ReportWorkflowMixin:
         previous_axes = copy.deepcopy(self._x_axis_settings)
         previous_customized = set(self._x_axis_customized)
         value = copy.deepcopy(raw)
-        required = {'combos','spins','texts','frequencies','order','selected','datasets','line_widths','line_styles','line_colors','units'}
+        # Recipes without this control use the nearest-rank default.
+        if isinstance(value,dict) and 'checks' not in value:
+            value['checks'] = {'azimuth_interpolate_check': False}
+        required = {'combos','spins','texts','checks','frequencies','order','selected','datasets','line_widths','line_styles','line_colors','units'}
         if not isinstance(value,dict) or set(value)!=required:
             raise ValueError('Report recipe has missing or unsupported fields.')
-        for key,expected in [('combos',COMBOS),('spins',SPINS),('texts',TEXTS)]:
+        for key,expected in [('combos',COMBOS),('spins',SPINS),('texts',TEXTS),('checks',CHECKS)]:
             if not isinstance(value[key],dict) or set(value[key])!=set(expected):
                 raise ValueError(f'Invalid report recipe {key}.')
+        if any(not isinstance(x,bool) for x in value['checks'].values()):
+            raise ValueError('Report checkbox settings must be true or false.')
         for key,x in value['spins'].items():
             widget=getattr(self,key)
             if isinstance(x,bool) or not isinstance(x,(float,int)) or not math.isfinite(x) or (key not in ('azimuth_band_min_spin','azimuth_band_max_spin') and not widget.minimum() <= x <= widget.maximum()):
@@ -304,6 +311,7 @@ class ReportWorkflowMixin:
                 raise ValueError('Saved azimuth band extends outside the current dataset coverage.')
             widget.setValue(x)
         for key,x in value['texts'].items(): getattr(self,key).setText(x)
+        for key,x in value['checks'].items(): getattr(self,key).setChecked(x)
         self._series_line_widths=dict(value['line_widths'])
         self._series_line_styles=dict(value['line_styles'])
         self._series_line_colors=dict(value['line_colors'])

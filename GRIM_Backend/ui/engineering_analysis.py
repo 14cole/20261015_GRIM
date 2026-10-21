@@ -16,7 +16,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolb
 from matplotlib.widgets import SpanSelector
 
 from GRIM_Backend.plotting.engineering_tools import (
-    dataset_cut, measure_trace, finite_runs,
+    dataset_cut, measure_trace, linear_power_summary, finite_runs,
 )
 from GRIM_Backend.plotting.modes.common import (
     axis_unit, convert_axis_values, decimate_line, insert_plot_breaks, singleton_line_markers,
@@ -500,10 +500,13 @@ class EngineeringAnalysisDialog(EngineeringAnalysisPresenter, QDialog):
 
     def _analyze_measure(self):
         line = self.trace_combo.currentData()
+        power_summary = None
         if line is None:
             cut = self._cut()
             x, y, label, x_label, y_label = cut.x, cut.db, cut.label, f"{cut.axis} ({cut.x_unit})", cut.level_unit
-            note_text = "Native dataset cut. Mean / standard deviation below describe displayed dB values, not mean linear RCS."
+            power_summary = linear_power_summary(cut, region=self._region())
+            note_text = ("Native dataset cut. Mean and median use finite nonnegative linear power, including zero, in physical units. "
+                         "Standard deviation, peak-to-peak, crossings, and peak drop describe the displayed dB trace.")
         else:
             if line.axes is None: raise ValueError("The selected plot trace was replaced. Refresh the sources.")
             current_figure = getattr(self.owner, "plot_figure", None)
@@ -527,6 +530,8 @@ class EngineeringAnalysisDialog(EngineeringAnalysisPresenter, QDialog):
             x, y = x[order], y[order]
         result = measure_trace(x, y, region=self._region(), level=self.crossing_level.value(),
                                drop=self.peak_drop.value(), maximum_gap=self._maximum_gap())
+        if power_summary is not None:
+            result["power_summary"] = power_summary
         self._measurement = (x, y, result, line, order)
         figure, canvas, table, note = self._panels["measure"]
         if self._span is not None: self._span.disconnect_events()
@@ -540,13 +545,23 @@ class EngineeringAnalysisDialog(EngineeringAnalysisPresenter, QDialog):
                                   props={"alpha": .18, "facecolor": "#2a9d8f"}, interactive=True)
         rows = [("Source", label, f"{x_label}; {y_label}"),
                 ("Region", str(self._region()) if self._region() else "Full trace", x_label),
-                ("Finite / selected samples", f"{result['finite_count']} / {result['selected_count']}", "native coordinates"),
-                ("Coverage", _number(result["coverage"] * 100), "%")]
+                ("Finite displayed / selected samples" if power_summary is not None else "Finite / selected samples",
+                 f"{result['finite_count']} / {result['selected_count']}", "native coordinates"),
+                ("Displayed coverage" if power_summary is not None else "Coverage", _number(result["coverage"] * 100), "%")]
+        if power_summary is not None:
+            rows.append(("Valid power / selected samples", f"{power_summary['valid_count']} / {power_summary['selected_count']}",
+                         "finite nonnegative power; zero retained"))
+            for name in ("mean", "median"):
+                rows.append((f"{name.capitalize()} (linear power)", _number(power_summary.get(name)), power_summary["unit"]))
         for name in ("peak", "minimum"):
             if name in result:
                 rows.append((name.capitalize(), _number(result[name]["y"]), f"{y_label} at {_number(result[name]['x'])} {x_label}"))
         for name in ("mean", "median", "std", "peak_to_peak"):
-            if name in result: rows.append((name.replace("_", " ").capitalize(), _number(result[name]), f"displayed {y_label}"))
+            if power_summary is not None and name in {"mean", "median"}:
+                continue
+            title = {"std": "Displayed standard deviation", "peak_to_peak": "Displayed peak to peak"}.get(
+                name, name.replace("_", " ").capitalize())
+            if name in result: rows.append((title, _number(result[name]), f"displayed {y_label}"))
         for index, crossing in enumerate(result["crossings"], 1): rows.append((f"Level crossing {index}", _number(crossing), x_label))
         if result["bandwidth"]:
             width = result["bandwidth"]

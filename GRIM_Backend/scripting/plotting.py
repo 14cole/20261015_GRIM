@@ -161,7 +161,11 @@ def plot_datasets(
     Ordinary overlays accept one polarization or a sequence and preserve each
     dataset's native sweep samples within the selected reference intervals.
     ``sweep_options`` selects individual/mean/median/percentile/max azimuth
-    reduction. ``cdf_options`` selects groups, weighting and an inclusive
+    reduction. Magnitude reductions use linear power before display conversion;
+    ``sweep_options={"mode": "percentile", "percentile": 90,
+    "interpolate": True}`` enables interpolation between sorted powers instead
+    of the default nearest-rank percentile. Median always averages the two middle
+    powers for an even population. ``cdf_options`` selects groups, weighting and an inclusive
     threshold; the returned figure exposes ``_grim_cdf_lookup_table``.
     ``heatmap_options`` selects axes, panels/mean_power and linked cuts.
     ``horizontal_cuts`` and ``vertical_cuts`` independently override the legacy

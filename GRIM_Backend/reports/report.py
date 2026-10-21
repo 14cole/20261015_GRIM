@@ -257,10 +257,10 @@ class PlotSeries:
             raise ValueError("Every plot series needs equally sized, non-empty x/y data.")
         if not all(math.isfinite(value) for value in self.x):
             raise ValueError("Plot x values must all be finite.")
-        if any(not (math.isfinite(value) or math.isnan(value)) for value in self.y):
-            raise ValueError("Plot y values may contain finite values or NaN gaps, not infinity.")
-        if not any(math.isfinite(value) for value in self.y):
-            raise ValueError("Every plot series needs at least one finite y value.")
+        if any(value == math.inf for value in self.y):
+            raise ValueError("Plot y values may contain finite values, zero-power -inf, or NaN gaps, not infinity above zero.")
+        if not any(not math.isnan(value) for value in self.y):
+            raise ValueError("Every plot series needs at least one finite y value or zero-power -inf score.")
         if self.line_width <= 0 or not math.isfinite(self.line_width):
             raise ValueError("Plot line width must be a positive finite number.")
 

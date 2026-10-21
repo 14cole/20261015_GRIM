@@ -217,6 +217,7 @@ try:  # Keep report planning importable on headless/minimal installations.
     from PySide6.QtGui import QStandardItemModel
     from PySide6.QtWidgets import (
         QAbstractItemView,
+        QCheckBox,
         QComboBox,
         QDoubleSpinBox,
         QFileDialog,
@@ -877,7 +878,7 @@ if GUI_AVAILABLE:
             self.frequency_azimuth_mode_combo.setToolTip(
                 "Use one stored azimuth cut, or calculate each frequency point "
                 "as a percentile across the selected stored azimuth samples. "
-                "Band mode does not interpolate."
+                "Scores use linear power; stored angles are not interpolated."
             )
             plot_form.addRow(
                 self.frequency_azimuth_mode_label,
@@ -908,6 +909,18 @@ if GUI_AVAILABLE:
             self.azimuth_percentile_spin.setSuffix(" %")
             self.azimuth_percentile_spin.setKeyboardTracking(False)
             self.azimuth_percentile_spin.setMinimumWidth(82)
+            self.azimuth_interpolate_check = QCheckBox(
+                "Interpolate between\npercentile samples", self.azimuth_band_widget
+            )
+            self.azimuth_interpolate_check.setAccessibleName(
+                "Interpolate between percentile samples"
+            )
+            self.azimuth_interpolate_check.setChecked(False)
+            self.azimuth_interpolate_check.setToolTip(
+                "Checked: interpolate between sorted linear-power samples. "
+                "Unchecked: select the nearest-rank sample. Valid zero powers "
+                "contribute to the score."
+            )
             self.azimuth_band_unit_label = QLabel("deg", self.azimuth_band_widget)
             self.azimuth_band_min_label = QLabel(
                 "Minimum", self.azimuth_band_widget
@@ -934,8 +947,8 @@ if GUI_AVAILABLE:
                 "selects across the azimuth seam."
             )
             self.azimuth_percentile_spin.setAccessibleDescription(
-                "Percentile calculated across finite stored azimuth samples at "
-                "each frequency."
+                "Percentile calculated in linear power across valid stored "
+                "azimuth samples, including zero, at each frequency."
             )
             # Stack the three values instead of forcing both endpoints into
             # one row.  The controls sidebar is intentionally narrow; this
@@ -947,14 +960,15 @@ if GUI_AVAILABLE:
             azimuth_band_layout.addWidget(self.azimuth_band_max_spin, 1, 1)
             azimuth_band_layout.addWidget(self.azimuth_percentile_label, 2, 0)
             azimuth_band_layout.addWidget(self.azimuth_percentile_spin, 2, 1)
+            azimuth_band_layout.addWidget(self.azimuth_interpolate_check, 3, 0, 1, 3)
             azimuth_band_layout.setColumnStretch(1, 1)
             self.azimuth_band_widget.setToolTip(
                 "Endpoints are inclusive and use the dataset's stored angular "
                 "unit. Min greater than Max selects a wrapped band across the "
                 "azimuth seam. The percentile is sample-weighted across common "
-                "stored angles: every finite stored angle contributes one sample, "
+                "stored angles: every valid power, including zero, contributes one sample, "
                 "with no angular interpolation. It is calculated independently "
-                "at each frequency in displayed dB units."
+                "at each frequency in linear power, then converted to displayed dB units."
             )
             plot_form.addRow(self.azimuth_band_label, self.azimuth_band_widget)
             self.quantity_label = QLabel("Magnitude (dB)", plot_group)
@@ -1344,6 +1358,7 @@ if GUI_AVAILABLE:
                 self.azimuth_percentile_spin,
             ):
                 spin.valueChanged.connect(self._mark_preview_stale)
+            self.azimuth_interpolate_check.toggled.connect(self._mark_preview_stale)
             for spin in (self.x_min_spin, self.x_max_spin, self.x_step_spin):
                 spin.valueChanged.connect(self._x_axis_value_changed)
             self.x_data_bounds_button.clicked.connect(self._use_data_x_bounds)
@@ -2392,6 +2407,7 @@ if GUI_AVAILABLE:
                     frequency_display_unit="GHz",
                     azimuth_band=azimuth_band,
                     azimuth_percentile=azimuth_percentile,
+                    azimuth_interpolate=self.azimuth_interpolate_check.isChecked(),
                     y_limits=fixed_limits,
                     show_legend=show_plot_legends,
                 )

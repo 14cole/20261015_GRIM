@@ -186,6 +186,33 @@ def measure_trace(x, y, *, region=None, level=None, drop=3., maximum_gap=None):
     return out
 
 
+def linear_power_summary(cut, *, region=None):
+    """Physical mean/median for a native cut, retaining valid zero power.
+
+    These scores are independent of the displayed ordinate diagnostics in
+    ``measure_trace``. In particular, frequency-dependent dBke samples are
+    summarized as physical scattering width in metres; no representative
+    frequency is chosen to convert a pooled score back to dBke.
+    """
+    x = np.asarray(cut.x, dtype=float).reshape(-1)
+    power = np.asarray(cut.power, dtype=float).reshape(-1)
+    if x.shape != power.shape:
+        raise ValueError("cut coordinates and power must have equal lengths")
+    selected = np.isfinite(x)
+    if region is not None:
+        lo, hi = sorted(map(float, region))
+        selected &= (x >= lo) & (x <= hi)
+    values = power[selected & np.isfinite(power) & (power >= 0.)]
+    result = {
+        "selected_count": int(np.count_nonzero(selected)), "valid_count": len(values),
+        "unit": {"sigma_3d": "m²", "sigma_2d": "m", "power_ratio": "dimensionless",
+                 "ratio": "dimensionless"}.get(str(cut.linear_quantity).lower(), "linear"),
+    }
+    if len(values):
+        result.update(mean=float(np.mean(values)), median=float(np.median(values)))
+    return result
+
+
 def phase_trace(x, field, *, floor_db=-60., maximum_gap=None, region=None,
                 native_indices=None):
     """Unwrap valid runs without joining samples omitted from the native grid."""

@@ -90,6 +90,7 @@ from GRIM_Backend.ui.dataset_dialogs import (
     ExtrusionConversionDialog,
     InterpolateDialog,
     MedianizeDialog,
+    PercentileDialog,
     PhaseCenterDialog,
     RangeCalibrationDialog,
     RegridDialog,
@@ -3144,23 +3145,17 @@ class DatasetOpsMixin:
         )
         if datasets is None:
             return
-        percentile, accepted = QInputDialog.getDouble(
-            self,
-            "Azimuth Percentile",
-            "Linear-power percentile across azimuth (0-100):",
-            90.0,
-            0.0,
-            100.0,
-            1,
-        )
-        if not accepted:
+        dlg = PercentileDialog(parent=self)
+        if dlg.exec() != QDialog.Accepted:
             return
+        percentile, interpolate = dlg.get_params()
         self._create_statistics_datasets(
             datasets,
             statistic="percentile",
             percentile=float(percentile),
             axes=("azimuth",),
             broadcast_reduced=True,
+            interpolate=interpolate,
             operation_title="Percentile",
             output_qualifier=" az",
         )
@@ -3177,11 +3172,14 @@ class DatasetOpsMixin:
         if dlg.exec() != QDialog.Accepted:
             return
         params = dlg.get_params()
+        interpolate = False
         if len(params) == 3:
             statistic, percentile, axes = params
             broadcast_reduced = True
-        else:
+        elif len(params) == 4:
             statistic, percentile, axes, broadcast_reduced = params
+        else:
+            statistic, percentile, axes, broadcast_reduced, interpolate = params
         if not axes:
             self.status.showMessage("Select at least one axis for statistics reduction.")
             return
@@ -3191,6 +3189,7 @@ class DatasetOpsMixin:
             percentile=percentile,
             axes=axes,
             broadcast_reduced=bool(broadcast_reduced),
+            interpolate=interpolate,
         )
 
     def _create_statistics_datasets(
@@ -3201,12 +3200,16 @@ class DatasetOpsMixin:
         percentile,
         axes,
         broadcast_reduced,
+        interpolate=False,
         operation_title="Statistics",
         output_qualifier="",
     ) -> None:
         """Preflight and run a linear-power statistics reduction."""
 
         stat_label = f"p{percentile:g}" if statistic == "percentile" else statistic
+        interpolation_note = (
+            ", interpolated" if interpolate else ", nearest rank (no interpolation)"
+        ) if statistic == "percentile" else ""
 
         axis_numbers = {
             "azimuth": 0,
@@ -3240,6 +3243,7 @@ class DatasetOpsMixin:
                         domain="magnitude",
                         percentile=percentile,
                         broadcast_reduced=bool(broadcast_reduced),
+                        interpolate=bool(interpolate),
                     )
                 except (ValueError, TypeError) as exc:
                     skipped.append(f"{name} ({exc})")
@@ -3251,10 +3255,11 @@ class DatasetOpsMixin:
             results, skipped = payload
             for dataset_index, name, stat_grid in results:
                 history = (
-                    f"{operation_title} ({stat_label}, linear power, axes={axes}): "
+                    f"{operation_title} ({stat_label}{interpolation_note}, linear power, axes={axes}): "
                     f"{name}"
                 )
-                output_name = f"{name} [{stat_label}{output_qualifier}]"
+                method_qualifier = " nearest rank" if statistic == "percentile" and not interpolate else ""
+                output_name = f"{name} [{stat_label}{output_qualifier}{method_qualifier}]"
                 output_id = self._add_dataset_row(
                     stat_grid, output_name, history, file_name=""
                 )
@@ -3271,6 +3276,7 @@ class DatasetOpsMixin:
                             "domain": "magnitude",
                             "percentile": percentile,
                             "broadcast_reduced": bool(broadcast_reduced),
+                            "interpolate": bool(interpolate),
                         },
                         comment=(
                             f"Reduce {name} to {stat_label} statistics on linear power"

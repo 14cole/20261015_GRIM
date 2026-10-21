@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 from matplotlib.widgets import SpanSelector
 
-from GRIM_Backend.plotting.engineering_tools import finite_runs, measure_trace
+from GRIM_Backend.plotting.engineering_tools import finite_runs, measure_trace, linear_power_summary
 from GRIM_Backend.plotting.modes.common import NativeSamples, decimate_line, singleton_line_markers
 from GRIM_Backend.ui.engineering_analysis import (
     EngineeringAnalysisDialog, ResultTable, _number, _trace_sort_order, _with_run_breaks,
@@ -805,11 +805,14 @@ class InlineEngineeringAnalysis(EngineeringAnalysisPresenter, QWidget):
     def _analyze_measure(self):
         source = self.trace_combo.currentData()
         line = source
+        power_summary = None
         if source is None:
             cut = self._cut()
             x, y, label = cut.x.copy(), cut.db.copy(), cut.label
             x_label, y_label = f"{cut.axis} ({cut.x_unit})", cut.level_unit
-            note_text = "Native dataset cut. Mean and standard deviation describe dB values, not mean linear RCS."
+            power_summary = linear_power_summary(cut, region=self._region())
+            note_text = ("Native dataset cut. Mean and median use finite nonnegative linear power, including zero, in physical units. "
+                         "Standard deviation, peak-to-peak, crossings, and peak drop describe the displayed dB trace.")
             cut_key = (id(self._datasets[self.dataset_combo.currentIndex()][1]), cut.axis,
                        tuple(combo.currentData() for combo in self.fixed.values()),
                        self._selected_sweep_indices(), self._maximum_gap())
@@ -840,6 +843,8 @@ class InlineEngineeringAnalysis(EngineeringAnalysisPresenter, QWidget):
             x, y = x[order], y[order]
         result = measure_trace(x, y, region=self._region(), level=self.crossing_level.value(),
                                drop=self.peak_drop.value(), maximum_gap=self._maximum_gap())
+        if power_summary is not None:
+            result["power_summary"] = power_summary
         self._remove_overlays()
         if line is None:
             # An explicit native-cut source uses the shared canvas, just like a plot button.
@@ -895,13 +900,23 @@ class InlineEngineeringAnalysis(EngineeringAnalysisPresenter, QWidget):
         self._measurement = (x, y, result, line, order)
         rows = [("Source", label, f"{x_label}; {y_label}"),
                 ("Region", str(self._region()) if self._region() else "Full trace", x_label),
-                ("Finite / selected samples", f"{result['finite_count']} / {result['selected_count']}", "native coordinates"),
-                ("Coverage", _number(result["coverage"] * 100), "%")]
+                ("Finite displayed / selected samples" if power_summary is not None else "Finite / selected samples",
+                 f"{result['finite_count']} / {result['selected_count']}", "native coordinates"),
+                ("Displayed coverage" if power_summary is not None else "Coverage", _number(result["coverage"] * 100), "%")]
+        if power_summary is not None:
+            rows.append(("Valid power / selected samples", f"{power_summary['valid_count']} / {power_summary['selected_count']}",
+                         "finite nonnegative power; zero retained"))
+            for name in ("mean", "median"):
+                rows.append((f"{name.capitalize()} (linear power)", _number(power_summary.get(name)), power_summary["unit"]))
         for name in ("peak", "minimum"):
             point = result.get(name)
             rows.append((name.capitalize(), f"x={point['x']:.9g}; value={point['y']:.9g}" if point else "not defined", f"{x_label}; {y_label}"))
         for name in ("mean", "median", "std", "peak_to_peak"):
-            rows.append((name.replace("_", " ").capitalize(), _number(result.get(name)), f"displayed {y_label}"))
+            if power_summary is not None and name in {"mean", "median"}:
+                continue
+            title = {"std": "Displayed standard deviation", "peak_to_peak": "Displayed peak to peak"}.get(
+                name, name.replace("_", " ").capitalize())
+            rows.append((title, _number(result.get(name)), f"displayed {y_label}"))
         for index, crossing in enumerate(result["crossings"], 1):
             rows.append((f"Level crossing {index}", _number(crossing), x_label))
         width = result["bandwidth"]
@@ -914,10 +929,15 @@ class InlineEngineeringAnalysis(EngineeringAnalysisPresenter, QWidget):
         self._panels["measure"][3].setText(note_text + " Crossings use linear interpolation between adjacent finite samples.")
         self._samples["measure"] = [(label, x, y, y_label)]
         peak = result.get("peak")
-        summary = f"{result['finite_count']} samples"
+        summary = (f"{power_summary['valid_count']} power samples" if power_summary is not None
+                   else f"{result['finite_count']} samples")
         if peak:
             summary += f" · Peak {peak['y']:.6g} at {peak['x']:.6g}"
-        summary += f" · Mean {_number(result.get('mean'))}"
+        if power_summary is not None:
+            summary += (f" · Mean power {_number(power_summary.get('mean'))} {power_summary['unit']}"
+                        f" · Median power {_number(power_summary.get('median'))} {power_summary['unit']}")
+        else:
+            summary += f" · Mean {_number(result.get('mean'))}"
         if width: summary += f" · Width {width['width']:.6g}"
         self.summary.setText(summary); self.summary.setToolTip(note_text)
         self.canvas.draw_idle()

@@ -61,8 +61,17 @@ class PlotAnalysisControls(QObject):
             "In Phase, mean/median are circular; percentile/max show the phase of the nearest-rank/strongest power observation."
         )
         self.spin_sweep_percentile = _percent_spin(90., "Percentile across the selected azimuth samples, in linear power.")
+        self.chk_sweep_interpolate = QCheckBox("Interpolate between percentile samples")
+        self.chk_sweep_interpolate.setChecked(False)
+        self.chk_sweep_interpolate.setToolTip(
+            "Magnitude percentiles: checked interpolates between sorted linear powers; "
+            "unchecked selects a nearest-rank power sample. Median always averages the "
+            "middle two powers for an even sample count. Phase percentiles always show "
+            "the phase of a nearest-rank power sample."
+        )
         self.combo_sweep_aggregation.currentIndexChanged.connect(self._sweep_changed)
         self.spin_sweep_percentile.valueChanged.connect(lambda: self.changed.emit("sweep"))
+        self.chk_sweep_interpolate.toggled.connect(lambda: self.changed.emit("sweep"))
         self._sweep_changed(emit=False)
 
         self.btn_cdf_settings = QPushButton("Population / threshold…")
@@ -72,6 +81,7 @@ class PlotAnalysisControls(QObject):
         self._sector_text = "30"
         self._sector_statistic = "mean"
         self._sector_percentile = 90.0
+        self._sector_interpolate = False
         self._sector_unit = "deg"
 
         self.spin_range_subband = QDoubleSpinBox()
@@ -105,13 +115,15 @@ class PlotAnalysisControls(QObject):
         """Add labeled rows to the Plot Settings grid; returns the next row."""
         rows = (
             (("Sweep statistic", self.combo_sweep_aggregation), ("Sweep percentile", self.spin_sweep_percentile)),
+            (("", self.chk_sweep_interpolate),),
             (("CDF", self.combo_cdf), ("Details", self.btn_cdf_settings)),
             (("Range–Freq Sub-band", self.spin_range_subband),
              ("Window", self.combo_range_window), ("Range Unit", self.combo_range_unit)),
         )
         for cells in rows:
             for column, (label, widget) in enumerate(cells):
-                grid.addWidget(QLabel(label), row, 2 * column)
+                if label:
+                    grid.addWidget(QLabel(label), row, 2 * column)
                 span = 5 if len(cells) == 1 else 1
                 grid.addWidget(widget, row, 2 * column + 1, 1, span)
             row += 1
@@ -123,13 +135,16 @@ class PlotAnalysisControls(QObject):
         return self.combo_cdf.currentData() == "exceedance"
 
     def _sweep_changed(self, *_args, emit=True):
-        self.spin_sweep_percentile.setEnabled(self.combo_sweep_aggregation.currentData() == "percentile")
+        percentile = self.combo_sweep_aggregation.currentData() == "percentile"
+        self.spin_sweep_percentile.setEnabled(percentile)
+        self.chk_sweep_interpolate.setEnabled(percentile)
         if emit:
             self.changed.emit("sweep")
 
     def sweep_aggregation(self):
         return {"mode": self.combo_sweep_aggregation.currentData(),
-                "percentile": float(self.spin_sweep_percentile.value())}
+                "percentile": float(self.spin_sweep_percentile.value()),
+                "interpolate": self.chk_sweep_interpolate.isChecked()}
 
     def _build_cdf_dialog(self, parent):
         self.cdf_dialog = QDialog(parent if isinstance(parent, QWidget) else None)
@@ -247,6 +262,7 @@ class PlotAnalysisControls(QObject):
                 if index >= 0:
                     widget.setCurrentIndex(index)
             self.spin_sweep_percentile.setValue(number(sweep, "percentile", 90.))
+            self.chk_sweep_interpolate.setChecked(bool(sweep.get("interpolate", False)))
             self.spin_cdf_bands.setValue(int(number(cdf, "band_count", 4)))
             self.spin_cdf_sector_width.setValue(number(cdf, "sector_width_deg", 30.))
             self.chk_cdf_threshold.setChecked(bool(cdf.get("threshold_enabled", False)))
@@ -273,20 +289,25 @@ class PlotAnalysisControls(QObject):
     def sector_percentile(self) -> float:
         return self._sector_percentile
 
+    def sector_interpolate(self) -> bool:
+        return self._sector_interpolate
+
     def set_sector_settings(
-        self, text: str, statistic: str, percentile: float, *, unit: str | None = None
+        self, text: str, statistic: str, percentile: float, *, unit: str | None = None,
+        interpolate: bool | None = None,
     ) -> None:
         """Commit the editor's settings together, with a single plot refresh."""
         values = (
-            str(text).strip(), str(statistic), float(percentile), unit or self._sector_unit
+            str(text).strip(), str(statistic), float(percentile), unit or self._sector_unit,
+            self._sector_interpolate if interpolate is None else bool(interpolate),
         )
         current = (
             self._sector_text, self._sector_statistic, self._sector_percentile,
-            self._sector_unit,
+            self._sector_unit, self._sector_interpolate,
         )
         if values != current:
             (self._sector_text, self._sector_statistic,
-             self._sector_percentile, self._sector_unit) = values
+             self._sector_percentile, self._sector_unit, self._sector_interpolate) = values
             self.changed.emit("sector")
 
     def range_subband_percent(self) -> float:

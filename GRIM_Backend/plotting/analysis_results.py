@@ -147,6 +147,25 @@ def phase_analysis(cut, view, options: AnalysisOptions, *, reference=None):
     return result
 
 
+def _linear_ratio_median_db(levels):
+    """Median of linear ratios, converted to dB without ratio overflow.
+
+    Ordering is preserved by the logarithm. For an even population, average
+    the central ratios using the larger one's scale, then convert back to dB.
+    Negative infinity is a valid zero ratio; NaN and positive infinity are not.
+    """
+    levels = np.asarray(levels, dtype=float)
+    levels = levels[np.isfinite(levels) | np.isneginf(levels)]
+    if not len(levels):
+        return None
+    lower, upper = (len(levels) - 1) // 2, len(levels) // 2
+    central = np.partition(levels, (lower, upper))
+    lo, hi = central[lower], central[upper]
+    if lower == upper or hi == -np.inf:
+        return float(hi)
+    return float(hi + 10. * np.log10(.5 + .5 * 10. ** ((lo - hi) / 10.)))
+
+
 def polarization_analysis(cuts, pairs, view, options: AnalysisOptions, *, fallback):
     """Compare explicitly named native channel cuts without UI dependencies."""
     result = AnalysisResult()
@@ -162,10 +181,11 @@ def polarization_analysis(cuts, pairs, view, options: AnalysisOptions, *, fallba
         label = left_name + (" − " if view == "phase" else " / ") + right_name
         values = np.rad2deg(report["phase_difference_rad"]) if view == "phase" else report["ratio_db"]
         result.trace(1, report["x"], values, label)
-        finite = values[np.isfinite(values)]
-        rows.append((label + " finite samples", str(len(finite)), "common physical coordinates"))
+        valid = np.isfinite(values) if view == "phase" else np.isfinite(values) | np.isneginf(values)
+        rows.append((label + (" finite samples" if view == "phase" else " valid samples"),
+                     str(np.count_nonzero(valid)), "common physical coordinates"))
         if view != "phase":
-            rows.append((label + " median", number(float(np.median(finite)) if len(finite) else None), "dB power ratio"))
+            rows.append((label + " median", number(_linear_ratio_median_db(values)), "dB; median of linear power ratios"))
         rows.extend(((label + " phase difference", number(report["circular_mean_deg"]), "deg; circular mean"),
                      (label + " normalized complex mismatch", number(report["normalized_complex_mismatch"]), "relative L2; requires shared phase conventions")))
         samples.append((label, report["x"], values, "deg" if view == "phase" else "dB"))
@@ -176,7 +196,9 @@ def polarization_analysis(cuts, pairs, view, options: AnalysisOptions, *, fallba
     rows.append(("Declared conventions", " ".join(example.notes), "advisory; no convention conversion"))
     result.axes = [dict(ylabel=example.level_unit, title=example.label.split(" | ")[0] + " — polarization cuts", legend=True, grid=True),
                    dict(xlabel=f"{example.axis} ({example.x_unit})", ylabel="Phase difference (deg)" if view == "phase" else "Power ratio (dB)", legend=True, grid=True)]
-    result.notes.append("Ratios use linear power; channel phases use authoritative complex samples. Channel names are used as supplied. "
+    result.notes.append("Ratios and their median use linear power before dB conversion; "
+        "zero ratios remain included when retained by the selected magnitude mask. "
+        "Channel phases use authoritative complex samples. Channel names are used as supplied. "
         "HV/VH equality is a diagnostic only under a reciprocal monostatic target and compatible polarization/phase conventions; "
         "it is not a pass/fail calibration verdict. " + " ".join(example.notes))
     return result

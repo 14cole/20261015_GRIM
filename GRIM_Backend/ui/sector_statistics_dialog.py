@@ -137,9 +137,18 @@ class SectorStatisticsDialog(QDialog):
         self.spin_percentile.setToolTip(
             "Used for the Percentile plot statistic and the percentile column in Copy Sector Table."
         )
+        self.chk_interpolate = QCheckBox("Interpolate between percentile samples")
+        self.chk_interpolate.setChecked(controls.sector_interpolate())
+        self.chk_interpolate.setToolTip(
+            "Checked: linearly interpolate between sorted linear-power samples. "
+            "Unchecked: select an actual sample using the nearest-rank method. "
+            "Applies to the Percentile plot and the percentile column in Copy Sector Table, "
+            "even when another plot statistic is selected."
+        )
         statistics_layout = QFormLayout()
         statistics_layout.addRow("Plot statistic", self.combo_statistic)
         statistics_layout.addRow("Percentile", self.spin_percentile)
+        statistics_layout.addRow(self.chk_interpolate)
         layout.addLayout(statistics_layout)
 
         self.error_label = QLabel()
@@ -416,7 +425,8 @@ class SectorStatisticsDialog(QDialog):
             self._show_error(str(exc))
             return False
         self.controls.set_sector_settings(
-            text, str(self.combo_statistic.currentData()), float(self.spin_percentile.value()), unit=self.unit
+            text, str(self.combo_statistic.currentData()), float(self.spin_percentile.value()),
+            unit=self.unit, interpolate=self.chk_interpolate.isChecked(),
         )
         self._loaded_text = text
         self._loaded_signature = self._sector_signature()

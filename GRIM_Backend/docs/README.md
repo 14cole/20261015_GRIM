@@ -306,6 +306,32 @@ entries name the polarization, the fixed cut, the azimuth statistic (P50 by
 default), and how many of the selected azimuth samples were finite, for
 example n9/9. All data curves default to solid lines; use the line-type
 controls to choose another style.
+Sweep mean, median, and percentile reduce finite nonnegative linear powers,
+including zero, before converting to the selected display unit. In Plot
+Settings, **Interpolate between percentile samples** is unchecked by default,
+selecting nearest-rank percentiles; check it to interpolate between powers.
+The choice is saved in plot settings and recorded Python `sweep_options`.
+It affects magnitude percentiles only;
+phase percentiles select the phase of a nearest-rank power sample. Median
+always averages the two middle powers for an even population.
+
+Unweighted CDF legend medians also average the middle linear powers before
+logarithmic conversion. For example, powers `[1, 100]` have a median of `50.5`,
+or approximately `17.0329 dBsm`. Weighted CDF P50 keeps its empirical inverse-CDF
+definition. A CDF pooling multiple frequencies in dBke ranks and averages the
+frequency-normalized linear equivalents of its plotted levels; width in
+meters has no single dBke conversion frequency for that population. Population
+selection and weighting remain explicit: different selections or weights can
+produce different scores even when the reduction domain is the same.
+
+Native-cut measurements report mean and median in physical linear units
+(m² for 3-D RCS, m for 2-D width), including valid zero returns. Displayed
+standard deviation, peak-to-peak spread, crossings, and peak-drop widths retain
+their displayed-unit meaning. Measurements of an arbitrary existing trace
+still describe that trace's ordinate. Polarization-ratio medians average
+linear power ratios before conversion to dB. RF Compare retains its combined
+linear-power and dB-pattern agreement formula.
+
 PBP draws a separate min–max band for each selected dataset and polarization,
 bounding that dataset's selected cuts. To plot percentile datasets, first use
 **Dataset Operations → Transform → Percentile** (or **Stats** for other axes),
@@ -327,6 +353,12 @@ settings no longer appear in Plot Settings. Apply saves the settings and
 refreshes an existing Sector Stats plot. With Hold enabled, click Sector Stats
 again to add the updated curves. Cancel discards changes made since the last
 Apply. Sector limits follow degree/radian unit changes during the session.
+**Interpolate between percentile samples** controls both the plotted percentile
+and the percentile column in **Copy sector table**, including when another
+statistic is plotted. It is unchecked by default to select an actual sample
+using nearest rank; check it for linear interpolation of linear-power values.
+Apply or OK commits the choice, and reopening the dialog retains it during the
+session. Mean, Median, Min, and Max are unaffected.
 
 The current row is the active dataset: its parameter lists and axis units are
 the display reference. Other selected datasets may use compatible Hz/kHz/MHz/
@@ -432,11 +464,23 @@ output is checked against the available memory budget before allocation. In
 grid** to request a compact dataset with one coordinate per reduced axis instead.
 
 The standalone **Percentile** button is an azimuth-reduction preset of the same
-statistics workflow. It asks only for the percentile (90 by default), computes
+statistics workflow. It asks for the percentile (90 by default), computes
 it across all azimuths on linear power, and repeats that value at every original
 azimuth. Each frequency, elevation and polarization combination has its own
 percentile. All original coordinate arrays are preserved. Coherent phase is
 undefined, and the original datasets are unchanged.
+
+Both **Percentile** and **Stats** offer **Interpolate between percentile samples**.
+It is unchecked by default, using the nearest-rank percentile: select the
+observed value at rank
+`ceil(percentile / 100 × N)` among the `N` non-missing samples, with rank 1 as the
+minimum. For example, P90 of powers `[1, 2, 3, 100]` is `70.9` with interpolation
+and `100` without it. Check the option to enable linear interpolation. The
+choice applies only to percentile statistics and is
+saved in result metadata and recorded Python operations. Scripts can use
+`dataset.statistics_dataset("p90", axes=("azimuth",))` for the default nearest
+rank, or pass `interpolate=True` to enable interpolation. Explicit saved choices
+are retained; settings without an interpolation choice default to off.
 
 The divider between Datasets and Parameters can be dragged vertically: dragging
 it upward enlarges the parameter lists and reduces the dataset table, while
@@ -979,16 +1023,24 @@ HH plots in the same report instead of requiring a second export:
   polarization. The trace can use one exact common azimuth cut or a selected
   percentile across an inclusive azimuth band. A reversed Min/Max pair crosses
   the periodic seam. Band statistics use the same common stored azimuth samples
-  for every overlay, operate in displayed dB units, and do not interpolate.
+  for every overlay. They reduce finite nonnegative linear powers, including
+  zero, before converting each frequency's result to its native dB unit.
+  **Interpolate between percentile samples** is unchecked by default, selecting
+  a nearest-rank observed power; check it to interpolate. The report recipe
+  retains the
+  choice, and the plot title identifies the method. Stored coordinates are
+  matched without angular or frequency interpolation.
 
 Selected datasets are overlaid within each plot. GRIM uses exact common fixed
-axes and performs no hidden interpolation or extrapolation. Report magnitude
+axes without coordinate interpolation or extrapolation. Report magnitude
 is taken from stored linear power and converted with each dataset's native
 dBsm, dBke, or dB convention. Report phase uses the dataset's declared
 phase wrap, as the Plotting view does, and leaves zero-power or missing
 samples blank rather than drawing 0°. Mixed report overlays label the axis **Mixed dB**
 and show each source's unit in both plot and slide-header legends. A report
 containing only 2-D data uses **Scattering Width (dBke)**.
+Zero-power percentile results are retained numerically as negative infinity
+in dB and are omitted from the finite plotting area.
 **Shared automatic** vertical scaling is the default and is
 calculated once across the complete report. Either axis can instead use one
 fixed minimum, maximum, and major-tick step across every plot. Horizontal

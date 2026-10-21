@@ -714,9 +714,15 @@ class GridArithmeticMixin:
         *,
         domain="magnitude",
         percentile=50.0,
+        interpolate=False,
         broadcast_reduced=False,
     ):
-        """Compute a statistic over selected axes and return a dataset."""
+        """Compute a statistic over selected axes and return a dataset.
+
+        Percentiles select an observed value using the empirical inverse CDF
+        (nearest rank) by default. Set ``interpolate`` to true for linear
+        interpolation; other statistics, including median, are unaffected.
+        """
         axis_map = {"azimuth": 0, "elevation": 1, "frequency": 2, "polarization": 3}
         axis_alias = {
             "azimuths": "azimuth",
@@ -781,7 +787,9 @@ class GridArithmeticMixin:
                 "statistic must be mean, median, min, max, std, percentile, or pXX (for percentile XX)"
             )
         from .reduction_workspace import reduce_dataset
-        reduced = reduce_dataset(self, domain, reduce_axes, stat_key, percentile)
+        reduced = reduce_dataset(
+            self, domain, reduce_axes, stat_key, percentile, interpolate=interpolate
+        )
 
         axis_values = [
             np.array(self.azimuths, copy=True),
@@ -844,6 +852,7 @@ class GridArithmeticMixin:
                 "percentile": (
                     float(percentile) if stat_key == "percentile" else None
                 ),
+                "interpolate": bool(interpolate) if stat_key == "percentile" else None,
                 "domain": domain,
                 "reduced_axes": [axis_names[index] for index in reduce_axes],
                 "broadcast_reduced": bool(broadcast_reduced),

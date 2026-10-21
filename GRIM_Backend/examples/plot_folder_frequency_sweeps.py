@@ -10,8 +10,9 @@ Use an exact stored azimuth, or set ``AZIMUTH_BAND`` and its optional
 example, ``(170, -170)`` on a signed degree axis). The percentile calculation
 follows GRIM's PowerPoint path: it uses identical common stored azimuth
 samples, counts a duplicated periodic seam only once, and calculates magnitude
-percentiles in the displayed logarithmic RCS unit. Wrapped phase uses exact
-azimuth cuts only.
+percentiles in linear power before converting to the displayed RCS unit.
+``AZIMUTH_INTERPOLATE`` chooses interpolated powers or nearest-rank samples.
+Wrapped phase uses exact azimuth cuts only.
 """
 
 from __future__ import annotations
@@ -51,6 +52,7 @@ OUTPUT_FOLDER: Path | None = None    # None -> <INPUT_FOLDER>/grim_frequency_plo
 AZIMUTH: float | None = 0.0
 AZIMUTH_BAND: tuple[float, float] | None = None
 AZIMUTH_PERCENTILE: float | None = None
+AZIMUTH_INTERPOLATE = False         # True -> interpolate between sorted powers
 ELEVATION: float | None = None       # None -> first common elevation/pitch
 POLARIZATIONS: tuple[str, ...] | None = None  # None -> first common polarization
 
@@ -119,6 +121,7 @@ def run(
     azimuth: float | None = None,
     azimuth_band: tuple[float, float] | None = None,
     percentile: float | None = None,
+    interpolate: bool = False,
     elevation: float | None = None,
     polarizations: Sequence[str] | None = None,
     quantity: str = "magnitude",
@@ -217,6 +220,7 @@ def run(
             else (float(azimuth_band[0]), float(azimuth_band[1]))
         ),
         azimuth_percentile=selected_percentile,
+        azimuth_interpolate=interpolate,
         y_limits=validated_y_limits,
         show_legend=show_legend,
         tol=tol,
@@ -255,6 +259,7 @@ def main() -> int:
             azimuth=AZIMUTH,
             azimuth_band=AZIMUTH_BAND,
             percentile=AZIMUTH_PERCENTILE,
+            interpolate=AZIMUTH_INTERPOLATE,
             elevation=ELEVATION,
             polarizations=POLARIZATIONS,
             quantity=QUANTITY,

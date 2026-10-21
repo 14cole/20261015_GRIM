@@ -20,6 +20,7 @@ from typing import Iterable, Literal, Sequence
 import numpy as np
 
 from GRIM_Backend.datasets.grid import RcsGrid
+from GRIM_Backend.plotting.sweep_analysis import reduce_power
 from GRIM_Backend.reports.report import PlotSeries, PlotSpec
 
 
@@ -1014,7 +1015,7 @@ def _common_azimuths_in_band(
         raise ValueError(
             f"The {qualifier}azimuth band [{_format_value(low)}, "
             f"{_format_value(high)}] contains no samples common to every "
-            "selected dataset; band percentiles do not interpolate."
+            "selected dataset; band selection does not interpolate angles."
         )
 
     period = 360.0 if angle_unit == "deg" else 2.0 * math.pi
@@ -1040,18 +1041,18 @@ def _common_azimuths_in_band(
     return tuple(unique)
 
 
-def _nanpercentile_columns(values: np.ndarray, percentile: float) -> np.ndarray:
-    """Calculate a display-domain percentile, retaining all-NaN frequencies."""
+def _power_percentile_columns(
+    values: np.ndarray, percentile: float, *, interpolate: bool = False
+) -> np.ndarray:
+    """Score valid linear powers, retaining zeros and all-missing frequencies."""
 
     matrix = np.asarray(values, dtype=float)
     if matrix.ndim != 2:
         raise ValueError("Azimuth-band percentile input must be a 2-D sample matrix.")
-    result = np.full(matrix.shape[1], np.nan, dtype=float)
-    for column_index in range(matrix.shape[1]):
-        finite = matrix[:, column_index]
-        finite = finite[np.isfinite(finite)]
-        if finite.size:
-            result[column_index] = float(np.percentile(finite, percentile))
+    result, _counts = reduce_power(
+        matrix,
+        {"mode": "percentile", "percentile": percentile, "interpolate": interpolate},
+    )
     return result
 
 
@@ -1066,6 +1067,7 @@ def build_frequency_spec(
     frequency_display_unit: str = "GHz",
     azimuth_band: tuple[float, float] | None = None,
     azimuth_percentile: float | None = None,
+    azimuth_interpolate: bool = False,
     y_limits: tuple[float, float] | None = None,
     show_legend: bool = True,
     tol: float = 1.0e-6,
@@ -1077,9 +1079,12 @@ def build_frequency_spec(
     point is that percentile across the identical common stored azimuth
     samples in the inclusive band.  Periodic seam aliases are counted once,
     with the numerically greater stored representation taking precedence.
-    Magnitude percentiles are sample-weighted and calculated in the displayed
-    logarithmic RCS unit; phase percentiles are rejected because ordinary
-    percentiles are not meaningful for wrapped angular phase.
+    Magnitude percentiles are sample-weighted and calculated in linear power
+    before conversion to the displayed RCS unit. Valid zero power contributes
+    to the score. The default selects the nearest-rank sample;
+    ``azimuth_interpolate=True`` interpolates between sorted powers. Phase
+    percentiles are rejected because ordinary percentiles are not meaningful
+    for wrapped phase.
     """
 
     selected = _coerce_named_grids(datasets)
@@ -1206,18 +1211,19 @@ def build_frequency_spec(
                 source[azimuth_indices, elevation_index, :, polarization_index],
                 dtype=float,
             )[:, order]
-            display_band = _series_y(
-                dataset,
-                raw_band,
-                quantity=plot_quantity,
-                frequency_values=native_frequencies,
+            power_score = _power_percentile_columns(
+                raw_band, band_request[1], interpolate=azimuth_interpolate
             )
-            y = _nanpercentile_columns(display_band, band_request[1])
-            if not np.any(np.isfinite(y)):
+            if not np.any(np.isfinite(power_score)):
                 raise ValueError(
-                    f"Dataset {dataset.name!r} has no finite magnitude samples "
+                    f"Dataset {dataset.name!r} has no valid linear-power samples "
                     "in the selected azimuth band."
                 )
+            # Keep a genuine zero score as -inf in the numeric result; the
+            # renderer omits coordinates with no finite dB representation.
+            y = grid.linear_to_default_db(
+                power_score, frequency_value=native_frequencies, eps=0.0
+            )
         series.append(PlotSeries.from_values(
             x, y, label=_series_label(dataset, plot_quantity, availability)
         ))
@@ -1232,15 +1238,17 @@ def build_frequency_spec(
         native_band, percentile = band_request
         display_band = _convert_angles(native_band, native_azimuth_unit, angle_unit)
         wrap_label = " (wrap)" if native_band[0] > native_band[1] else ""
+        method_label = "interpolated" if azimuth_interpolate else "nearest rank"
         azimuth_title = (
             f"P{_format_value(percentile)} across {primary_angle_label} "
             f"[{_format_value(display_band[0])}, {_format_value(display_band[1])}] "
             f"{angle_unit}{wrap_label} "
-            f"({len(selected_band_azimuths)} common samples)"
+            f"({len(selected_band_azimuths)} common samples; linear power, {method_label})"
         )
         azimuth_id = (
             f"band_{_format_value(display_band[0])}_"
             f"{_format_value(display_band[1])}_p{_format_value(percentile)}"
+            f"_{'interpolated' if azimuth_interpolate else 'nearest_rank'}"
         )
     title = (
         f"Frequency Sweep | {azimuth_title} | "
@@ -1273,6 +1281,7 @@ def build_frequency_specs(
     frequency_display_unit: str = "GHz",
     azimuth_band: tuple[float, float] | None = None,
     azimuth_percentile: float | None = None,
+    azimuth_interpolate: bool = False,
     y_limits: tuple[float, float] | None = None,
     show_legend: bool = True,
     tol: float = 1.0e-6,
@@ -1297,6 +1306,7 @@ def build_frequency_specs(
             frequency_display_unit=frequency_display_unit,
             azimuth_band=azimuth_band,
             azimuth_percentile=azimuth_percentile,
+            azimuth_interpolate=azimuth_interpolate,
             y_limits=y_limits,
             show_legend=show_legend,
             tol=tol,
