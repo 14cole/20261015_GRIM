@@ -1,0 +1,43 @@
+dBke and dBsm
+-------------
+
+WORKBOOK EXAMPLE
+Extrusion length 2.5 m. Convert input_3d to dBke and input_2d to dBsm.
+The worksheet shows 12 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Extrusion length 2.5 m. Convert input_3d to dBke and input_2d to dBsm.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/dbke_dbsm.json.
+3-D sample 0: scattering width (m): Excel K8; GRIM L8; percent error M8; original check 0; source result_2d.csv row 2: magnitude_power_linear
+2-D sample 0: RCS area (m²): Excel K9; GRIM L9; percent error M9; original check 2; source result_3d.csv row 2: magnitude_power_linear
+3-D sample 1: scattering width (m): Excel K10; GRIM L10; percent error M10; original check 4; source result_2d.csv row 3: magnitude_power_linear
+2-D sample 1: RCS area (m²): Excel K11; GRIM L11; percent error M11; original check 6; source result_3d.csv row 3: magnitude_power_linear
+3-D sample 2: scattering width (m): Excel K12; GRIM L12; percent error M12; original check 8; source result_2d.csv row 4: magnitude_power_linear
+2-D sample 2: RCS area (m²): Excel K13; GRIM L13; percent error M13; original check 10; source result_3d.csv row 4: magnitude_power_linear
+3-D sample 4: scattering width (m): Excel K14; GRIM L14; percent error M14; original check 16; source result_2d.csv row 6: magnitude_power_linear
+2-D sample 4: RCS area (m²): Excel K15; GRIM L15; percent error M15; original check 18; source result_3d.csv row 6: magnitude_power_linear
+3-D sample 5: scattering width (m): Excel K16; GRIM L16; percent error M16; original check 20; source result_2d.csv row 7: magnitude_power_linear
+2-D sample 5: RCS area (m²): Excel K17; GRIM L17; percent error M17; original check 22; source result_3d.csv row 7: magnitude_power_linear
+3-D sample 0: converted dBke: Excel K18; GRIM L18; percent error M18; original check 1; source result_2d.csv row 2: magnitude_dbke
+2-D sample 0: converted dBsm: Excel K19; GRIM L19; percent error M19; original check 3; source result_3d.csv row 2: magnitude_dbsm
+
+FILES
+input_3d: datasets/dbke_dbsm/input_3d.grim; datasets/dbke_dbsm/input_3d.csv
+input_2d: datasets/dbke_dbsm/input_2d.grim; datasets/dbke_dbsm/input_2d.csv
+result_2d: datasets/dbke_dbsm/result_2d.grim; datasets/dbke_dbsm/result_2d.csv
+result_3d: datasets/dbke_dbsm/result_3d.grim; datasets/dbke_dbsm/result_3d.csv
+
+SCOPE
+Validates implemented broadside uniform-extrusion arithmetic. Does not establish the approximation for arbitrary finite 3-D geometry.
+The full specification retains 25 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+Nonpositive length: length_m must be positive and finite
+dBke = 10 log10(k * width), k = 2*pi*f/c. The exported linear column contains width, not k*width.

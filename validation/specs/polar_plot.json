@@ -1,0 +1,254 @@
+{
+  "slug": "polar_plot",
+  "title": "Azimuth Polar",
+  "description": "Numerical samples read from a GRIM-rendered line.",
+  "settings": "VV; elevation 0 deg; frequency 10 GHz; logarithmic magnitude or phase as named.",
+  "scope": "Verifies plotted coordinates and sample values for this cut. Styling and interactive selection require GUI review.",
+  "category": "Plot",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "p0",
+      "label": "Input power, sample 1",
+      "value": 1.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p1",
+      "label": "Input power, sample 2",
+      "value": 4.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p2",
+      "label": "Input power, sample 3",
+      "value": 9.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p3",
+      "label": "Input power, sample 4",
+      "value": 16.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p4",
+      "label": "Input power, sample 5",
+      "value": 0.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p5",
+      "label": "Input power, sample 6",
+      "value": "missing",
+      "unit": "m^2"
+    },
+    {
+      "id": "phi0",
+      "label": "Input phase, sample 1",
+      "value": 170.0,
+      "unit": "deg"
+    },
+    {
+      "id": "phi1",
+      "label": "Input phase, sample 2",
+      "value": -170.0,
+      "unit": "deg"
+    },
+    {
+      "id": "phi2",
+      "label": "Input phase, sample 3",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "phi3",
+      "label": "Input phase, sample 4",
+      "value": -90.0,
+      "unit": "deg"
+    },
+    {
+      "id": "phi4",
+      "label": "Input phase, sample 5",
+      "value": "missing",
+      "unit": "deg"
+    },
+    {
+      "id": "phi5",
+      "label": "Input phase, sample 6",
+      "value": "missing",
+      "unit": "deg"
+    },
+    {
+      "id": "az0",
+      "label": "Input azimuth, sample 1",
+      "value": -150.0,
+      "unit": "deg"
+    },
+    {
+      "id": "az1",
+      "label": "Input azimuth, sample 2",
+      "value": -90.0,
+      "unit": "deg"
+    },
+    {
+      "id": "az2",
+      "label": "Input azimuth, sample 3",
+      "value": -30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "az3",
+      "label": "Input azimuth, sample 4",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "az4",
+      "label": "Input azimuth, sample 5",
+      "value": 90.0,
+      "unit": "deg"
+    },
+    {
+      "id": "az5",
+      "label": "Input azimuth, sample 6",
+      "value": 150.0,
+      "unit": "deg"
+    }
+  ],
+  "calculations": [],
+  "checks": [
+    {
+      "case": "Complete cut",
+      "metric": "Exported sample count",
+      "formula": "=COUNT(@az0:@az5)",
+      "actual": 6,
+      "unit": "count",
+      "source": "plot_values.csv data-row count",
+      "tolerance": 0
+    },
+    {
+      "case": "Sample 1",
+      "metric": "Plotted azimuth",
+      "formula": "=RADIANS(@az0)",
+      "actual": -2.6179938779914944,
+      "unit": "rad",
+      "source": "plot_values.csv row 2: x",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 1",
+      "metric": "Level",
+      "formula": "=IF(@p0=\"missing\",\"missing\",IF(@p0<=0,\"missing\",10*LOG10(@p0)))",
+      "actual": 0.0,
+      "unit": "dBsm",
+      "source": "plot_values.csv row 2: y",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 2",
+      "metric": "Plotted azimuth",
+      "formula": "=RADIANS(@az1)",
+      "actual": -1.5707963267948966,
+      "unit": "rad",
+      "source": "plot_values.csv row 3: x",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 2",
+      "metric": "Level",
+      "formula": "=IF(@p1=\"missing\",\"missing\",IF(@p1<=0,\"missing\",10*LOG10(@p1)))",
+      "actual": 6.020599913279624,
+      "unit": "dBsm",
+      "source": "plot_values.csv row 3: y",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 3",
+      "metric": "Plotted azimuth",
+      "formula": "=RADIANS(@az2)",
+      "actual": -0.5235987755982988,
+      "unit": "rad",
+      "source": "plot_values.csv row 4: x",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 3",
+      "metric": "Level",
+      "formula": "=IF(@p2=\"missing\",\"missing\",IF(@p2<=0,\"missing\",10*LOG10(@p2)))",
+      "actual": 9.542425094393248,
+      "unit": "dBsm",
+      "source": "plot_values.csv row 4: y",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 4",
+      "metric": "Plotted azimuth",
+      "formula": "=RADIANS(@az3)",
+      "actual": 0.5235987755982988,
+      "unit": "rad",
+      "source": "plot_values.csv row 5: x",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 4",
+      "metric": "Level",
+      "formula": "=IF(@p3=\"missing\",\"missing\",IF(@p3<=0,\"missing\",10*LOG10(@p3)))",
+      "actual": 12.041199826559248,
+      "unit": "dBsm",
+      "source": "plot_values.csv row 5: y",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 5",
+      "metric": "Plotted azimuth",
+      "formula": "=RADIANS(@az4)",
+      "actual": 1.5707963267948966,
+      "unit": "rad",
+      "source": "plot_values.csv row 6: x",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 5",
+      "metric": "Level",
+      "formula": "=IF(@p4=\"missing\",\"missing\",IF(@p4<=0,\"missing\",10*LOG10(@p4)))",
+      "actual": "missing",
+      "unit": "dBsm",
+      "source": "plot_values.csv row 6: y",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 6",
+      "metric": "Plotted azimuth",
+      "formula": "=RADIANS(@az5)",
+      "actual": 2.6179938779914944,
+      "unit": "rad",
+      "source": "plot_values.csv row 7: x",
+      "tolerance": null
+    },
+    {
+      "case": "Sample 6",
+      "metric": "Level",
+      "formula": "=IF(@p5=\"missing\",\"missing\",IF(@p5<=0,\"missing\",10*LOG10(@p5)))",
+      "actual": "missing",
+      "unit": "dBsm",
+      "source": "plot_values.csv row 7: y",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input",
+      "native": "datasets/polar_plot/input.grim",
+      "csv": "datasets/polar_plot/input.csv",
+      "rows": 6
+    },
+    {
+      "name": "plot_values",
+      "csv": "datasets/polar_plot/plot_values.csv",
+      "rows": 6
+    }
+  ],
+  "notes": []
+}

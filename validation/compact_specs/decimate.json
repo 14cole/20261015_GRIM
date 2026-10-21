@@ -1,0 +1,301 @@
+{
+  "slug": "decimate",
+  "title": "Decimate",
+  "description": "Finite boxcar means followed by integer-factor downsampling.",
+  "settings": "Factor 2, keep final partial bin. Power mode averages finite powers; coherent mode averages I/Q.",
+  "scope": "Worked examples from the supplied input and output files. Validates block averaging and support handling. A boxcar is not a universal guarantee of adequate anti-alias attenuation.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Polarization",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "input_power",
+      {
+        "id": "input_power_0_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_power_0_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_power_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_power_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_power_0_p",
+        "value": 0.0
+      },
+      {
+        "id": "input_power_0_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_power",
+      {
+        "id": "input_power_1_az",
+        "value": 1.0
+      },
+      {
+        "id": "input_power_1_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_power_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_power_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_power_1_p",
+        "value": 2.0
+      },
+      {
+        "id": "input_power_1_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_power",
+      {
+        "id": "input_power_2_az",
+        "value": 2.0
+      },
+      {
+        "id": "input_power_2_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_power_2_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_power_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_power_2_p",
+        "value": "missing"
+      },
+      {
+        "id": "input_power_2_ph",
+        "value": "missing"
+      }
+    ],
+    [
+      "input_power",
+      {
+        "id": "input_power_3_az",
+        "value": 3.0
+      },
+      {
+        "id": "input_power_3_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_power_3_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_power_3_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_power_3_p",
+        "value": 6.0
+      },
+      {
+        "id": "input_power_3_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_power",
+      {
+        "id": "input_power_4_az",
+        "value": 4.0
+      },
+      {
+        "id": "input_power_4_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_power_4_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_power_4_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_power_4_p",
+        "value": 10.0
+      },
+      {
+        "id": "input_power_4_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_coherent",
+      {
+        "id": "input_coherent_0_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_coherent_0_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_coherent_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_coherent_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_coherent_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "input_coherent_0_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_coherent",
+      {
+        "id": "input_coherent_1_az",
+        "value": 1.0
+      },
+      {
+        "id": "input_coherent_1_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_coherent_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_coherent_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_coherent_1_p",
+        "value": 1.0
+      },
+      {
+        "id": "input_coherent_1_ph",
+        "value": 180.0
+      }
+    ],
+    [
+      "input_coherent",
+      {
+        "id": "input_coherent_2_az",
+        "value": 2.0
+      },
+      {
+        "id": "input_coherent_2_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_coherent_2_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_coherent_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_coherent_2_p",
+        "value": 4.0
+      },
+      {
+        "id": "input_coherent_2_ph",
+        "value": 90.0
+      }
+    ],
+    [
+      "input_coherent",
+      {
+        "id": "input_coherent_3_az",
+        "value": 3.0
+      },
+      {
+        "id": "input_coherent_3_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_coherent_3_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_coherent_3_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_coherent_3_p",
+        "value": 4.0
+      },
+      {
+        "id": "input_coherent_3_ph",
+        "value": 90.0
+      }
+    ],
+    [
+      "input_coherent",
+      {
+        "id": "input_coherent_4_az",
+        "value": 4.0
+      },
+      {
+        "id": "input_coherent_4_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_coherent_4_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_coherent_4_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_coherent_4_p",
+        "value": 9.0
+      },
+      {
+        "id": "input_coherent_4_ph",
+        "value": 45.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    1,
+    2,
+    4,
+    5,
+    7,
+    8,
+    17,
+    18,
+    19
+  ],
+  "labelOverrides": {},
+  "formulaOverrides": {}
+}

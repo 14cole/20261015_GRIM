@@ -1,0 +1,463 @@
+{
+  "slug": "dbke_dbsm",
+  "title": "dBke and dBsm",
+  "description": "Both conversion directions checked with independent linear-width and area inputs, including frequency dependence.",
+  "settings": "Extrusion length 2.5 m. Convert input_3d to dBke and input_2d to dBsm.",
+  "scope": "Validates implemented broadside uniform-extrusion arithmetic. Does not establish the approximation for arbitrary finite 3-D geometry.",
+  "category": "Dataset operation",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "length",
+      "label": "Extrusion length",
+      "value": 2.5,
+      "unit": "m"
+    },
+    {
+      "id": "c0",
+      "label": "Speed of light",
+      "value": 299792458.0,
+      "unit": "m/s"
+    },
+    {
+      "id": "p3_0",
+      "label": "3-D source sample 0",
+      "value": 1.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p2_0",
+      "label": "2-D source sample 0",
+      "value": 0.01,
+      "unit": "m"
+    },
+    {
+      "id": "f0",
+      "label": "Sample 0 frequency",
+      "value": 8000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "p3_1",
+      "label": "3-D source sample 1",
+      "value": 4.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p2_1",
+      "label": "2-D source sample 1",
+      "value": 0.02,
+      "unit": "m"
+    },
+    {
+      "id": "f1",
+      "label": "Sample 1 frequency",
+      "value": 12000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "p3_2",
+      "label": "3-D source sample 2",
+      "value": 0.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p2_2",
+      "label": "2-D source sample 2",
+      "value": 0.0,
+      "unit": "m"
+    },
+    {
+      "id": "f2",
+      "label": "Sample 2 frequency",
+      "value": 8000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "p3_3",
+      "label": "3-D source sample 3",
+      "value": 0.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p2_3",
+      "label": "2-D source sample 3",
+      "value": 0.0,
+      "unit": "m"
+    },
+    {
+      "id": "f3",
+      "label": "Sample 3 frequency",
+      "value": 12000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "p3_4",
+      "label": "3-D source sample 4",
+      "value": "missing",
+      "unit": "m2"
+    },
+    {
+      "id": "p2_4",
+      "label": "2-D source sample 4",
+      "value": "missing",
+      "unit": "m"
+    },
+    {
+      "id": "f4",
+      "label": "Sample 4 frequency",
+      "value": 8000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "p3_5",
+      "label": "3-D source sample 5",
+      "value": 16.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p2_5",
+      "label": "2-D source sample 5",
+      "value": 0.04,
+      "unit": "m"
+    },
+    {
+      "id": "f5",
+      "label": "Sample 5 frequency",
+      "value": 12000000000.0,
+      "unit": "Hz"
+    }
+  ],
+  "calculations": [
+    {
+      "id": "w0",
+      "label": "Sample 0: expected width",
+      "formula": "=IF(@p3_0=\"missing\",\"missing\",@p3_0*@c0/(2*@length^2*@f0))",
+      "unit": "m"
+    },
+    {
+      "id": "s0",
+      "label": "Sample 0: expected area",
+      "formula": "=IF(@p2_0=\"missing\",\"missing\",@p2_0*2*@length^2*@f0/@c0)",
+      "unit": "m2"
+    },
+    {
+      "id": "w1",
+      "label": "Sample 1: expected width",
+      "formula": "=IF(@p3_1=\"missing\",\"missing\",@p3_1*@c0/(2*@length^2*@f1))",
+      "unit": "m"
+    },
+    {
+      "id": "s1",
+      "label": "Sample 1: expected area",
+      "formula": "=IF(@p2_1=\"missing\",\"missing\",@p2_1*2*@length^2*@f1/@c0)",
+      "unit": "m2"
+    },
+    {
+      "id": "w2",
+      "label": "Sample 2: expected width",
+      "formula": "=IF(@p3_2=\"missing\",\"missing\",@p3_2*@c0/(2*@length^2*@f2))",
+      "unit": "m"
+    },
+    {
+      "id": "s2",
+      "label": "Sample 2: expected area",
+      "formula": "=IF(@p2_2=\"missing\",\"missing\",@p2_2*2*@length^2*@f2/@c0)",
+      "unit": "m2"
+    },
+    {
+      "id": "w3",
+      "label": "Sample 3: expected width",
+      "formula": "=IF(@p3_3=\"missing\",\"missing\",@p3_3*@c0/(2*@length^2*@f3))",
+      "unit": "m"
+    },
+    {
+      "id": "s3",
+      "label": "Sample 3: expected area",
+      "formula": "=IF(@p2_3=\"missing\",\"missing\",@p2_3*2*@length^2*@f3/@c0)",
+      "unit": "m2"
+    },
+    {
+      "id": "w4",
+      "label": "Sample 4: expected width",
+      "formula": "=IF(@p3_4=\"missing\",\"missing\",@p3_4*@c0/(2*@length^2*@f4))",
+      "unit": "m"
+    },
+    {
+      "id": "s4",
+      "label": "Sample 4: expected area",
+      "formula": "=IF(@p2_4=\"missing\",\"missing\",@p2_4*2*@length^2*@f4/@c0)",
+      "unit": "m2"
+    },
+    {
+      "id": "w5",
+      "label": "Sample 5: expected width",
+      "formula": "=IF(@p3_5=\"missing\",\"missing\",@p3_5*@c0/(2*@length^2*@f5))",
+      "unit": "m"
+    },
+    {
+      "id": "s5",
+      "label": "Sample 5: expected area",
+      "formula": "=IF(@p2_5=\"missing\",\"missing\",@p2_5*2*@length^2*@f5/@c0)",
+      "unit": "m2"
+    }
+  ],
+  "checks": [
+    {
+      "case": "3-D to 2-D, sample 0",
+      "metric": "Scattering width",
+      "formula": "=@w0",
+      "actual": 0.00299792458,
+      "unit": "m",
+      "source": "result_2d.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 0",
+      "metric": "Frequency-normalized level",
+      "formula": "=IF(@w0=\"missing\",\"missing\",IF(@w0=0,\"-inf\",10*LOG10(2*PI()*@f0*@w0/@c0)))",
+      "actual": -2.9873014464994134,
+      "unit": "dBke",
+      "source": "result_2d.csv row 2: magnitude_dbke",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 0",
+      "metric": "RCS area",
+      "formula": "=@s0",
+      "actual": 3.335640951981521,
+      "unit": "m2",
+      "source": "result_3d.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 0",
+      "metric": "RCS level",
+      "formula": "=IF(@s0=\"missing\",\"missing\",IF(@s0=0,\"-inf\",10*LOG10(@s0)))",
+      "actual": 5.231792970720725,
+      "unit": "dBsm",
+      "source": "result_3d.csv row 2: magnitude_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 1",
+      "metric": "Scattering width",
+      "formula": "=@w1",
+      "actual": 0.007994465546666666,
+      "unit": "m",
+      "source": "result_2d.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 1",
+      "metric": "Frequency-normalized level",
+      "formula": "=IF(@w1=\"missing\",\"missing\",IF(@w1=0,\"-inf\",10*LOG10(2*PI()*@f1*@w1/@c0)))",
+      "actual": 3.0332984667802094,
+      "unit": "dBke",
+      "source": "result_2d.csv row 3: magnitude_dbke",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 1",
+      "metric": "RCS area",
+      "formula": "=@s1",
+      "actual": 10.006922855944563,
+      "unit": "m2",
+      "source": "result_3d.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 1",
+      "metric": "RCS level",
+      "formula": "=IF(@s1=\"missing\",\"missing\",IF(@s1=0,\"-inf\",10*LOG10(@s1)))",
+      "actual": 10.00300551791735,
+      "unit": "dBsm",
+      "source": "result_3d.csv row 3: magnitude_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 2",
+      "metric": "Scattering width",
+      "formula": "=@w2",
+      "actual": 0.0,
+      "unit": "m",
+      "source": "result_2d.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 2",
+      "metric": "Frequency-normalized level",
+      "formula": "=IF(@w2=\"missing\",\"missing\",IF(@w2=0,\"-inf\",10*LOG10(2*PI()*@f2*@w2/@c0)))",
+      "actual": "-inf",
+      "unit": "dBke",
+      "source": "result_2d.csv row 4: magnitude_dbke",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 2",
+      "metric": "RCS area",
+      "formula": "=@s2",
+      "actual": 0.0,
+      "unit": "m2",
+      "source": "result_3d.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 2",
+      "metric": "RCS level",
+      "formula": "=IF(@s2=\"missing\",\"missing\",IF(@s2=0,\"-inf\",10*LOG10(@s2)))",
+      "actual": "-inf",
+      "unit": "dBsm",
+      "source": "result_3d.csv row 4: magnitude_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 3",
+      "metric": "Scattering width",
+      "formula": "=@w3",
+      "actual": 0.0,
+      "unit": "m",
+      "source": "result_2d.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 3",
+      "metric": "Frequency-normalized level",
+      "formula": "=IF(@w3=\"missing\",\"missing\",IF(@w3=0,\"-inf\",10*LOG10(2*PI()*@f3*@w3/@c0)))",
+      "actual": "-inf",
+      "unit": "dBke",
+      "source": "result_2d.csv row 5: magnitude_dbke",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 3",
+      "metric": "RCS area",
+      "formula": "=@s3",
+      "actual": 0.0,
+      "unit": "m2",
+      "source": "result_3d.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 3",
+      "metric": "RCS level",
+      "formula": "=IF(@s3=\"missing\",\"missing\",IF(@s3=0,\"-inf\",10*LOG10(@s3)))",
+      "actual": "-inf",
+      "unit": "dBsm",
+      "source": "result_3d.csv row 5: magnitude_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 4",
+      "metric": "Scattering width",
+      "formula": "=@w4",
+      "actual": "missing",
+      "unit": "m",
+      "source": "result_2d.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 4",
+      "metric": "Frequency-normalized level",
+      "formula": "=IF(@w4=\"missing\",\"missing\",IF(@w4=0,\"-inf\",10*LOG10(2*PI()*@f4*@w4/@c0)))",
+      "actual": "missing",
+      "unit": "dBke",
+      "source": "result_2d.csv row 6: magnitude_dbke",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 4",
+      "metric": "RCS area",
+      "formula": "=@s4",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_3d.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 4",
+      "metric": "RCS level",
+      "formula": "=IF(@s4=\"missing\",\"missing\",IF(@s4=0,\"-inf\",10*LOG10(@s4)))",
+      "actual": "missing",
+      "unit": "dBsm",
+      "source": "result_3d.csv row 6: magnitude_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 5",
+      "metric": "Scattering width",
+      "formula": "=@w5",
+      "actual": 0.031977862186666664,
+      "unit": "m",
+      "source": "result_2d.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "3-D to 2-D, sample 5",
+      "metric": "Frequency-normalized level",
+      "formula": "=IF(@w5=\"missing\",\"missing\",IF(@w5=0,\"-inf\",10*LOG10(2*PI()*@f5*@w5/@c0)))",
+      "actual": 9.053898380059834,
+      "unit": "dBke",
+      "source": "result_2d.csv row 7: magnitude_dbke",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 5",
+      "metric": "RCS area",
+      "formula": "=@s5",
+      "actual": 20.013845711889125,
+      "unit": "m2",
+      "source": "result_3d.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "2-D to 3-D, sample 5",
+      "metric": "RCS level",
+      "formula": "=IF(@s5=\"missing\",\"missing\",IF(@s5=0,\"-inf\",10*LOG10(@s5)))",
+      "actual": 13.013305474557162,
+      "unit": "dBsm",
+      "source": "result_3d.csv row 7: magnitude_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "Nonpositive length",
+      "metric": "Invalid input handling",
+      "formula": "=\"REJECTED\"",
+      "actual": "REJECTED",
+      "unit": "",
+      "source": "Recorded GRIM operation response",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input_3d",
+      "native": "datasets/dbke_dbsm/input_3d.grim",
+      "csv": "datasets/dbke_dbsm/input_3d.csv",
+      "rows": 6
+    },
+    {
+      "name": "input_2d",
+      "native": "datasets/dbke_dbsm/input_2d.grim",
+      "csv": "datasets/dbke_dbsm/input_2d.csv",
+      "rows": 6
+    },
+    {
+      "name": "result_2d",
+      "native": "datasets/dbke_dbsm/result_2d.grim",
+      "csv": "datasets/dbke_dbsm/result_2d.csv",
+      "rows": 6
+    },
+    {
+      "name": "result_3d",
+      "native": "datasets/dbke_dbsm/result_3d.grim",
+      "csv": "datasets/dbke_dbsm/result_3d.csv",
+      "rows": 6
+    }
+  ],
+  "notes": [
+    "Nonpositive length: length_m must be positive and finite",
+    "dBke = 10 log10(k * width), k = 2*pi*f/c. The exported linear column contains width, not k*width."
+  ]
+}

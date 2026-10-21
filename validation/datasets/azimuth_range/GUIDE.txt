@@ -1,0 +1,34 @@
+Az vs D.R.
+----------
+
+WORKBOOK EXAMPLE
+Azimuths 0 and 30 deg; eight frequencies, 1-8 GHz; 32 range bins; no peak normalization.
+The worksheet shows 6 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+8 samples, 1-8 GHz; azimuths 0 and 30 deg; Rectangular window; peak normalization off; linear intensity.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/azimuth_range.json.
+Az 0, bin 15: intensity: Excel K8; GRIM L8; percent error M8; original check 30; source plot.csv row 17
+Bin 15: range (m): Excel K9; GRIM L9; percent error M9; original check 31; source plot.csv row 17
+Az 0, bin 16: intensity: Excel K10; GRIM L10; percent error M10; original check 32; source plot.csv row 18
+Bin 16: range (m): Excel K11; GRIM L11; percent error M11; original check 33; source plot.csv row 18
+Az 30, bin 20: intensity: Excel K12; GRIM L12; percent error M12; original check 84; source plot.csv row 54
+Az 30, bin 21: intensity: Excel K13; GRIM L13; percent error M13; original check 85; source plot.csv row 55
+
+FILES
+input: datasets/azimuth_range/input.grim; datasets/azimuth_range/input.csv
+plot: datasets/azimuth_range/plot.csv
+
+SCOPE
+Peak and adjacent-bin examples for two synthetic profiles. The plot uses float32 FFT work; the full profiles remain in the folder.
+The full specification retains 96 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+None.

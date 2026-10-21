@@ -1,0 +1,253 @@
+{
+  "slug": "delta_db",
+  "title": "Delta dB",
+  "description": "First-minus-second dB levels are stored as a dimensionless linear power ratio.",
+  "settings": "Select input_a first and input_b second; use Delta dB. Zero denominator is missing.",
+  "scope": "Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "category": "Dataset operation",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "a0",
+      "label": "A power at azimuth 0",
+      "value": 1.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b0",
+      "label": "B power at azimuth 0",
+      "value": 0.5,
+      "unit": "m2"
+    },
+    {
+      "id": "a1",
+      "label": "A power at azimuth 1",
+      "value": 10.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b1",
+      "label": "B power at azimuth 1",
+      "value": 0.0,
+      "unit": "m2"
+    },
+    {
+      "id": "a2",
+      "label": "A power at azimuth 2",
+      "value": 0.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b2",
+      "label": "B power at azimuth 2",
+      "value": 2.0,
+      "unit": "m2"
+    },
+    {
+      "id": "a3",
+      "label": "A power at azimuth 3",
+      "value": 4.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b3",
+      "label": "B power at azimuth 3",
+      "value": 4.0,
+      "unit": "m2"
+    },
+    {
+      "id": "a4",
+      "label": "A power at azimuth 4",
+      "value": "missing",
+      "unit": "m2"
+    },
+    {
+      "id": "b4",
+      "label": "B power at azimuth 4",
+      "value": 5.0,
+      "unit": "m2"
+    },
+    {
+      "id": "a5",
+      "label": "A power at azimuth 5",
+      "value": 9.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b5",
+      "label": "B power at azimuth 5",
+      "value": "missing",
+      "unit": "m2"
+    }
+  ],
+  "calculations": [
+    {
+      "id": "r0",
+      "label": "Azimuth 0: expected ratio",
+      "formula": "=IF(OR(@a0=\"missing\",@b0=\"missing\"),\"missing\",IF(@b0=0,\"missing\",@a0/@b0))",
+      "unit": "ratio"
+    },
+    {
+      "id": "r1",
+      "label": "Azimuth 1: expected ratio",
+      "formula": "=IF(OR(@a1=\"missing\",@b1=\"missing\"),\"missing\",IF(@b1=0,\"missing\",@a1/@b1))",
+      "unit": "ratio"
+    },
+    {
+      "id": "r2",
+      "label": "Azimuth 2: expected ratio",
+      "formula": "=IF(OR(@a2=\"missing\",@b2=\"missing\"),\"missing\",IF(@b2=0,\"missing\",@a2/@b2))",
+      "unit": "ratio"
+    },
+    {
+      "id": "r3",
+      "label": "Azimuth 3: expected ratio",
+      "formula": "=IF(OR(@a3=\"missing\",@b3=\"missing\"),\"missing\",IF(@b3=0,\"missing\",@a3/@b3))",
+      "unit": "ratio"
+    },
+    {
+      "id": "r4",
+      "label": "Azimuth 4: expected ratio",
+      "formula": "=IF(OR(@a4=\"missing\",@b4=\"missing\"),\"missing\",IF(@b4=0,\"missing\",@a4/@b4))",
+      "unit": "ratio"
+    },
+    {
+      "id": "r5",
+      "label": "Azimuth 5: expected ratio",
+      "formula": "=IF(OR(@a5=\"missing\",@b5=\"missing\"),\"missing\",IF(@b5=0,\"missing\",@a5/@b5))",
+      "unit": "ratio"
+    }
+  ],
+  "checks": [
+    {
+      "case": "Azimuth 0",
+      "metric": "Power ratio",
+      "formula": "=@r0",
+      "actual": 2.0,
+      "unit": "ratio",
+      "source": "result.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 0",
+      "metric": "Log ratio",
+      "formula": "=IF(@r0=\"missing\",\"missing\",IF(@r0=0,\"-inf\",10*LOG10(@r0)))",
+      "actual": 3.010299956639812,
+      "unit": "dB",
+      "source": "result.csv row 2: magnitude_db",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 1",
+      "metric": "Power ratio",
+      "formula": "=@r1",
+      "actual": "missing",
+      "unit": "ratio",
+      "source": "result.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 1",
+      "metric": "Log ratio",
+      "formula": "=IF(@r1=\"missing\",\"missing\",IF(@r1=0,\"-inf\",10*LOG10(@r1)))",
+      "actual": "missing",
+      "unit": "dB",
+      "source": "result.csv row 3: magnitude_db",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 2",
+      "metric": "Power ratio",
+      "formula": "=@r2",
+      "actual": 0.0,
+      "unit": "ratio",
+      "source": "result.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 2",
+      "metric": "Log ratio",
+      "formula": "=IF(@r2=\"missing\",\"missing\",IF(@r2=0,\"-inf\",10*LOG10(@r2)))",
+      "actual": "-inf",
+      "unit": "dB",
+      "source": "result.csv row 4: magnitude_db",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 3",
+      "metric": "Power ratio",
+      "formula": "=@r3",
+      "actual": 1.0,
+      "unit": "ratio",
+      "source": "result.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 3",
+      "metric": "Log ratio",
+      "formula": "=IF(@r3=\"missing\",\"missing\",IF(@r3=0,\"-inf\",10*LOG10(@r3)))",
+      "actual": 0.0,
+      "unit": "dB",
+      "source": "result.csv row 5: magnitude_db",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 4",
+      "metric": "Power ratio",
+      "formula": "=@r4",
+      "actual": "missing",
+      "unit": "ratio",
+      "source": "result.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 4",
+      "metric": "Log ratio",
+      "formula": "=IF(@r4=\"missing\",\"missing\",IF(@r4=0,\"-inf\",10*LOG10(@r4)))",
+      "actual": "missing",
+      "unit": "dB",
+      "source": "result.csv row 6: magnitude_db",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 5",
+      "metric": "Power ratio",
+      "formula": "=@r5",
+      "actual": "missing",
+      "unit": "ratio",
+      "source": "result.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 5",
+      "metric": "Log ratio",
+      "formula": "=IF(@r5=\"missing\",\"missing\",IF(@r5=0,\"-inf\",10*LOG10(@r5)))",
+      "actual": "missing",
+      "unit": "dB",
+      "source": "result.csv row 7: magnitude_db",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input_a",
+      "native": "datasets/delta_db/input_a.grim",
+      "csv": "datasets/delta_db/input_a.csv",
+      "rows": 6
+    },
+    {
+      "name": "input_b",
+      "native": "datasets/delta_db/input_b.grim",
+      "csv": "datasets/delta_db/input_b.csv",
+      "rows": 6
+    },
+    {
+      "name": "result",
+      "native": "datasets/delta_db/result.grim",
+      "csv": "datasets/delta_db/result.csv",
+      "rows": 6
+    }
+  ],
+  "notes": []
+}

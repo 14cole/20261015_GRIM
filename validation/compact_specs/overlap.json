@@ -1,0 +1,366 @@
+{
+  "slug": "overlap",
+  "title": "Overlap",
+  "description": "All selected datasets share common coordinates and finite-cell support.",
+  "settings": "Keep common azimuths 10 and 20 deg. A missing HH value at 10 deg masks that cell in both results.",
+  "scope": "Worked examples from the supplied input and output files. Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Polarization",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "input_a",
+      {
+        "id": "input_a_0_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_0_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_a_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "input_a_0_ph",
+        "value": -150.0
+      }
+    ],
+    [
+      "input_a",
+      {
+        "id": "input_a_1_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_1_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_1_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_a_1_p",
+        "value": 2.0
+      },
+      {
+        "id": "input_a_1_ph",
+        "value": -137.0
+      }
+    ],
+    [
+      "input_a",
+      {
+        "id": "input_a_2_az",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_2_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_2_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_a_2_p",
+        "value": 3.0
+      },
+      {
+        "id": "input_a_2_ph",
+        "value": -124.0
+      }
+    ],
+    [
+      "input_a",
+      {
+        "id": "input_a_3_az",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_3_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_3_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_3_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_a_3_p",
+        "value": 4.0
+      },
+      {
+        "id": "input_a_3_ph",
+        "value": -111.0
+      }
+    ],
+    [
+      "input_a",
+      {
+        "id": "input_a_4_az",
+        "value": 20.0
+      },
+      {
+        "id": "input_a_4_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_4_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_4_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_a_4_p",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_4_ph",
+        "value": -98.0
+      }
+    ],
+    [
+      "input_a",
+      {
+        "id": "input_a_5_az",
+        "value": 20.0
+      },
+      {
+        "id": "input_a_5_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_5_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_5_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_a_5_p",
+        "value": 6.0
+      },
+      {
+        "id": "input_a_5_ph",
+        "value": -85.0
+      }
+    ],
+    [
+      "input_b",
+      {
+        "id": "input_b_0_az",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_0_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_b_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_b_0_p",
+        "value": 7.0
+      },
+      {
+        "id": "input_b_0_ph",
+        "value": -150.0
+      }
+    ],
+    [
+      "input_b",
+      {
+        "id": "input_b_1_az",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_1_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_b_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_1_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_b_1_p",
+        "value": "missing"
+      },
+      {
+        "id": "input_b_1_ph",
+        "value": -137.0
+      }
+    ],
+    [
+      "input_b",
+      {
+        "id": "input_b_2_az",
+        "value": 20.0
+      },
+      {
+        "id": "input_b_2_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_b_2_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_b_2_p",
+        "value": 9.0
+      },
+      {
+        "id": "input_b_2_ph",
+        "value": -124.0
+      }
+    ],
+    [
+      "input_b",
+      {
+        "id": "input_b_3_az",
+        "value": 20.0
+      },
+      {
+        "id": "input_b_3_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_b_3_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_3_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_b_3_p",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_3_ph",
+        "value": -111.0
+      }
+    ],
+    [
+      "input_b",
+      {
+        "id": "input_b_4_az",
+        "value": 30.0
+      },
+      {
+        "id": "input_b_4_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_b_4_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_4_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_b_4_p",
+        "value": 11.0
+      },
+      {
+        "id": "input_b_4_ph",
+        "value": -98.0
+      }
+    ],
+    [
+      "input_b",
+      {
+        "id": "input_b_5_az",
+        "value": 30.0
+      },
+      {
+        "id": "input_b_5_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_b_5_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_5_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_b_5_p",
+        "value": 12.0
+      },
+      {
+        "id": "input_b_5_ph",
+        "value": -85.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    2,
+    5,
+    8,
+    11,
+    14,
+    17,
+    20,
+    23
+  ],
+  "labelOverrides": {
+    "2": "A, 10 deg HH: RCS",
+    "5": "A, 10 deg VV: RCS",
+    "8": "A, 20 deg HH: RCS",
+    "11": "A, 20 deg VV: RCS",
+    "14": "B, 10 deg HH: RCS",
+    "17": "B, 10 deg VV: RCS",
+    "20": "B, 20 deg HH: RCS",
+    "23": "B, 20 deg VV: RCS"
+  },
+  "formulaOverrides": {
+    "2": "=IF(AND(ISNUMBER(@input_a_3_p),ISNUMBER(@input_b_1_p)),@input_a_3_p,\"missing\")",
+    "14": "=IF(AND(ISNUMBER(@input_a_3_p),ISNUMBER(@input_b_1_p)),@input_b_1_p,\"missing\")"
+  }
+}

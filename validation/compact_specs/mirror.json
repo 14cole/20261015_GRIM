@@ -1,0 +1,190 @@
+{
+  "slug": "mirror",
+  "title": "Mirror",
+  "description": "Azimuth reflection and sample permutation.",
+  "settings": "Mirror about 15 deg: new azimuth = 2 x 15 - old azimuth; keep each RCS sample.",
+  "scope": "Worked examples from the supplied input and output files. Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Polarization",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "input",
+      {
+        "id": "input_0_az",
+        "value": -10.0
+      },
+      {
+        "id": "input_0_el",
+        "value": -5.0
+      },
+      {
+        "id": "input_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "input_0_ph",
+        "value": -150.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_1_az",
+        "value": -10.0
+      },
+      {
+        "id": "input_1_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_1_p",
+        "value": 2.0
+      },
+      {
+        "id": "input_1_ph",
+        "value": -137.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_2_az",
+        "value": 5.0
+      },
+      {
+        "id": "input_2_el",
+        "value": -5.0
+      },
+      {
+        "id": "input_2_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_2_p",
+        "value": 0.0
+      },
+      {
+        "id": "input_2_ph",
+        "value": -124.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_3_az",
+        "value": 5.0
+      },
+      {
+        "id": "input_3_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_3_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_3_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_3_p",
+        "value": 4.0
+      },
+      {
+        "id": "input_3_ph",
+        "value": -111.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_4_az",
+        "value": 40.0
+      },
+      {
+        "id": "input_4_el",
+        "value": -5.0
+      },
+      {
+        "id": "input_4_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_4_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_4_p",
+        "value": "missing"
+      },
+      {
+        "id": "input_4_ph",
+        "value": -98.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_5_az",
+        "value": 40.0
+      },
+      {
+        "id": "input_5_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_5_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_5_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_5_p",
+        "value": 6.0
+      },
+      {
+        "id": "input_5_ph",
+        "value": -85.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    1,
+    5,
+    13,
+    17,
+    24,
+    28
+  ],
+  "labelOverrides": {},
+  "formulaOverrides": {}
+}

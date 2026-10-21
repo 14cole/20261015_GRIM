@@ -1,0 +1,32 @@
+Percentile
+----------
+
+WORKBOOK EXAMPLE
+Percentile 90 over azimuth, separately for A and B. Shown trace: 8 GHz, VV. The datasets are not pooled.
+The worksheet shows 2 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Percentile 90. Select input_a and input_b together. Each result repeats its own percentile across the original azimuths.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/percentile.json.
+Dataset A: 90th percentile: Excel I8; GRIM J8; percent error K8; original check 0; source result_a.csv row 2: magnitude_power_linear
+Dataset B: 90th percentile: Excel I9; GRIM J9; percent error K9; original check 20; source result_b.csv row 2: magnitude_power_linear
+
+FILES
+input_a: datasets/percentile/input_a.grim; datasets/percentile/input_a.csv
+result_a: datasets/percentile/result_a.grim; datasets/percentile/result_a.csv
+input_b: datasets/percentile/input_b.grim; datasets/percentile/input_b.csv
+result_b: datasets/percentile/result_b.grim; datasets/percentile/result_b.csv
+
+SCOPE
+Numerical behavior for the supplied fixtures; not all possible inputs.
+The full specification retains 40 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+Do not pool input_a and input_b. The GUI applies the reduction to each dataset independently.

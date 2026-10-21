@@ -1,0 +1,42 @@
+Join Merge
+----------
+
+WORKBOOK EXAMPLE
+Merge A+B: compare the four policies at 10 deg. Join A+C: retain the new 40 and 50 deg samples.
+The worksheet shows 8 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Join default rejects conflicts. Merge tests priority-first/last, power-mean, coherent-mean.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/join_merge.json.
+10 deg: first input RCS: Excel J8; GRIM K8; percent error L8; original check 4; source result_priority_first.csv row 3: magnitude_power_linear
+10 deg: last input RCS: Excel J9; GRIM K9; percent error L9; original check 13; source result_priority_last.csv row 3: magnitude_power_linear
+10 deg: mean power: Excel J10; GRIM K10; percent error L10; original check 22; source result_power_mean.csv row 3: magnitude_power_linear
+10 deg: power of mean field: Excel J11; GRIM K11; percent error L11; original check 31; source result_coherent_mean.csv row 3: magnitude_power_linear
+Joined azimuth 40 deg: Excel J12; GRIM K12; percent error L12; original check 55; source result_union.csv row 5: azimuth
+Joined RCS at 40 deg: Excel J13; GRIM K13; percent error L13; original check 59; source result_union.csv row 5: magnitude_power_linear
+Joined azimuth 50 deg: Excel J14; GRIM K14; percent error L14; original check 61; source result_union.csv row 6: azimuth
+Joined RCS at 50 deg: Excel J15; GRIM K15; percent error L15; original check 65; source result_union.csv row 6: magnitude_power_linear
+
+FILES
+input_a: datasets/join_merge/input_a.grim; datasets/join_merge/input_a.csv
+input_b: datasets/join_merge/input_b.grim; datasets/join_merge/input_b.csv
+result_priority_first: datasets/join_merge/result_priority_first.grim; datasets/join_merge/result_priority_first.csv
+result_priority_last: datasets/join_merge/result_priority_last.grim; datasets/join_merge/result_priority_last.csv
+result_power_mean: datasets/join_merge/result_power_mean.grim; datasets/join_merge/result_power_mean.csv
+result_coherent_mean: datasets/join_merge/result_coherent_mean.grim; datasets/join_merge/result_coherent_mean.csv
+input_c_no_overlap: datasets/join_merge/input_c_no_overlap.grim; datasets/join_merge/input_c_no_overlap.csv
+result_union: datasets/join_merge/result_union.grim; datasets/join_merge/result_union.csv
+
+SCOPE
+Worked examples from the supplied input and output files. Checks a one-axis union and all overlap policies with missing and zero samples; higher-dimensional union resource limits are separate.
+The full specification retains 67 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+Conflicting join overlap: conflicting finite samples overlap during join

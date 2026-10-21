@@ -1,0 +1,136 @@
+{
+  "slug": "crop_slice",
+  "title": "Crop Slice",
+  "description": "Selected coordinates retain the corresponding original samples.",
+  "settings": "Crop azimuth 10 to 30 deg, stride 2. Shown slice: elevation 5 deg, 10 GHz, HH.",
+  "scope": "Worked examples from the supplied input and output files. Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Polarization",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "input",
+      {
+        "id": "input_7_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_7_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_7_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_7_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_7_p",
+        "value": 8.0
+      },
+      {
+        "id": "input_7_ph",
+        "value": -59.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_15_az",
+        "value": 10.0
+      },
+      {
+        "id": "input_15_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_15_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_15_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_15_p",
+        "value": 16.0
+      },
+      {
+        "id": "input_15_ph",
+        "value": 45.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_23_az",
+        "value": 20.0
+      },
+      {
+        "id": "input_23_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_23_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_23_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_23_p",
+        "value": 24.0
+      },
+      {
+        "id": "input_23_ph",
+        "value": 149.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_31_az",
+        "value": 30.0
+      },
+      {
+        "id": "input_31_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_31_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_31_pol",
+        "value": "HH"
+      },
+      {
+        "id": "input_31_p",
+        "value": 32.0
+      },
+      {
+        "id": "input_31_ph",
+        "value": 253.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    1,
+    2,
+    3,
+    5,
+    7,
+    11
+  ],
+  "labelOverrides": {},
+  "formulaOverrides": {}
+}

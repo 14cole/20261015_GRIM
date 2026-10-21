@@ -1,0 +1,138 @@
+{
+  "slug": "shift",
+  "title": "Shift",
+  "description": "Coordinate translation and constant phase rotation.",
+  "settings": "Add 15 deg azimuth, subtract 7 deg elevation, and add 30 deg phase.",
+  "scope": "Worked examples from the supplied input and output files. Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Polarization",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "input",
+      {
+        "id": "input_0_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_0_el",
+        "value": -5.0
+      },
+      {
+        "id": "input_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "input_0_ph",
+        "value": 170.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_1_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_1_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_1_p",
+        "value": 0.0
+      },
+      {
+        "id": "input_1_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_2_az",
+        "value": 90.0
+      },
+      {
+        "id": "input_2_el",
+        "value": -5.0
+      },
+      {
+        "id": "input_2_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_2_p",
+        "value": 3.0
+      },
+      {
+        "id": "input_2_ph",
+        "value": -175.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_3_az",
+        "value": 90.0
+      },
+      {
+        "id": "input_3_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_3_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_3_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_3_p",
+        "value": "missing"
+      },
+      {
+        "id": "input_3_ph",
+        "value": "missing"
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    1,
+    2,
+    5,
+    6,
+    12,
+    13,
+    16,
+    17
+  ],
+  "labelOverrides": {},
+  "formulaOverrides": {}
+}

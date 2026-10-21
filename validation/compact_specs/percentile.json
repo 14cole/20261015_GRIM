@@ -1,0 +1,135 @@
+{
+  "slug": "percentile",
+  "title": "Percentile",
+  "description": "Azimuth percentile calculated separately inside each selected dataset, for each frequency and polarization.",
+  "settings": "Percentile 90 over azimuth, separately for A and B. Shown trace: 8 GHz, VV. The datasets are not pooled.",
+  "scope": "Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Pol",
+    "RCS (m²)"
+  ],
+  "rawRows": [
+    [
+      "A",
+      -10.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "a00_0",
+        "value": 0.0
+      }
+    ],
+    [
+      "A",
+      0.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "a00_1",
+        "value": 1.0
+      }
+    ],
+    [
+      "A",
+      10.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "a00_2",
+        "value": 4.0
+      }
+    ],
+    [
+      "A",
+      20.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "a00_3",
+        "value": 16.0
+      }
+    ],
+    [
+      "A",
+      30.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "a00_4",
+        "value": 100.0
+      }
+    ],
+    [
+      "B",
+      -10.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "b00_0",
+        "value": 0.0
+      }
+    ],
+    [
+      "B",
+      0.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "b00_1",
+        "value": 3.0
+      }
+    ],
+    [
+      "B",
+      10.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "b00_2",
+        "value": 12.0
+      }
+    ],
+    [
+      "B",
+      20.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "b00_3",
+        "value": 48.0
+      }
+    ],
+    [
+      "B",
+      30.0,
+      0.0,
+      8.0,
+      "VV",
+      {
+        "id": "b00_4",
+        "value": 300.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    0,
+    20
+  ],
+  "labelOverrides": {
+    "0": "Dataset A: 90th percentile",
+    "20": "Dataset B: 90th percentile"
+  }
+}

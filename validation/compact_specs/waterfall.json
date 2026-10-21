@@ -1,0 +1,152 @@
+{
+  "slug": "waterfall",
+  "title": "Waterfall",
+  "description": "Native image values averaged over elevation in linear power.",
+  "settings": "Mean over the two elevations; display azimuth \u00d7 frequency in dBsm.",
+  "scope": "Native pixels and axis association; shared cut axes and display decimation need GUI checks.",
+  "rawHeaders": [
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Pol",
+    "RCS (m\u00b2)"
+  ],
+  "rawRows": [
+    [
+      0,
+      0,
+      8,
+      "VV",
+      {
+        "id": "p0_0_0_0",
+        "value": 1.0
+      }
+    ],
+    [
+      0,
+      0,
+      9,
+      "VV",
+      {
+        "id": "p0_0_1_0",
+        "value": 2.0
+      }
+    ],
+    [
+      0,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p0_0_2_0",
+        "value": 4.0
+      }
+    ],
+    [
+      0,
+      30,
+      8,
+      "VV",
+      {
+        "id": "p0_1_0_0",
+        "value": 3.0
+      }
+    ],
+    [
+      0,
+      30,
+      9,
+      "VV",
+      {
+        "id": "p0_1_1_0",
+        "value": 6.0
+      }
+    ],
+    [
+      0,
+      30,
+      10,
+      "VV",
+      {
+        "id": "p0_1_2_0",
+        "value": 12.0
+      }
+    ],
+    [
+      90,
+      0,
+      8,
+      "VV",
+      {
+        "id": "p1_0_0_0",
+        "value": 5.0
+      }
+    ],
+    [
+      90,
+      0,
+      9,
+      "VV",
+      {
+        "id": "p1_0_1_0",
+        "value": 10.0
+      }
+    ],
+    [
+      90,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p1_0_2_0",
+        "value": 20.0
+      }
+    ],
+    [
+      90,
+      30,
+      8,
+      "VV",
+      {
+        "id": "p1_1_0_0",
+        "value": 7.0
+      }
+    ],
+    [
+      90,
+      30,
+      9,
+      "VV",
+      {
+        "id": "p1_1_1_0",
+        "value": 14.0
+      }
+    ],
+    [
+      90,
+      30,
+      10,
+      "VV",
+      {
+        "id": "p1_1_2_0",
+        "value": 28.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "labelOverrides": {
+    "0": "Az 0\u00b0, 8 GHz (dBsm)",
+    "1": "Az 0\u00b0, 9 GHz (dBsm)",
+    "2": "Az 0\u00b0, 10 GHz (dBsm)",
+    "3": "Az 90\u00b0, 8 GHz (dBsm)",
+    "4": "Az 90\u00b0, 9 GHz (dBsm)",
+    "5": "Az 90\u00b0, 10 GHz (dBsm)"
+  }
+}

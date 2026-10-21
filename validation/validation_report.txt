@@ -1,0 +1,60 @@
+GRIM compact validation: 46 operations; 353 selected comparisons
+Workbook: GRIM_validation_simple.xlsx.
+Engine: Microsoft Excel 16.0; current workbook fully recalculated.
+Failed comparisons: 0; formula errors: 0.
+Full evidence: 2197 recorded checks retained in specs; not all are displayed or recalculated here.
+No production code or BETA labels changed. See README and operation GUIDE files.
+
+Excel behavior checks
+Changing a Stats input updates the Excel result and percent error: passed
+Clearing a GRIM export displays missing export: passed
+A GRIM export 10 percent above the calculation displays 10 percent error: passed
+Restoring the input and export restores the original comparison: passed
+
+Operation | selected comparisons | failures | full recorded checks
+Align | 4 | 0 | 13
+Axis Units | 8 | 0 | 101
+Az vs D.R. | 6 | 0 | 96
+Azimuth Polar | 12 | 0 | 13
+Azimuth Rect | 6 | 0 | 13
+CDF | 8 | 0 | 13
+Coherent + | 9 | 0 | 43
+Coherent - | 9 | 0 | 43
+Coherent divide | 9 | 0 | 22
+Crop Slice | 6 | 0 | 14
+Decimate | 9 | 0 | 21
+Delta Map | 6 | 0 | 6
+Delta dB | 8 | 0 | 12
+Duplicate | 10 | 0 | 49
+El to Az360 | 9 | 0 | 28
+Elevation Sweep | 8 | 0 | 72
+Flip Phase | 9 | 0 | 36
+Frequency | 7 | 0 | 72
+ISAR Image | 8 | 0 | 34
+Incoherent + | 6 | 0 | 12
+Incoherent - | 6 | 0 | 13
+Join Merge | 8 | 0 | 67
+Medianize | 9 | 0 | 19
+Mirror | 6 | 0 | 36
+Offset | 9 | 0 | 15
+Overlap | 8 | 0 | 24
+PBP | 12 | 0 | 20
+Percentile | 2 | 0 | 40
+Phase | 6 | 0 | 13
+Phase Center | 6 | 0 | 98
+RF Compare | 6 | 0 | 81
+Range Cal | 4 | 0 | 26
+Range Freq | 6 | 0 | 259
+Regrid | 5 | 0 | 17
+Round | 8 | 0 | 74
+SENTRi El to GRIM | 12 | 0 | 111
+Save Load Export | 7 | 0 | 46
+Sector Stats | 10 | 0 | 25
+Shift | 8 | 0 | 24
+Stats | 6 | 0 | 250
+Swap El Az | 9 | 0 | 75
+Time Gate | 8 | 0 | 42
+Waterfall | 6 | 0 | 6
+Wedge Conic | 7 | 0 | 28
+Wrap | 10 | 0 | 50
+dBke and dBsm | 12 | 0 | 25

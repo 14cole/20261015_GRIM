@@ -1,0 +1,89 @@
+{
+  "slug": "sector_stats",
+  "title": "Sector Stats",
+  "description": "Independent linear-power statistics in two tiled azimuth sectors.",
+  "settings": "Sectors [0\u00b0, 90\u00b0) and [90\u00b0, 180\u00b0]; percentile = P90.",
+  "scope": "Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Pol",
+    "RCS (m\u00b2)"
+  ],
+  "rawRows": [
+    [
+      0,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p0",
+        "value": 0.0
+      }
+    ],
+    [
+      30,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p1",
+        "value": 1.0
+      }
+    ],
+    [
+      60,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p2",
+        "value": 1.0
+      }
+    ],
+    [
+      90,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p3",
+        "value": 4.0
+      }
+    ],
+    [
+      120,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p4",
+        "value": 9.0
+      }
+    ],
+    [
+      150,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p5",
+        "value": "missing"
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    14,
+    15,
+    16,
+    17,
+    18,
+    20,
+    21,
+    22,
+    23,
+    24
+  ],
+  "labelOverrides": {}
+}

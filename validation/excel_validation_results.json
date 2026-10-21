@@ -1,0 +1,260 @@
+{
+  "engine": "Microsoft Excel 16.0",
+  "recalculated": true,
+  "dynamic_checks": [
+    {
+      "test": "Changing a Stats input updates the Excel result and percent error",
+      "passed": true,
+      "before": 24.2,
+      "after": 24.4,
+      "error": 0.00819672131147538
+    },
+    {
+      "test": "Clearing a GRIM export displays missing export",
+      "passed": true,
+      "status": "missing export"
+    },
+    {
+      "test": "A GRIM export 10 percent above the calculation displays 10 percent error",
+      "passed": true,
+      "error": 0.10000000000000007
+    },
+    {
+      "test": "Restoring the input and export restores the original comparison",
+      "passed": true
+    }
+  ],
+  "formula_errors": [],
+  "operations": [
+    {
+      "sheet": "Align",
+      "checks": 4,
+      "failures": []
+    },
+    {
+      "sheet": "Axis Units",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "Az vs D.R.",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Azimuth Polar",
+      "checks": 12,
+      "failures": []
+    },
+    {
+      "sheet": "Azimuth Rect",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "CDF",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "Coherent -",
+      "checks": 9,
+      "failures": []
+    },
+    {
+      "sheet": "Coherent +",
+      "checks": 9,
+      "failures": []
+    },
+    {
+      "sheet": "Coherent divide",
+      "checks": 9,
+      "failures": []
+    },
+    {
+      "sheet": "Crop Slice",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "dBke and dBsm",
+      "checks": 12,
+      "failures": []
+    },
+    {
+      "sheet": "Decimate",
+      "checks": 9,
+      "failures": []
+    },
+    {
+      "sheet": "Delta dB",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "Delta Map",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Duplicate",
+      "checks": 10,
+      "failures": []
+    },
+    {
+      "sheet": "El to Az360",
+      "checks": 9,
+      "failures": []
+    },
+    {
+      "sheet": "Elevation Sweep",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "Flip Phase",
+      "checks": 9,
+      "failures": []
+    },
+    {
+      "sheet": "Frequency",
+      "checks": 7,
+      "failures": []
+    },
+    {
+      "sheet": "Incoherent -",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Incoherent +",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "ISAR Image",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "Join Merge",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "Medianize",
+      "checks": 9,
+      "failures": []
+    },
+    {
+      "sheet": "Mirror",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Offset",
+      "checks": 9,
+      "failures": []
+    },
+    {
+      "sheet": "Overlap",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "PBP",
+      "checks": 12,
+      "failures": []
+    },
+    {
+      "sheet": "Percentile",
+      "checks": 2,
+      "failures": []
+    },
+    {
+      "sheet": "Phase",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Phase Center",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Range Cal",
+      "checks": 4,
+      "failures": []
+    },
+    {
+      "sheet": "Range Freq",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Regrid",
+      "checks": 5,
+      "failures": []
+    },
+    {
+      "sheet": "RF Compare",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Round",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "Save Load Export",
+      "checks": 7,
+      "failures": []
+    },
+    {
+      "sheet": "Sector Stats",
+      "checks": 10,
+      "failures": []
+    },
+    {
+      "sheet": "SENTRi El to GRIM",
+      "checks": 12,
+      "failures": []
+    },
+    {
+      "sheet": "Shift",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "Stats",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Swap El Az",
+      "checks": 9,
+      "failures": []
+    },
+    {
+      "sheet": "Time Gate",
+      "checks": 8,
+      "failures": []
+    },
+    {
+      "sheet": "Waterfall",
+      "checks": 6,
+      "failures": []
+    },
+    {
+      "sheet": "Wedge Conic",
+      "checks": 7,
+      "failures": []
+    },
+    {
+      "sheet": "Wrap",
+      "checks": 10,
+      "failures": []
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+{
+  "slug": "regrid",
+  "title": "Regrid",
+  "description": "Linear interpolation of I and Q, including exact source nodes.",
+  "settings": "Interpolate I and Q to 5 and 15 deg. The 10 deg result is an unchanged source node.",
+  "scope": "Worked examples from the supplied input and output files. Checks linear interpolation arithmetic and missing support, not adequacy of source angular sampling.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Polarization",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "input",
+      {
+        "id": "input_0_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_0_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "input_0_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_1_az",
+        "value": 10.0
+      },
+      {
+        "id": "input_1_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_1_p",
+        "value": 5.0
+      },
+      {
+        "id": "input_1_ph",
+        "value": 26.56505117707799
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_2_az",
+        "value": 20.0
+      },
+      {
+        "id": "input_2_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_2_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_2_p",
+        "value": 9.0
+      },
+      {
+        "id": "input_2_ph",
+        "value": 0.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    3,
+    4,
+    7,
+    9,
+    10
+  ],
+  "labelOverrides": {},
+  "formulaOverrides": {}
+}

@@ -1,0 +1,1310 @@
+{
+  "slug": "crop_slice",
+  "title": "Crop Slice",
+  "description": "Selected coordinates retain the corresponding original samples.",
+  "settings": "Azimuth range 10..30 deg, stride 2; elevation +5 deg; frequency 10 GHz; polarization HH.",
+  "scope": "Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "category": "Dataset operation",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "input_0_az",
+      "label": "input sample 1: az",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_0_el",
+      "label": "input sample 1: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_0_f",
+      "label": "input sample 1: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_0_pol",
+      "label": "input sample 1: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_0_p",
+      "label": "input sample 1: p",
+      "value": 1.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_0_ph",
+      "label": "input sample 1: ph",
+      "value": -150.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_1_az",
+      "label": "input sample 2: az",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_1_el",
+      "label": "input sample 2: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_1_f",
+      "label": "input sample 2: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_1_pol",
+      "label": "input sample 2: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_1_p",
+      "label": "input sample 2: p",
+      "value": 2.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_1_ph",
+      "label": "input sample 2: ph",
+      "value": -137.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_2_az",
+      "label": "input sample 3: az",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_2_el",
+      "label": "input sample 3: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_2_f",
+      "label": "input sample 3: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_2_pol",
+      "label": "input sample 3: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_2_p",
+      "label": "input sample 3: p",
+      "value": 3.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_2_ph",
+      "label": "input sample 3: ph",
+      "value": -124.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_3_az",
+      "label": "input sample 4: az",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_3_el",
+      "label": "input sample 4: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_3_f",
+      "label": "input sample 4: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_3_pol",
+      "label": "input sample 4: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_3_p",
+      "label": "input sample 4: p",
+      "value": 4.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_3_ph",
+      "label": "input sample 4: ph",
+      "value": -111.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_4_az",
+      "label": "input sample 5: az",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_4_el",
+      "label": "input sample 5: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_4_f",
+      "label": "input sample 5: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_4_pol",
+      "label": "input sample 5: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_4_p",
+      "label": "input sample 5: p",
+      "value": 5.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_4_ph",
+      "label": "input sample 5: ph",
+      "value": -98.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_5_az",
+      "label": "input sample 6: az",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_5_el",
+      "label": "input sample 6: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_5_f",
+      "label": "input sample 6: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_5_pol",
+      "label": "input sample 6: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_5_p",
+      "label": "input sample 6: p",
+      "value": 6.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_5_ph",
+      "label": "input sample 6: ph",
+      "value": -85.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_6_az",
+      "label": "input sample 7: az",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_6_el",
+      "label": "input sample 7: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_6_f",
+      "label": "input sample 7: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_6_pol",
+      "label": "input sample 7: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_6_p",
+      "label": "input sample 7: p",
+      "value": 7.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_6_ph",
+      "label": "input sample 7: ph",
+      "value": -72.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_7_az",
+      "label": "input sample 8: az",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_7_el",
+      "label": "input sample 8: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_7_f",
+      "label": "input sample 8: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_7_pol",
+      "label": "input sample 8: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_7_p",
+      "label": "input sample 8: p",
+      "value": 8.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_7_ph",
+      "label": "input sample 8: ph",
+      "value": -59.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_8_az",
+      "label": "input sample 9: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_8_el",
+      "label": "input sample 9: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_8_f",
+      "label": "input sample 9: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_8_pol",
+      "label": "input sample 9: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_8_p",
+      "label": "input sample 9: p",
+      "value": 9.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_8_ph",
+      "label": "input sample 9: ph",
+      "value": -46.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_9_az",
+      "label": "input sample 10: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_9_el",
+      "label": "input sample 10: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_9_f",
+      "label": "input sample 10: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_9_pol",
+      "label": "input sample 10: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_9_p",
+      "label": "input sample 10: p",
+      "value": 10.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_9_ph",
+      "label": "input sample 10: ph",
+      "value": -33.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_10_az",
+      "label": "input sample 11: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_10_el",
+      "label": "input sample 11: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_10_f",
+      "label": "input sample 11: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_10_pol",
+      "label": "input sample 11: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_10_p",
+      "label": "input sample 11: p",
+      "value": 11.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_10_ph",
+      "label": "input sample 11: ph",
+      "value": -20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_11_az",
+      "label": "input sample 12: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_11_el",
+      "label": "input sample 12: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_11_f",
+      "label": "input sample 12: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_11_pol",
+      "label": "input sample 12: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_11_p",
+      "label": "input sample 12: p",
+      "value": 12.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_11_ph",
+      "label": "input sample 12: ph",
+      "value": -7.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_12_az",
+      "label": "input sample 13: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_12_el",
+      "label": "input sample 13: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_12_f",
+      "label": "input sample 13: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_12_pol",
+      "label": "input sample 13: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_12_p",
+      "label": "input sample 13: p",
+      "value": 13.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_12_ph",
+      "label": "input sample 13: ph",
+      "value": 6.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_13_az",
+      "label": "input sample 14: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_13_el",
+      "label": "input sample 14: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_13_f",
+      "label": "input sample 14: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_13_pol",
+      "label": "input sample 14: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_13_p",
+      "label": "input sample 14: p",
+      "value": 14.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_13_ph",
+      "label": "input sample 14: ph",
+      "value": 19.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_14_az",
+      "label": "input sample 15: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_14_el",
+      "label": "input sample 15: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_14_f",
+      "label": "input sample 15: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_14_pol",
+      "label": "input sample 15: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_14_p",
+      "label": "input sample 15: p",
+      "value": 15.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_14_ph",
+      "label": "input sample 15: ph",
+      "value": 32.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_15_az",
+      "label": "input sample 16: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_15_el",
+      "label": "input sample 16: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_15_f",
+      "label": "input sample 16: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_15_pol",
+      "label": "input sample 16: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_15_p",
+      "label": "input sample 16: p",
+      "value": 16.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_15_ph",
+      "label": "input sample 16: ph",
+      "value": 45.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_16_az",
+      "label": "input sample 17: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_16_el",
+      "label": "input sample 17: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_16_f",
+      "label": "input sample 17: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_16_pol",
+      "label": "input sample 17: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_16_p",
+      "label": "input sample 17: p",
+      "value": 17.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_16_ph",
+      "label": "input sample 17: ph",
+      "value": 58.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_17_az",
+      "label": "input sample 18: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_17_el",
+      "label": "input sample 18: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_17_f",
+      "label": "input sample 18: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_17_pol",
+      "label": "input sample 18: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_17_p",
+      "label": "input sample 18: p",
+      "value": 18.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_17_ph",
+      "label": "input sample 18: ph",
+      "value": 71.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_18_az",
+      "label": "input sample 19: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_18_el",
+      "label": "input sample 19: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_18_f",
+      "label": "input sample 19: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_18_pol",
+      "label": "input sample 19: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_18_p",
+      "label": "input sample 19: p",
+      "value": 19.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_18_ph",
+      "label": "input sample 19: ph",
+      "value": 84.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_19_az",
+      "label": "input sample 20: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_19_el",
+      "label": "input sample 20: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_19_f",
+      "label": "input sample 20: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_19_pol",
+      "label": "input sample 20: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_19_p",
+      "label": "input sample 20: p",
+      "value": 20.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_19_ph",
+      "label": "input sample 20: ph",
+      "value": 97.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_20_az",
+      "label": "input sample 21: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_20_el",
+      "label": "input sample 21: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_20_f",
+      "label": "input sample 21: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_20_pol",
+      "label": "input sample 21: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_20_p",
+      "label": "input sample 21: p",
+      "value": 21.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_20_ph",
+      "label": "input sample 21: ph",
+      "value": 110.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_21_az",
+      "label": "input sample 22: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_21_el",
+      "label": "input sample 22: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_21_f",
+      "label": "input sample 22: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_21_pol",
+      "label": "input sample 22: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_21_p",
+      "label": "input sample 22: p",
+      "value": 22.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_21_ph",
+      "label": "input sample 22: ph",
+      "value": 123.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_22_az",
+      "label": "input sample 23: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_22_el",
+      "label": "input sample 23: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_22_f",
+      "label": "input sample 23: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_22_pol",
+      "label": "input sample 23: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_22_p",
+      "label": "input sample 23: p",
+      "value": 23.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_22_ph",
+      "label": "input sample 23: ph",
+      "value": 136.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_23_az",
+      "label": "input sample 24: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_23_el",
+      "label": "input sample 24: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_23_f",
+      "label": "input sample 24: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_23_pol",
+      "label": "input sample 24: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_23_p",
+      "label": "input sample 24: p",
+      "value": 24.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_23_ph",
+      "label": "input sample 24: ph",
+      "value": 149.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_24_az",
+      "label": "input sample 25: az",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_24_el",
+      "label": "input sample 25: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_24_f",
+      "label": "input sample 25: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_24_pol",
+      "label": "input sample 25: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_24_p",
+      "label": "input sample 25: p",
+      "value": 25.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_24_ph",
+      "label": "input sample 25: ph",
+      "value": 162.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_25_az",
+      "label": "input sample 26: az",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_25_el",
+      "label": "input sample 26: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_25_f",
+      "label": "input sample 26: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_25_pol",
+      "label": "input sample 26: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_25_p",
+      "label": "input sample 26: p",
+      "value": 26.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_25_ph",
+      "label": "input sample 26: ph",
+      "value": 175.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_26_az",
+      "label": "input sample 27: az",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_26_el",
+      "label": "input sample 27: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_26_f",
+      "label": "input sample 27: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_26_pol",
+      "label": "input sample 27: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_26_p",
+      "label": "input sample 27: p",
+      "value": 27.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_26_ph",
+      "label": "input sample 27: ph",
+      "value": 188.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_27_az",
+      "label": "input sample 28: az",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_27_el",
+      "label": "input sample 28: el",
+      "value": -5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_27_f",
+      "label": "input sample 28: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_27_pol",
+      "label": "input sample 28: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_27_p",
+      "label": "input sample 28: p",
+      "value": 28.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_27_ph",
+      "label": "input sample 28: ph",
+      "value": 201.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_28_az",
+      "label": "input sample 29: az",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_28_el",
+      "label": "input sample 29: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_28_f",
+      "label": "input sample 29: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_28_pol",
+      "label": "input sample 29: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_28_p",
+      "label": "input sample 29: p",
+      "value": 29.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_28_ph",
+      "label": "input sample 29: ph",
+      "value": 214.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_29_az",
+      "label": "input sample 30: az",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_29_el",
+      "label": "input sample 30: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_29_f",
+      "label": "input sample 30: f",
+      "value": 9.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_29_pol",
+      "label": "input sample 30: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_29_p",
+      "label": "input sample 30: p",
+      "value": 30.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_29_ph",
+      "label": "input sample 30: ph",
+      "value": 227.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_30_az",
+      "label": "input sample 31: az",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_30_el",
+      "label": "input sample 31: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_30_f",
+      "label": "input sample 31: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_30_pol",
+      "label": "input sample 31: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_30_p",
+      "label": "input sample 31: p",
+      "value": 31.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_30_ph",
+      "label": "input sample 31: ph",
+      "value": 240.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_31_az",
+      "label": "input sample 32: az",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_31_el",
+      "label": "input sample 32: el",
+      "value": 5.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_31_f",
+      "label": "input sample 32: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_31_pol",
+      "label": "input sample 32: pol",
+      "value": "HH",
+      "unit": ""
+    },
+    {
+      "id": "input_31_p",
+      "label": "input sample 32: p",
+      "value": 32.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_31_ph",
+      "label": "input sample 32: ph",
+      "value": 253.0,
+      "unit": "deg"
+    }
+  ],
+  "calculations": [],
+  "checks": [
+    {
+      "case": "result",
+      "metric": "Export row count",
+      "formula": "=2",
+      "actual": 2,
+      "unit": "rows",
+      "source": "result.csv",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 1",
+      "metric": "azimuth",
+      "formula": "=@input_15_az",
+      "actual": 10.0,
+      "unit": "deg",
+      "source": "result.csv row 2: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 1",
+      "metric": "elevation",
+      "formula": "=@input_15_el",
+      "actual": 5.0,
+      "unit": "deg",
+      "source": "result.csv row 2: elevation",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 1",
+      "metric": "frequency",
+      "formula": "=@input_15_f",
+      "actual": 10.0,
+      "unit": "GHz",
+      "source": "result.csv row 2: frequency",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 1",
+      "metric": "polarization",
+      "formula": "=@input_15_pol",
+      "actual": "HH",
+      "unit": "",
+      "source": "result.csv row 2: polarization",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 1",
+      "metric": "magnitude_power_linear",
+      "formula": "=@input_15_p",
+      "actual": 16.000000000000004,
+      "unit": "linear power",
+      "source": "result.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 1",
+      "metric": "phase",
+      "formula": "=IF(OR(@input_15_p=\"missing\",@input_15_ph=\"missing\"),\"missing\",MOD(@input_15_ph+180,360)-180)",
+      "actual": 45.0,
+      "unit": "deg",
+      "source": "result.csv row 2: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 2",
+      "metric": "azimuth",
+      "formula": "=@input_31_az",
+      "actual": 30.0,
+      "unit": "deg",
+      "source": "result.csv row 3: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 2",
+      "metric": "elevation",
+      "formula": "=@input_31_el",
+      "actual": 5.0,
+      "unit": "deg",
+      "source": "result.csv row 3: elevation",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 2",
+      "metric": "frequency",
+      "formula": "=@input_31_f",
+      "actual": 10.0,
+      "unit": "GHz",
+      "source": "result.csv row 3: frequency",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 2",
+      "metric": "polarization",
+      "formula": "=@input_31_pol",
+      "actual": "HH",
+      "unit": "",
+      "source": "result.csv row 3: polarization",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 2",
+      "metric": "magnitude_power_linear",
+      "formula": "=@input_31_p",
+      "actual": 32.00000000000001,
+      "unit": "linear power",
+      "source": "result.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "result sample 2",
+      "metric": "phase",
+      "formula": "=IF(OR(@input_31_p=\"missing\",@input_31_ph=\"missing\"),\"missing\",MOD(@input_31_ph+180,360)-180)",
+      "actual": -107.00000000000001,
+      "unit": "deg",
+      "source": "result.csv row 3: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Zero stride",
+      "metric": "Invalid input handling",
+      "formula": "=\"REJECTED\"",
+      "actual": "REJECTED",
+      "unit": "",
+      "source": "Recorded GRIM operation response",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input",
+      "native": "datasets/crop_slice/input.grim",
+      "csv": "datasets/crop_slice/input.csv",
+      "rows": 32
+    },
+    {
+      "name": "result",
+      "native": "datasets/crop_slice/result.grim",
+      "csv": "datasets/crop_slice/result.csv",
+      "rows": 2
+    }
+  ],
+  "notes": [
+    "Zero stride: azimuth_stride must be a positive integer"
+  ]
+}

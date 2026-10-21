@@ -1,0 +1,37 @@
+Delta dB
+--------
+
+WORKBOOK EXAMPLE
+Select input_a first and input_b second; use Delta dB. Zero denominator is missing.
+The worksheet shows 8 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Select input_a first and input_b second; use Delta dB. Zero denominator is missing.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/delta_db.json.
+Az 0: A / B power ratio: Excel I8; GRIM J8; percent error K8; original check 0; source result.csv row 2: magnitude_power_linear
+Az 1: A / B power ratio: Excel I9; GRIM J9; percent error K9; original check 2; source result.csv row 3: magnitude_power_linear
+Az 2: A / B power ratio: Excel I10; GRIM J10; percent error K10; original check 4; source result.csv row 4: magnitude_power_linear
+Az 3: A / B power ratio: Excel I11; GRIM J11; percent error K11; original check 6; source result.csv row 5: magnitude_power_linear
+Az 4: A / B power ratio: Excel I12; GRIM J12; percent error K12; original check 8; source result.csv row 6: magnitude_power_linear
+Az 5: A / B power ratio: Excel I13; GRIM J13; percent error K13; original check 10; source result.csv row 7: magnitude_power_linear
+Az 0: A minus B level (dB): Excel I14; GRIM J14; percent error K14; original check 1; source result.csv row 2: magnitude_db
+Az 3: A minus B level (dB): Excel I15; GRIM J15; percent error K15; original check 7; source result.csv row 5: magnitude_db
+
+FILES
+input_a: datasets/delta_db/input_a.grim; datasets/delta_db/input_a.csv
+input_b: datasets/delta_db/input_b.grim; datasets/delta_db/input_b.csv
+result: datasets/delta_db/result.grim; datasets/delta_db/result.csv
+
+SCOPE
+Numerical behavior for the supplied fixtures; not all possible inputs.
+The full specification retains 12 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+None.

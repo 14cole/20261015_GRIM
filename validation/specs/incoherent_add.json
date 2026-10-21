@@ -1,0 +1,216 @@
+{
+  "slug": "incoherent_add",
+  "title": "Incoherent +",
+  "description": "Linear power arithmetic; zero and missing samples remain distinct.",
+  "settings": "Select input_a first and input_b second. Result has no coherent phase.",
+  "scope": "Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "category": "Dataset operation",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "a0",
+      "label": "A power at azimuth 0",
+      "value": 1.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b0",
+      "label": "B power at azimuth 0",
+      "value": 0.25,
+      "unit": "m2"
+    },
+    {
+      "id": "a1",
+      "label": "A power at azimuth 1",
+      "value": 10.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b1",
+      "label": "B power at azimuth 1",
+      "value": 2.0,
+      "unit": "m2"
+    },
+    {
+      "id": "a2",
+      "label": "A power at azimuth 2",
+      "value": 100.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b2",
+      "label": "B power at azimuth 2",
+      "value": 100.0,
+      "unit": "m2"
+    },
+    {
+      "id": "a3",
+      "label": "A power at azimuth 3",
+      "value": 0.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b3",
+      "label": "B power at azimuth 3",
+      "value": 0.0,
+      "unit": "m2"
+    },
+    {
+      "id": "a4",
+      "label": "A power at azimuth 4",
+      "value": "missing",
+      "unit": "m2"
+    },
+    {
+      "id": "b4",
+      "label": "B power at azimuth 4",
+      "value": 3.0,
+      "unit": "m2"
+    },
+    {
+      "id": "a5",
+      "label": "A power at azimuth 5",
+      "value": 4.0,
+      "unit": "m2"
+    },
+    {
+      "id": "b5",
+      "label": "B power at azimuth 5",
+      "value": "missing",
+      "unit": "m2"
+    }
+  ],
+  "calculations": [],
+  "checks": [
+    {
+      "case": "Azimuth 0",
+      "metric": "Linear power",
+      "formula": "=IF(OR(@a0=\"missing\",@b0=\"missing\"),\"missing\",@a0+@b0)",
+      "actual": 1.25,
+      "unit": "m2",
+      "source": "result.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 0",
+      "metric": "Unknown output phase",
+      "formula": "=\"missing\"",
+      "actual": "missing",
+      "unit": "deg",
+      "source": "result.csv row 2: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 1",
+      "metric": "Linear power",
+      "formula": "=IF(OR(@a1=\"missing\",@b1=\"missing\"),\"missing\",@a1+@b1)",
+      "actual": 12.0,
+      "unit": "m2",
+      "source": "result.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 1",
+      "metric": "Unknown output phase",
+      "formula": "=\"missing\"",
+      "actual": "missing",
+      "unit": "deg",
+      "source": "result.csv row 3: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 2",
+      "metric": "Linear power",
+      "formula": "=IF(OR(@a2=\"missing\",@b2=\"missing\"),\"missing\",@a2+@b2)",
+      "actual": 200.0,
+      "unit": "m2",
+      "source": "result.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 2",
+      "metric": "Unknown output phase",
+      "formula": "=\"missing\"",
+      "actual": "missing",
+      "unit": "deg",
+      "source": "result.csv row 4: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 3",
+      "metric": "Linear power",
+      "formula": "=IF(OR(@a3=\"missing\",@b3=\"missing\"),\"missing\",@a3+@b3)",
+      "actual": 0.0,
+      "unit": "m2",
+      "source": "result.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 3",
+      "metric": "Unknown output phase",
+      "formula": "=\"missing\"",
+      "actual": "missing",
+      "unit": "deg",
+      "source": "result.csv row 5: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 4",
+      "metric": "Linear power",
+      "formula": "=IF(OR(@a4=\"missing\",@b4=\"missing\"),\"missing\",@a4+@b4)",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 4",
+      "metric": "Unknown output phase",
+      "formula": "=\"missing\"",
+      "actual": "missing",
+      "unit": "deg",
+      "source": "result.csv row 6: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 5",
+      "metric": "Linear power",
+      "formula": "=IF(OR(@a5=\"missing\",@b5=\"missing\"),\"missing\",@a5+@b5)",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Azimuth 5",
+      "metric": "Unknown output phase",
+      "formula": "=\"missing\"",
+      "actual": "missing",
+      "unit": "deg",
+      "source": "result.csv row 7: phase_deg",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input_a",
+      "native": "datasets/incoherent_add/input_a.grim",
+      "csv": "datasets/incoherent_add/input_a.csv",
+      "rows": 6
+    },
+    {
+      "name": "input_b",
+      "native": "datasets/incoherent_add/input_b.grim",
+      "csv": "datasets/incoherent_add/input_b.csv",
+      "rows": 6
+    },
+    {
+      "name": "result",
+      "native": "datasets/incoherent_add/result.grim",
+      "csv": "datasets/incoherent_add/result.csv",
+      "rows": 6
+    }
+  ],
+  "notes": []
+}

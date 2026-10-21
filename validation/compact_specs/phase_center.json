@@ -1,0 +1,83 @@
+{
+  "slug": "phase_center",
+  "title": "Phase Center",
+  "description": "Translate one angled sample using the two-way phase ramp.",
+  "settings": "x = 0.031 m, y = -0.017 m, z = 0.009 m; both declared time signs.",
+  "scope": "One sample for each time convention. The full input files contain additional angles and frequencies.",
+  "rawHeaders": [
+    "Input",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (Hz)",
+    "Pol",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "+ time",
+      {
+        "id": "positive_time_0_az",
+        "value": -75.0
+      },
+      {
+        "id": "positive_time_0_el",
+        "value": -20.0
+      },
+      {
+        "id": "positive_time_0_f",
+        "value": 8000000000.0
+      },
+      "VV",
+      {
+        "id": "positive_time_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "positive_time_0_phase",
+        "value": 10.0
+      }
+    ],
+    [
+      "- time",
+      {
+        "id": "negative_time_0_az",
+        "value": -75.0
+      },
+      {
+        "id": "negative_time_0_el",
+        "value": -20.0
+      },
+      {
+        "id": "negative_time_0_f",
+        "value": 8000000000.0
+      },
+      "VV",
+      {
+        "id": "negative_time_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "negative_time_0_phase",
+        "value": -10.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    0,
+    1,
+    2,
+    36,
+    37,
+    38
+  ],
+  "labelOverrides": {
+    "0": "+ time: Field I (m)",
+    "1": "+ time: Field Q (m)",
+    "2": "+ time: RCS (m2)",
+    "36": "- time: Field I (m)",
+    "37": "- time: Field Q (m)",
+    "38": "- time: RCS (m2)"
+  },
+  "formulaOverrides": {}
+}

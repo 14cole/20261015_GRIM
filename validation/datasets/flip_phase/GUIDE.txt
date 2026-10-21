@@ -1,0 +1,38 @@
+Flip Phase
+----------
+
+WORKBOOK EXAMPLE
+Apply Flip Phase once. Complex conjugation preserves I and negates Q.
+The worksheet shows 9 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Apply Flip Phase once for result, twice for result_twice.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/flip_phase.json.
+Az 0: Q after phase flip: Excel K8; GRIM L8; percent error M8; original check 2; source result.csv row 2: sqrt(power)*SIN(phase)
+Az 1: Q after phase flip: Excel K9; GRIM L9; percent error M9; original check 8; source result.csv row 3: sqrt(power)*SIN(phase)
+Az 2: Q after phase flip: Excel K10; GRIM L10; percent error M10; original check 14; source result.csv row 4: sqrt(power)*SIN(phase)
+Az 3: Q after phase flip: Excel K11; GRIM L11; percent error M11; original check 20; source result.csv row 5: sqrt(power)*SIN(phase)
+Az 4: Q after phase flip: Excel K12; GRIM L12; percent error M12; original check 26; source result.csv row 6: sqrt(power)*SIN(phase)
+Az 5: Q after phase flip: Excel K13; GRIM L13; percent error M13; original check 32; source result.csv row 7: sqrt(power)*SIN(phase)
+Az 0: preserved linear RCS: Excel K14; GRIM L14; percent error M14; original check 0; source result.csv row 2: magnitude_power_linear
+Az 3: zero linear RCS: Excel K15; GRIM L15; percent error M15; original check 18; source result.csv row 5: magnitude_power_linear
+Az 0: preserved I: Excel K16; GRIM L16; percent error M16; original check 1; source result.csv row 2: sqrt(power)*COS(phase)
+
+FILES
+input: datasets/flip_phase/input.grim; datasets/flip_phase/input.csv
+result: datasets/flip_phase/result.grim; datasets/flip_phase/result.csv
+result_twice: datasets/flip_phase/result_twice.grim; datasets/flip_phase/result_twice.csv
+
+SCOPE
+Numerical behavior for the supplied fixtures; not all possible inputs.
+The full specification retains 36 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+None.

@@ -1,0 +1,165 @@
+{
+  "slug": "round",
+  "title": "Round",
+  "description": "Coordinate rounding preserves the response and rejects coordinate collisions.",
+  "settings": "Round to one decimal, using ties-to-even. Exact halfway examples: -1.25 and +0.25 deg.",
+  "scope": "Worked examples from the supplied input and output files. Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Polarization",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "input",
+      {
+        "id": "input_0_az",
+        "value": -1.25
+      },
+      {
+        "id": "input_0_el",
+        "value": -2.36
+      },
+      {
+        "id": "input_0_f",
+        "value": 9.14
+      },
+      {
+        "id": "input_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "input_0_ph",
+        "value": -150.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_1_az",
+        "value": -1.25
+      },
+      {
+        "id": "input_1_el",
+        "value": -2.36
+      },
+      {
+        "id": "input_1_f",
+        "value": 10.26
+      },
+      {
+        "id": "input_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_1_p",
+        "value": 2.0
+      },
+      {
+        "id": "input_1_ph",
+        "value": -137.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_2_az",
+        "value": -1.25
+      },
+      {
+        "id": "input_2_el",
+        "value": 3.24
+      },
+      {
+        "id": "input_2_f",
+        "value": 9.14
+      },
+      {
+        "id": "input_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_2_p",
+        "value": 3.0
+      },
+      {
+        "id": "input_2_ph",
+        "value": -124.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_4_az",
+        "value": 0.25
+      },
+      {
+        "id": "input_4_el",
+        "value": -2.36
+      },
+      {
+        "id": "input_4_f",
+        "value": 9.14
+      },
+      {
+        "id": "input_4_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_4_p",
+        "value": 5.0
+      },
+      {
+        "id": "input_4_ph",
+        "value": -98.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_8_az",
+        "value": 2.34
+      },
+      {
+        "id": "input_8_el",
+        "value": -2.36
+      },
+      {
+        "id": "input_8_f",
+        "value": 9.14
+      },
+      {
+        "id": "input_8_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_8_p",
+        "value": 9.0
+      },
+      {
+        "id": "input_8_ph",
+        "value": -46.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    1,
+    2,
+    3,
+    5,
+    9,
+    14,
+    25,
+    49
+  ],
+  "labelOverrides": {},
+  "formulaOverrides": {}
+}

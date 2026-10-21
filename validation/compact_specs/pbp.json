@@ -1,0 +1,243 @@
+{
+  "slug": "pbp",
+  "title": "PBP",
+  "description": "Separate per-dataset min/max envelopes of individual azimuth cuts.",
+  "settings": "Two datasets; each band is the minimum and maximum of its three azimuth cuts.",
+  "scope": "Magnitude envelopes and valid-cut counts. Circular phase arcs and GUI rendering are separate cases.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Pol",
+    "RCS (m\u00b2)"
+  ],
+  "rawRows": [
+    [
+      "input_1",
+      -30,
+      0,
+      8,
+      "VV",
+      {
+        "id": "p0_0_0",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_1",
+      -30,
+      0,
+      9,
+      "VV",
+      {
+        "id": "p0_0_1",
+        "value": 2.0
+      }
+    ],
+    [
+      "input_1",
+      -30,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p0_0_2",
+        "value": 8.0
+      }
+    ],
+    [
+      "input_1",
+      0,
+      0,
+      8,
+      "VV",
+      {
+        "id": "p0_1_0",
+        "value": 3.0
+      }
+    ],
+    [
+      "input_1",
+      0,
+      0,
+      9,
+      "VV",
+      {
+        "id": "p0_1_1",
+        "value": 4.0
+      }
+    ],
+    [
+      "input_1",
+      0,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p0_1_2",
+        "value": 16.0
+      }
+    ],
+    [
+      "input_1",
+      30,
+      0,
+      8,
+      "VV",
+      {
+        "id": "p0_2_0",
+        "value": 1.0
+      }
+    ],
+    [
+      "input_1",
+      30,
+      0,
+      9,
+      "VV",
+      {
+        "id": "p0_2_1",
+        "value": "missing"
+      }
+    ],
+    [
+      "input_1",
+      30,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p0_2_2",
+        "value": 4.0
+      }
+    ],
+    [
+      "input_2",
+      -30,
+      0,
+      8,
+      "VV",
+      {
+        "id": "p1_0_0",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_2",
+      -30,
+      0,
+      9,
+      "VV",
+      {
+        "id": "p1_0_1",
+        "value": 20.0
+      }
+    ],
+    [
+      "input_2",
+      -30,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p1_0_2",
+        "value": 80.0
+      }
+    ],
+    [
+      "input_2",
+      0,
+      0,
+      8,
+      "VV",
+      {
+        "id": "p1_1_0",
+        "value": 30.0
+      }
+    ],
+    [
+      "input_2",
+      0,
+      0,
+      9,
+      "VV",
+      {
+        "id": "p1_1_1",
+        "value": 40.0
+      }
+    ],
+    [
+      "input_2",
+      0,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p1_1_2",
+        "value": 160.0
+      }
+    ],
+    [
+      "input_2",
+      30,
+      0,
+      8,
+      "VV",
+      {
+        "id": "p1_2_0",
+        "value": 10.0
+      }
+    ],
+    [
+      "input_2",
+      30,
+      0,
+      9,
+      "VV",
+      {
+        "id": "p1_2_1",
+        "value": "missing"
+      }
+    ],
+    [
+      "input_2",
+      30,
+      0,
+      10,
+      "VV",
+      {
+        "id": "p1_2_2",
+        "value": 40.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    2,
+    3,
+    5,
+    6,
+    8,
+    9,
+    11,
+    12,
+    14,
+    15,
+    17,
+    18
+  ],
+  "labelOverrides": {
+    "2": "Dataset 1, 8 GHz lower (m\u00b2)",
+    "3": "Dataset 1, 8 GHz upper (m\u00b2)",
+    "5": "Dataset 1, 9 GHz lower (m\u00b2)",
+    "6": "Dataset 1, 9 GHz upper (m\u00b2)",
+    "8": "Dataset 1, 10 GHz lower (m\u00b2)",
+    "9": "Dataset 1, 10 GHz upper (m\u00b2)",
+    "11": "Dataset 2, 8 GHz lower (m\u00b2)",
+    "12": "Dataset 2, 8 GHz upper (m\u00b2)",
+    "14": "Dataset 2, 9 GHz lower (m\u00b2)",
+    "15": "Dataset 2, 9 GHz upper (m\u00b2)",
+    "17": "Dataset 2, 10 GHz lower (m\u00b2)",
+    "18": "Dataset 2, 10 GHz upper (m\u00b2)"
+  }
+}

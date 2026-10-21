@@ -1,0 +1,972 @@
+{
+  "slug": "join_merge",
+  "title": "Join Merge",
+  "description": "Union existing samples and resolve overlaps by the selected policy.",
+  "settings": "Join default rejects conflicts. Merge tests priority-first/last, power-mean, coherent-mean.",
+  "scope": "Checks a one-axis union and all overlap policies with missing and zero samples; higher-dimensional union resource limits are separate.",
+  "category": "Dataset operation",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "input_a_0_az",
+      "label": "input_a sample 1: az",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_a_0_el",
+      "label": "input_a sample 1: el",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_a_0_f",
+      "label": "input_a sample 1: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_a_0_pol",
+      "label": "input_a sample 1: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_a_0_p",
+      "label": "input_a sample 1: p",
+      "value": 1.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_a_0_ph",
+      "label": "input_a sample 1: ph",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_a_1_az",
+      "label": "input_a sample 2: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_a_1_el",
+      "label": "input_a sample 2: el",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_a_1_f",
+      "label": "input_a sample 2: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_a_1_pol",
+      "label": "input_a sample 2: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_a_1_p",
+      "label": "input_a sample 2: p",
+      "value": 4.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_a_1_ph",
+      "label": "input_a sample 2: ph",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_a_2_az",
+      "label": "input_a sample 3: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_a_2_el",
+      "label": "input_a sample 3: el",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_a_2_f",
+      "label": "input_a sample 3: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_a_2_pol",
+      "label": "input_a sample 3: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_a_2_p",
+      "label": "input_a sample 3: p",
+      "value": 0.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_a_2_ph",
+      "label": "input_a sample 3: ph",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_b_0_az",
+      "label": "input_b sample 1: az",
+      "value": 10.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_b_0_el",
+      "label": "input_b sample 1: el",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_b_0_f",
+      "label": "input_b sample 1: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_b_0_pol",
+      "label": "input_b sample 1: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_b_0_p",
+      "label": "input_b sample 1: p",
+      "value": 16.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_b_0_ph",
+      "label": "input_b sample 1: ph",
+      "value": 180.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_b_1_az",
+      "label": "input_b sample 2: az",
+      "value": 20.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_b_1_el",
+      "label": "input_b sample 2: el",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_b_1_f",
+      "label": "input_b sample 2: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_b_1_pol",
+      "label": "input_b sample 2: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_b_1_p",
+      "label": "input_b sample 2: p",
+      "value": "missing",
+      "unit": "linear power"
+    },
+    {
+      "id": "input_b_1_ph",
+      "label": "input_b sample 2: ph",
+      "value": "missing",
+      "unit": "deg"
+    },
+    {
+      "id": "input_b_2_az",
+      "label": "input_b sample 3: az",
+      "value": 30.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_b_2_el",
+      "label": "input_b sample 3: el",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_b_2_f",
+      "label": "input_b sample 3: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_b_2_pol",
+      "label": "input_b sample 3: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_b_2_p",
+      "label": "input_b sample 3: p",
+      "value": 9.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_b_2_ph",
+      "label": "input_b sample 3: ph",
+      "value": 90.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_c_no_overlap_0_az",
+      "label": "input_c_no_overlap sample 1: az",
+      "value": 40.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_c_no_overlap_0_el",
+      "label": "input_c_no_overlap sample 1: el",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_c_no_overlap_0_f",
+      "label": "input_c_no_overlap sample 1: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_c_no_overlap_0_pol",
+      "label": "input_c_no_overlap sample 1: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_c_no_overlap_0_p",
+      "label": "input_c_no_overlap sample 1: p",
+      "value": 7.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_c_no_overlap_0_ph",
+      "label": "input_c_no_overlap sample 1: ph",
+      "value": -150.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_c_no_overlap_1_az",
+      "label": "input_c_no_overlap sample 2: az",
+      "value": 50.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_c_no_overlap_1_el",
+      "label": "input_c_no_overlap sample 2: el",
+      "value": 0.0,
+      "unit": "deg"
+    },
+    {
+      "id": "input_c_no_overlap_1_f",
+      "label": "input_c_no_overlap sample 2: f",
+      "value": 10.0,
+      "unit": "GHz"
+    },
+    {
+      "id": "input_c_no_overlap_1_pol",
+      "label": "input_c_no_overlap sample 2: pol",
+      "value": "VV",
+      "unit": ""
+    },
+    {
+      "id": "input_c_no_overlap_1_p",
+      "label": "input_c_no_overlap sample 2: p",
+      "value": 8.0,
+      "unit": "linear power"
+    },
+    {
+      "id": "input_c_no_overlap_1_ph",
+      "label": "input_c_no_overlap sample 2: ph",
+      "value": -137.0,
+      "unit": "deg"
+    }
+  ],
+  "calculations": [
+    {
+      "id": "merge_i",
+      "label": "Overlap mean I",
+      "formula": "=(SQRT(@input_a_1_p)*COS(RADIANS(@input_a_1_ph))+SQRT(@input_b_0_p)*COS(RADIANS(@input_b_0_ph)))/2",
+      "unit": ""
+    },
+    {
+      "id": "merge_q",
+      "label": "Overlap mean Q",
+      "formula": "=(SQRT(@input_a_1_p)*SIN(RADIANS(@input_a_1_ph))+SQRT(@input_b_0_p)*SIN(RADIANS(@input_b_0_ph)))/2",
+      "unit": ""
+    }
+  ],
+  "checks": [
+    {
+      "case": "Conflicting join overlap",
+      "metric": "Invalid input handling",
+      "formula": "=\"REJECTED\"",
+      "actual": "REJECTED",
+      "unit": "",
+      "source": "Recorded GRIM operation response",
+      "tolerance": null
+    },
+    {
+      "case": "priority-first sample 1",
+      "metric": "Azimuth",
+      "formula": "=@input_a_0_az",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_priority_first.csv row 2: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "priority-first sample 1",
+      "metric": "Power",
+      "formula": "=@input_a_0_p",
+      "actual": 1.0,
+      "unit": "linear power",
+      "source": "result_priority_first.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "priority-first sample 2",
+      "metric": "Azimuth",
+      "formula": "=@input_a_1_az",
+      "actual": 10.0,
+      "unit": "deg",
+      "source": "result_priority_first.csv row 3: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "priority-first sample 2",
+      "metric": "Power",
+      "formula": "=@input_a_1_p",
+      "actual": 4.0,
+      "unit": "linear power",
+      "source": "result_priority_first.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "priority-first overlap",
+      "metric": "Phase",
+      "formula": "=MOD(@input_a_1_ph+180,360)-180",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_priority_first.csv row 3: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "priority-first sample 3",
+      "metric": "Azimuth",
+      "formula": "=@input_a_2_az",
+      "actual": 20.0,
+      "unit": "deg",
+      "source": "result_priority_first.csv row 4: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "priority-first sample 3",
+      "metric": "Power",
+      "formula": "=@input_a_2_p",
+      "actual": 0.0,
+      "unit": "linear power",
+      "source": "result_priority_first.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "priority-first sample 4",
+      "metric": "Azimuth",
+      "formula": "=@input_b_2_az",
+      "actual": 30.0,
+      "unit": "deg",
+      "source": "result_priority_first.csv row 5: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "priority-first sample 4",
+      "metric": "Power",
+      "formula": "=@input_b_2_p",
+      "actual": 9.0,
+      "unit": "linear power",
+      "source": "result_priority_first.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "priority-last sample 1",
+      "metric": "Azimuth",
+      "formula": "=@input_a_0_az",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_priority_last.csv row 2: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "priority-last sample 1",
+      "metric": "Power",
+      "formula": "=@input_a_0_p",
+      "actual": 1.0,
+      "unit": "linear power",
+      "source": "result_priority_last.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "priority-last sample 2",
+      "metric": "Azimuth",
+      "formula": "=@input_a_1_az",
+      "actual": 10.0,
+      "unit": "deg",
+      "source": "result_priority_last.csv row 3: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "priority-last sample 2",
+      "metric": "Power",
+      "formula": "=@input_b_0_p",
+      "actual": 16.0,
+      "unit": "linear power",
+      "source": "result_priority_last.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "priority-last overlap",
+      "metric": "Phase",
+      "formula": "=MOD(@input_b_0_ph+180,360)-180",
+      "actual": -180.0,
+      "unit": "deg",
+      "source": "result_priority_last.csv row 3: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "priority-last sample 3",
+      "metric": "Azimuth",
+      "formula": "=@input_a_2_az",
+      "actual": 20.0,
+      "unit": "deg",
+      "source": "result_priority_last.csv row 4: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "priority-last sample 3",
+      "metric": "Power",
+      "formula": "=@input_a_2_p",
+      "actual": 0.0,
+      "unit": "linear power",
+      "source": "result_priority_last.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "priority-last sample 4",
+      "metric": "Azimuth",
+      "formula": "=@input_b_2_az",
+      "actual": 30.0,
+      "unit": "deg",
+      "source": "result_priority_last.csv row 5: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "priority-last sample 4",
+      "metric": "Power",
+      "formula": "=@input_b_2_p",
+      "actual": 9.0,
+      "unit": "linear power",
+      "source": "result_priority_last.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "power-mean sample 1",
+      "metric": "Azimuth",
+      "formula": "=@input_a_0_az",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_power_mean.csv row 2: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "power-mean sample 1",
+      "metric": "Power",
+      "formula": "=@input_a_0_p",
+      "actual": 1.0,
+      "unit": "linear power",
+      "source": "result_power_mean.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "power-mean sample 2",
+      "metric": "Azimuth",
+      "formula": "=@input_a_1_az",
+      "actual": 10.0,
+      "unit": "deg",
+      "source": "result_power_mean.csv row 3: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "power-mean sample 2",
+      "metric": "Power",
+      "formula": "=AVERAGE(@input_a_1_p,@input_b_0_p)",
+      "actual": 10.0,
+      "unit": "linear power",
+      "source": "result_power_mean.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "power-mean overlap",
+      "metric": "Phase",
+      "formula": "=\"missing\"",
+      "actual": "missing",
+      "unit": "deg",
+      "source": "result_power_mean.csv row 3: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "power-mean sample 3",
+      "metric": "Azimuth",
+      "formula": "=@input_a_2_az",
+      "actual": 20.0,
+      "unit": "deg",
+      "source": "result_power_mean.csv row 4: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "power-mean sample 3",
+      "metric": "Power",
+      "formula": "=@input_a_2_p",
+      "actual": 0.0,
+      "unit": "linear power",
+      "source": "result_power_mean.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "power-mean sample 4",
+      "metric": "Azimuth",
+      "formula": "=@input_b_2_az",
+      "actual": 30.0,
+      "unit": "deg",
+      "source": "result_power_mean.csv row 5: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "power-mean sample 4",
+      "metric": "Power",
+      "formula": "=@input_b_2_p",
+      "actual": 9.0,
+      "unit": "linear power",
+      "source": "result_power_mean.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "coherent-mean sample 1",
+      "metric": "Azimuth",
+      "formula": "=@input_a_0_az",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_coherent_mean.csv row 2: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "coherent-mean sample 1",
+      "metric": "Power",
+      "formula": "=@input_a_0_p",
+      "actual": 1.0,
+      "unit": "linear power",
+      "source": "result_coherent_mean.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "coherent-mean sample 2",
+      "metric": "Azimuth",
+      "formula": "=@input_a_1_az",
+      "actual": 10.0,
+      "unit": "deg",
+      "source": "result_coherent_mean.csv row 3: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "coherent-mean sample 2",
+      "metric": "Power",
+      "formula": "=@merge_i^2+@merge_q^2",
+      "actual": 1.0,
+      "unit": "linear power",
+      "source": "result_coherent_mean.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "coherent-mean overlap",
+      "metric": "Phase",
+      "formula": "=IF(AND(@merge_i=0,@merge_q=0),\"missing\",IF(@merge_i=0,IF(@merge_q>0,90,-90),MOD(DEGREES(ATAN(@merge_q/@merge_i))+IF(@merge_i<0,180,0)+180,360)-180))",
+      "actual": -180.0,
+      "unit": "deg",
+      "source": "result_coherent_mean.csv row 3: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "coherent-mean sample 3",
+      "metric": "Azimuth",
+      "formula": "=@input_a_2_az",
+      "actual": 20.0,
+      "unit": "deg",
+      "source": "result_coherent_mean.csv row 4: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "coherent-mean sample 3",
+      "metric": "Power",
+      "formula": "=@input_a_2_p",
+      "actual": 0.0,
+      "unit": "linear power",
+      "source": "result_coherent_mean.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "coherent-mean sample 4",
+      "metric": "Azimuth",
+      "formula": "=@input_b_2_az",
+      "actual": 30.0,
+      "unit": "deg",
+      "source": "result_coherent_mean.csv row 5: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "coherent-mean sample 4",
+      "metric": "Power",
+      "formula": "=@input_b_2_p",
+      "actual": 9.0,
+      "unit": "linear power",
+      "source": "result_coherent_mean.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "result_union",
+      "metric": "Export row count",
+      "formula": "=5",
+      "actual": 5,
+      "unit": "rows",
+      "source": "result_union.csv",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 1",
+      "metric": "azimuth",
+      "formula": "=@input_a_0_az",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_union.csv row 2: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 1",
+      "metric": "elevation",
+      "formula": "=@input_a_0_el",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_union.csv row 2: elevation",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 1",
+      "metric": "frequency",
+      "formula": "=@input_a_0_f",
+      "actual": 10.0,
+      "unit": "GHz",
+      "source": "result_union.csv row 2: frequency",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 1",
+      "metric": "polarization",
+      "formula": "=@input_a_0_pol",
+      "actual": "VV",
+      "unit": "",
+      "source": "result_union.csv row 2: polarization",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 1",
+      "metric": "magnitude_power_linear",
+      "formula": "=@input_a_0_p",
+      "actual": 1.0,
+      "unit": "linear power",
+      "source": "result_union.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 1",
+      "metric": "phase",
+      "formula": "=IF(OR(@input_a_0_p=\"missing\",@input_a_0_ph=\"missing\"),\"missing\",MOD(@input_a_0_ph+180,360)-180)",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_union.csv row 2: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 2",
+      "metric": "azimuth",
+      "formula": "=@input_a_1_az",
+      "actual": 10.0,
+      "unit": "deg",
+      "source": "result_union.csv row 3: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 2",
+      "metric": "elevation",
+      "formula": "=@input_a_1_el",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_union.csv row 3: elevation",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 2",
+      "metric": "frequency",
+      "formula": "=@input_a_1_f",
+      "actual": 10.0,
+      "unit": "GHz",
+      "source": "result_union.csv row 3: frequency",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 2",
+      "metric": "polarization",
+      "formula": "=@input_a_1_pol",
+      "actual": "VV",
+      "unit": "",
+      "source": "result_union.csv row 3: polarization",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 2",
+      "metric": "magnitude_power_linear",
+      "formula": "=@input_a_1_p",
+      "actual": 4.0,
+      "unit": "linear power",
+      "source": "result_union.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 2",
+      "metric": "phase",
+      "formula": "=IF(OR(@input_a_1_p=\"missing\",@input_a_1_ph=\"missing\"),\"missing\",MOD(@input_a_1_ph+180,360)-180)",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_union.csv row 3: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 3",
+      "metric": "azimuth",
+      "formula": "=@input_a_2_az",
+      "actual": 20.0,
+      "unit": "deg",
+      "source": "result_union.csv row 4: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 3",
+      "metric": "elevation",
+      "formula": "=@input_a_2_el",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_union.csv row 4: elevation",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 3",
+      "metric": "frequency",
+      "formula": "=@input_a_2_f",
+      "actual": 10.0,
+      "unit": "GHz",
+      "source": "result_union.csv row 4: frequency",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 3",
+      "metric": "polarization",
+      "formula": "=@input_a_2_pol",
+      "actual": "VV",
+      "unit": "",
+      "source": "result_union.csv row 4: polarization",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 3",
+      "metric": "magnitude_power_linear",
+      "formula": "=@input_a_2_p",
+      "actual": 0.0,
+      "unit": "linear power",
+      "source": "result_union.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 4",
+      "metric": "azimuth",
+      "formula": "=@input_c_no_overlap_0_az",
+      "actual": 40.0,
+      "unit": "deg",
+      "source": "result_union.csv row 5: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 4",
+      "metric": "elevation",
+      "formula": "=@input_c_no_overlap_0_el",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_union.csv row 5: elevation",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 4",
+      "metric": "frequency",
+      "formula": "=@input_c_no_overlap_0_f",
+      "actual": 10.0,
+      "unit": "GHz",
+      "source": "result_union.csv row 5: frequency",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 4",
+      "metric": "polarization",
+      "formula": "=@input_c_no_overlap_0_pol",
+      "actual": "VV",
+      "unit": "",
+      "source": "result_union.csv row 5: polarization",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 4",
+      "metric": "magnitude_power_linear",
+      "formula": "=@input_c_no_overlap_0_p",
+      "actual": 7.000000000000002,
+      "unit": "linear power",
+      "source": "result_union.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 4",
+      "metric": "phase",
+      "formula": "=IF(OR(@input_c_no_overlap_0_p=\"missing\",@input_c_no_overlap_0_ph=\"missing\"),\"missing\",MOD(@input_c_no_overlap_0_ph+180,360)-180)",
+      "actual": -150.0,
+      "unit": "deg",
+      "source": "result_union.csv row 5: phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 5",
+      "metric": "azimuth",
+      "formula": "=@input_c_no_overlap_1_az",
+      "actual": 50.0,
+      "unit": "deg",
+      "source": "result_union.csv row 6: azimuth",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 5",
+      "metric": "elevation",
+      "formula": "=@input_c_no_overlap_1_el",
+      "actual": 0.0,
+      "unit": "deg",
+      "source": "result_union.csv row 6: elevation",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 5",
+      "metric": "frequency",
+      "formula": "=@input_c_no_overlap_1_f",
+      "actual": 10.0,
+      "unit": "GHz",
+      "source": "result_union.csv row 6: frequency",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 5",
+      "metric": "polarization",
+      "formula": "=@input_c_no_overlap_1_pol",
+      "actual": "VV",
+      "unit": "",
+      "source": "result_union.csv row 6: polarization",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 5",
+      "metric": "magnitude_power_linear",
+      "formula": "=@input_c_no_overlap_1_p",
+      "actual": 8.0,
+      "unit": "linear power",
+      "source": "result_union.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "result_union sample 5",
+      "metric": "phase",
+      "formula": "=IF(OR(@input_c_no_overlap_1_p=\"missing\",@input_c_no_overlap_1_ph=\"missing\"),\"missing\",MOD(@input_c_no_overlap_1_ph+180,360)-180)",
+      "actual": -137.0,
+      "unit": "deg",
+      "source": "result_union.csv row 6: phase_deg",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input_a",
+      "native": "datasets/join_merge/input_a.grim",
+      "csv": "datasets/join_merge/input_a.csv",
+      "rows": 3
+    },
+    {
+      "name": "input_b",
+      "native": "datasets/join_merge/input_b.grim",
+      "csv": "datasets/join_merge/input_b.csv",
+      "rows": 3
+    },
+    {
+      "name": "result_priority_first",
+      "native": "datasets/join_merge/result_priority_first.grim",
+      "csv": "datasets/join_merge/result_priority_first.csv",
+      "rows": 4
+    },
+    {
+      "name": "result_priority_last",
+      "native": "datasets/join_merge/result_priority_last.grim",
+      "csv": "datasets/join_merge/result_priority_last.csv",
+      "rows": 4
+    },
+    {
+      "name": "result_power_mean",
+      "native": "datasets/join_merge/result_power_mean.grim",
+      "csv": "datasets/join_merge/result_power_mean.csv",
+      "rows": 4
+    },
+    {
+      "name": "result_coherent_mean",
+      "native": "datasets/join_merge/result_coherent_mean.grim",
+      "csv": "datasets/join_merge/result_coherent_mean.csv",
+      "rows": 4
+    },
+    {
+      "name": "input_c_no_overlap",
+      "native": "datasets/join_merge/input_c_no_overlap.grim",
+      "csv": "datasets/join_merge/input_c_no_overlap.csv",
+      "rows": 2
+    },
+    {
+      "name": "result_union",
+      "native": "datasets/join_merge/result_union.grim",
+      "csv": "datasets/join_merge/result_union.csv",
+      "rows": 5
+    }
+  ],
+  "notes": [
+    "Conflicting join overlap: conflicting finite samples overlap during join"
+  ]
+}

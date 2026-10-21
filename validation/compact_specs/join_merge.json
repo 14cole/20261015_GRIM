@@ -1,0 +1,255 @@
+{
+  "slug": "join_merge",
+  "title": "Join Merge",
+  "description": "Union existing samples and resolve overlaps by the selected policy.",
+  "settings": "Merge A+B: compare the four policies at 10 deg. Join A+C: retain the new 40 and 50 deg samples.",
+  "scope": "Worked examples from the supplied input and output files. Checks a one-axis union and all overlap policies with missing and zero samples; higher-dimensional union resource limits are separate.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Polarization",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "input_a",
+      {
+        "id": "input_a_0_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_0_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_a_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "input_a_0_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_a",
+      {
+        "id": "input_a_1_az",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_1_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_a_1_p",
+        "value": 4.0
+      },
+      {
+        "id": "input_a_1_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_a",
+      {
+        "id": "input_a_2_az",
+        "value": 20.0
+      },
+      {
+        "id": "input_a_2_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_2_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_a_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_a_2_p",
+        "value": 0.0
+      },
+      {
+        "id": "input_a_2_ph",
+        "value": 0.0
+      }
+    ],
+    [
+      "input_b",
+      {
+        "id": "input_b_0_az",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_0_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_b_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_b_0_p",
+        "value": 16.0
+      },
+      {
+        "id": "input_b_0_ph",
+        "value": 180.0
+      }
+    ],
+    [
+      "input_b",
+      {
+        "id": "input_b_1_az",
+        "value": 20.0
+      },
+      {
+        "id": "input_b_1_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_b_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_b_1_p",
+        "value": "missing"
+      },
+      {
+        "id": "input_b_1_ph",
+        "value": "missing"
+      }
+    ],
+    [
+      "input_b",
+      {
+        "id": "input_b_2_az",
+        "value": 30.0
+      },
+      {
+        "id": "input_b_2_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_b_2_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_b_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_b_2_p",
+        "value": 9.0
+      },
+      {
+        "id": "input_b_2_ph",
+        "value": 90.0
+      }
+    ],
+    [
+      "input_c_no_overlap",
+      {
+        "id": "input_c_no_overlap_0_az",
+        "value": 40.0
+      },
+      {
+        "id": "input_c_no_overlap_0_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_c_no_overlap_0_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_c_no_overlap_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_c_no_overlap_0_p",
+        "value": 7.0
+      },
+      {
+        "id": "input_c_no_overlap_0_ph",
+        "value": -150.0
+      }
+    ],
+    [
+      "input_c_no_overlap",
+      {
+        "id": "input_c_no_overlap_1_az",
+        "value": 50.0
+      },
+      {
+        "id": "input_c_no_overlap_1_el",
+        "value": 0.0
+      },
+      {
+        "id": "input_c_no_overlap_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_c_no_overlap_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_c_no_overlap_1_p",
+        "value": 8.0
+      },
+      {
+        "id": "input_c_no_overlap_1_ph",
+        "value": -137.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    4,
+    13,
+    22,
+    31,
+    55,
+    59,
+    61,
+    65
+  ],
+  "labelOverrides": {
+    "4": "10 deg: first input RCS",
+    "13": "10 deg: last input RCS",
+    "22": "10 deg: mean power",
+    "31": "10 deg: power of mean field",
+    "55": "Joined azimuth 40 deg",
+    "59": "Joined RCS at 40 deg",
+    "61": "Joined azimuth 50 deg",
+    "65": "Joined RCS at 50 deg"
+  },
+  "formulaOverrides": {}
+}

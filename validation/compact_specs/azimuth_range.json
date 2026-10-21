@@ -1,0 +1,303 @@
+{
+  "slug": "azimuth_range",
+  "title": "Az vs D.R.",
+  "description": "Two single-point range profiles use the analytic rectangular-window response.",
+  "settings": "Azimuths 0 and 30 deg; eight frequencies, 1-8 GHz; 32 range bins; no peak normalization.",
+  "scope": "Peak and adjacent-bin examples for two synthetic profiles. The plot uses float32 FFT work; the full profiles remain in the folder.",
+  "rawHeaders": [
+    "Input",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (Hz)",
+    "Pol",
+    "RCS (m2)",
+    "Phase (deg)",
+    "Target range (m)"
+  ],
+  "rawRows": [
+    [
+      "Profile 1",
+      {
+        "id": "az0",
+        "value": 0
+      },
+      0,
+      {
+        "id": "compact_f0",
+        "value": 1000000000.0
+      },
+      "VV",
+      {
+        "id": "compact_power0",
+        "value": 4.0
+      },
+      0.0,
+      {
+        "id": "r0",
+        "value": 0.0
+      }
+    ],
+    [
+      "Profile 1",
+      0,
+      0,
+      {
+        "id": "compact_f1",
+        "value": 2000000000.0
+      },
+      "VV",
+      4.0,
+      0.0,
+      0.0
+    ],
+    [
+      "Profile 1",
+      0,
+      0,
+      3000000000.0,
+      "VV",
+      4.0,
+      0.0,
+      0.0
+    ],
+    [
+      "Profile 1",
+      0,
+      0,
+      4000000000.0,
+      "VV",
+      4.0,
+      0.0,
+      0.0
+    ],
+    [
+      "Profile 1",
+      0,
+      0,
+      5000000000.0,
+      "VV",
+      4.0,
+      0.0,
+      0.0
+    ],
+    [
+      "Profile 1",
+      0,
+      0,
+      6000000000.0,
+      "VV",
+      4.0,
+      0.0,
+      0.0
+    ],
+    [
+      "Profile 1",
+      0,
+      0,
+      7000000000.0,
+      "VV",
+      4.0,
+      0.0,
+      0.0
+    ],
+    [
+      "Profile 1",
+      0,
+      0,
+      8000000000.0,
+      "VV",
+      4.0,
+      0.0,
+      0.0
+    ],
+    [
+      "Profile 2",
+      {
+        "id": "az1",
+        "value": 30
+      },
+      0,
+      1000000000.0,
+      "VV",
+      {
+        "id": "compact_power1",
+        "value": 1.0
+      },
+      -56.25,
+      {
+        "id": "r1",
+        "value": 0.02342128578125
+      }
+    ],
+    [
+      "Profile 2",
+      30,
+      0,
+      2000000000.0,
+      "VV",
+      1.0,
+      -112.5,
+      0.02342128578125
+    ],
+    [
+      "Profile 2",
+      30,
+      0,
+      3000000000.0,
+      "VV",
+      1.0,
+      -168.74999999999997,
+      0.02342128578125
+    ],
+    [
+      "Profile 2",
+      30,
+      0,
+      4000000000.0,
+      "VV",
+      1.0,
+      135.0,
+      0.02342128578125
+    ],
+    [
+      "Profile 2",
+      30,
+      0,
+      5000000000.0,
+      "VV",
+      1.0,
+      78.75000000000006,
+      0.02342128578125
+    ],
+    [
+      "Profile 2",
+      30,
+      0,
+      6000000000.0,
+      "VV",
+      1.0,
+      22.500000000000085,
+      0.02342128578125
+    ],
+    [
+      "Profile 2",
+      30,
+      0,
+      7000000000.0,
+      "VV",
+      1.0,
+      -33.74999999999997,
+      0.02342128578125
+    ],
+    [
+      "Profile 2",
+      30,
+      0,
+      8000000000.0,
+      "VV",
+      1.0,
+      -89.99999999999999,
+      0.02342128578125
+    ]
+  ],
+  "selectedCheckIndices": [
+    30,
+    31,
+    32,
+    33,
+    84,
+    85
+  ],
+  "labelOverrides": {
+    "30": "Az 0, bin 15: intensity",
+    "31": "Bin 15: range (m)",
+    "32": "Az 0, bin 16: intensity",
+    "33": "Bin 16: range (m)",
+    "84": "Az 30, bin 20: intensity",
+    "85": "Az 30, bin 21: intensity"
+  },
+  "formulaOverrides": {
+    "30": "=IF(ABS(SIN(@compact_step0_15/2))<=1E-12,@compact_power0,@compact_power0*(SIN(@n*@compact_step0_15/2)/(@n*IF(ABS(SIN(@compact_step0_15/2))<=1E-12,1,SIN(@compact_step0_15/2))))^2)",
+    "31": "=@compact_range0_15",
+    "32": "=IF(ABS(SIN(@compact_step0_16/2))<=1E-12,@compact_power0,@compact_power0*(SIN(@n*@compact_step0_16/2)/(@n*IF(ABS(SIN(@compact_step0_16/2))<=1E-12,1,SIN(@compact_step0_16/2))))^2)",
+    "33": "=@compact_range0_16",
+    "84": "=IF(ABS(SIN(@compact_step1_20/2))<=1E-12,@compact_power1,@compact_power1*(SIN(@n*@compact_step1_20/2)/(@n*IF(ABS(SIN(@compact_step1_20/2))<=1E-12,1,SIN(@compact_step1_20/2))))^2)",
+    "85": "=IF(ABS(SIN(@compact_step1_21/2))<=1E-12,@compact_power1,@compact_power1*(SIN(@n*@compact_step1_21/2)/(@n*IF(ABS(SIN(@compact_step1_21/2))<=1E-12,1,SIN(@compact_step1_21/2))))^2)"
+  },
+  "extraInputs": [
+    {
+      "id": "compact_f0",
+      "label": "Frequency 1",
+      "value": 1000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "compact_power0",
+      "label": "Profile 1 RCS",
+      "value": 4.0,
+      "unit": "m2"
+    },
+    {
+      "id": "compact_f1",
+      "label": "Frequency 2",
+      "value": 2000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "compact_power1",
+      "label": "Profile 2 RCS",
+      "value": 1.0,
+      "unit": "m2"
+    }
+  ],
+  "extraCalculations": [
+    {
+      "id": "compact_range0_15",
+      "label": "Az 0, bin 15: range",
+      "formula": "=(15-@size/2)*@c/(2*(@compact_f1-@compact_f0)*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "compact_step0_15",
+      "label": "Az 0, bin 15: phase step",
+      "formula": "=4*PI()*(@compact_f1-@compact_f0)*(@compact_range0_15-@r0)/@c",
+      "unit": "rad"
+    },
+    {
+      "id": "compact_range0_16",
+      "label": "Az 0, bin 16: range",
+      "formula": "=(16-@size/2)*@c/(2*(@compact_f1-@compact_f0)*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "compact_step0_16",
+      "label": "Az 0, bin 16: phase step",
+      "formula": "=4*PI()*(@compact_f1-@compact_f0)*(@compact_range0_16-@r0)/@c",
+      "unit": "rad"
+    },
+    {
+      "id": "compact_range1_20",
+      "label": "Az 30, bin 20: range",
+      "formula": "=(20-@size/2)*@c/(2*(@compact_f1-@compact_f0)*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "compact_step1_20",
+      "label": "Az 30, bin 20: phase step",
+      "formula": "=4*PI()*(@compact_f1-@compact_f0)*(@compact_range1_20-@r1)/@c",
+      "unit": "rad"
+    },
+    {
+      "id": "compact_range1_21",
+      "label": "Az 30, bin 21: range",
+      "formula": "=(21-@size/2)*@c/(2*(@compact_f1-@compact_f0)*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "compact_step1_21",
+      "label": "Az 30, bin 21: phase step",
+      "formula": "=4*PI()*(@compact_f1-@compact_f0)*(@compact_range1_21-@r1)/@c",
+      "unit": "rad"
+    }
+  ]
+}

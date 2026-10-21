@@ -1,0 +1,38 @@
+Round
+-----
+
+WORKBOOK EXAMPLE
+Round to one decimal, using ties-to-even. Exact halfway examples: -1.25 and +0.25 deg.
+The worksheet shows 8 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Round azimuth/elevation/frequency to 1 decimal. Includes exact halfway values using ties-to-even rounding.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/round.json.
+Output 1: azimuth (deg): Excel J8; GRIM K8; percent error L8; original check 1; source result.csv row 2: azimuth
+Output 1: elevation (deg): Excel J9; GRIM K9; percent error L9; original check 2; source result.csv row 2: elevation
+Output 1: frequency (GHz): Excel J10; GRIM K10; percent error L10; original check 3; source result.csv row 2: frequency
+Output 1: RCS (m²): Excel J11; GRIM K11; percent error L11; original check 5; source result.csv row 2: magnitude_power_linear
+Output 2: frequency (GHz): Excel J12; GRIM K12; percent error L12; original check 9; source result.csv row 3: frequency
+Output 3: elevation (deg): Excel J13; GRIM K13; percent error L13; original check 14; source result.csv row 4: elevation
+Output 5: azimuth (deg): Excel J14; GRIM K14; percent error L14; original check 25; source result.csv row 6: azimuth
+Output 9: azimuth (deg): Excel J15; GRIM K15; percent error L15; original check 49; source result.csv row 10: azimuth
+
+FILES
+input: datasets/round/input.grim; datasets/round/input.csv
+result: datasets/round/result.grim; datasets/round/result.csv
+input_collision: datasets/round/input_collision.grim; datasets/round/input_collision.csv
+
+SCOPE
+Worked examples from the supplied input and output files. Numerical behavior for the supplied fixtures; not all possible inputs.
+The full specification retains 74 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+Coordinates collapse: Rounding azimuths to 1 decimal(s) would create duplicate values. Use a higher decimal count.
+Excel ROUND alone uses a different tie rule. The worksheet explicitly applies ties-to-even for halfway coordinates.

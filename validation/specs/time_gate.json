@@ -1,0 +1,982 @@
+{
+  "slug": "time_gate",
+  "title": "Time Gate",
+  "description": "Explicit inverse and forward DFT sums independently reproduce the gated field.",
+  "settings": "4 frequencies from 1 to 4 GHz; 16-point padding; gate -0.03 to 0.04 m; taper 0.4; compensation off except center-point control.",
+  "scope": "Checks direct DFT, taper, keep/remove/full gates, time sign and center-point compensation. Does not prove scatterer separation in arbitrary measured data.",
+  "category": "BETA dataset operation",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "c",
+      "label": "c",
+      "value": 299792458.0,
+      "unit": "m/s"
+    },
+    {
+      "id": "df",
+      "label": "df",
+      "value": 1000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "n",
+      "label": "n",
+      "value": 4,
+      "unit": ""
+    },
+    {
+      "id": "size",
+      "label": "size",
+      "value": 16,
+      "unit": ""
+    },
+    {
+      "id": "start",
+      "label": "start",
+      "value": -0.03,
+      "unit": "m"
+    },
+    {
+      "id": "stop",
+      "label": "stop",
+      "value": 0.04,
+      "unit": "m"
+    },
+    {
+      "id": "taper",
+      "label": "taper",
+      "value": 0.4,
+      "unit": ""
+    },
+    {
+      "id": "i0",
+      "label": "Frequency 1 input I",
+      "value": 1.0,
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q0",
+      "label": "Frequency 1 input Q",
+      "value": 2.0,
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i1",
+      "label": "Frequency 2 input I",
+      "value": 2.0,
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q1",
+      "label": "Frequency 2 input Q",
+      "value": -0.5,
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i2",
+      "label": "Frequency 3 input I",
+      "value": -0.5,
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q2",
+      "label": "Frequency 3 input Q",
+      "value": 0.25,
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i3",
+      "label": "Frequency 4 input I",
+      "value": 3.0,
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q3",
+      "label": "Frequency 4 input Q",
+      "value": 1.0,
+      "unit": "sqrt(m2)"
+    }
+  ],
+  "calculations": [
+    {
+      "id": "edge",
+      "label": "Raised cosine edge width",
+      "formula": "=@taper*(@stop-@start)/2",
+      "unit": "m"
+    },
+    {
+      "id": "r0",
+      "label": "Range cell 0",
+      "formula": "=0*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m0",
+      "label": "Range cell 0 gate",
+      "formula": "=IF(AND(@r0>=@start,@r0<=@stop),IF(@r0<@start+@edge,0.5-0.5*COS(PI()*(@r0-@start)/@edge),IF(@r0>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r0)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri0",
+      "label": "Gated range cell 0 I",
+      "formula": "=((@i0*COS(2*PI()*0*0/@size)-@q0*SIN(2*PI()*0*0/@size))+(@i1*COS(2*PI()*0*1/@size)-@q1*SIN(2*PI()*0*1/@size))+(@i2*COS(2*PI()*0*2/@size)-@q2*SIN(2*PI()*0*2/@size))+(@i3*COS(2*PI()*0*3/@size)-@q3*SIN(2*PI()*0*3/@size)))/@size*@m0",
+      "unit": ""
+    },
+    {
+      "id": "rq0",
+      "label": "Gated range cell 0 Q",
+      "formula": "=((@i0*SIN(2*PI()*0*0/@size)+@q0*COS(2*PI()*0*0/@size))+(@i1*SIN(2*PI()*0*1/@size)+@q1*COS(2*PI()*0*1/@size))+(@i2*SIN(2*PI()*0*2/@size)+@q2*COS(2*PI()*0*2/@size))+(@i3*SIN(2*PI()*0*3/@size)+@q3*COS(2*PI()*0*3/@size)))/@size*@m0",
+      "unit": ""
+    },
+    {
+      "id": "r1",
+      "label": "Range cell 1",
+      "formula": "=1*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m1",
+      "label": "Range cell 1 gate",
+      "formula": "=IF(AND(@r1>=@start,@r1<=@stop),IF(@r1<@start+@edge,0.5-0.5*COS(PI()*(@r1-@start)/@edge),IF(@r1>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r1)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri1",
+      "label": "Gated range cell 1 I",
+      "formula": "=((@i0*COS(2*PI()*1*0/@size)-@q0*SIN(2*PI()*1*0/@size))+(@i1*COS(2*PI()*1*1/@size)-@q1*SIN(2*PI()*1*1/@size))+(@i2*COS(2*PI()*1*2/@size)-@q2*SIN(2*PI()*1*2/@size))+(@i3*COS(2*PI()*1*3/@size)-@q3*SIN(2*PI()*1*3/@size)))/@size*@m1",
+      "unit": ""
+    },
+    {
+      "id": "rq1",
+      "label": "Gated range cell 1 Q",
+      "formula": "=((@i0*SIN(2*PI()*1*0/@size)+@q0*COS(2*PI()*1*0/@size))+(@i1*SIN(2*PI()*1*1/@size)+@q1*COS(2*PI()*1*1/@size))+(@i2*SIN(2*PI()*1*2/@size)+@q2*COS(2*PI()*1*2/@size))+(@i3*SIN(2*PI()*1*3/@size)+@q3*COS(2*PI()*1*3/@size)))/@size*@m1",
+      "unit": ""
+    },
+    {
+      "id": "r2",
+      "label": "Range cell 2",
+      "formula": "=2*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m2",
+      "label": "Range cell 2 gate",
+      "formula": "=IF(AND(@r2>=@start,@r2<=@stop),IF(@r2<@start+@edge,0.5-0.5*COS(PI()*(@r2-@start)/@edge),IF(@r2>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r2)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri2",
+      "label": "Gated range cell 2 I",
+      "formula": "=((@i0*COS(2*PI()*2*0/@size)-@q0*SIN(2*PI()*2*0/@size))+(@i1*COS(2*PI()*2*1/@size)-@q1*SIN(2*PI()*2*1/@size))+(@i2*COS(2*PI()*2*2/@size)-@q2*SIN(2*PI()*2*2/@size))+(@i3*COS(2*PI()*2*3/@size)-@q3*SIN(2*PI()*2*3/@size)))/@size*@m2",
+      "unit": ""
+    },
+    {
+      "id": "rq2",
+      "label": "Gated range cell 2 Q",
+      "formula": "=((@i0*SIN(2*PI()*2*0/@size)+@q0*COS(2*PI()*2*0/@size))+(@i1*SIN(2*PI()*2*1/@size)+@q1*COS(2*PI()*2*1/@size))+(@i2*SIN(2*PI()*2*2/@size)+@q2*COS(2*PI()*2*2/@size))+(@i3*SIN(2*PI()*2*3/@size)+@q3*COS(2*PI()*2*3/@size)))/@size*@m2",
+      "unit": ""
+    },
+    {
+      "id": "r3",
+      "label": "Range cell 3",
+      "formula": "=3*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m3",
+      "label": "Range cell 3 gate",
+      "formula": "=IF(AND(@r3>=@start,@r3<=@stop),IF(@r3<@start+@edge,0.5-0.5*COS(PI()*(@r3-@start)/@edge),IF(@r3>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r3)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri3",
+      "label": "Gated range cell 3 I",
+      "formula": "=((@i0*COS(2*PI()*3*0/@size)-@q0*SIN(2*PI()*3*0/@size))+(@i1*COS(2*PI()*3*1/@size)-@q1*SIN(2*PI()*3*1/@size))+(@i2*COS(2*PI()*3*2/@size)-@q2*SIN(2*PI()*3*2/@size))+(@i3*COS(2*PI()*3*3/@size)-@q3*SIN(2*PI()*3*3/@size)))/@size*@m3",
+      "unit": ""
+    },
+    {
+      "id": "rq3",
+      "label": "Gated range cell 3 Q",
+      "formula": "=((@i0*SIN(2*PI()*3*0/@size)+@q0*COS(2*PI()*3*0/@size))+(@i1*SIN(2*PI()*3*1/@size)+@q1*COS(2*PI()*3*1/@size))+(@i2*SIN(2*PI()*3*2/@size)+@q2*COS(2*PI()*3*2/@size))+(@i3*SIN(2*PI()*3*3/@size)+@q3*COS(2*PI()*3*3/@size)))/@size*@m3",
+      "unit": ""
+    },
+    {
+      "id": "r4",
+      "label": "Range cell 4",
+      "formula": "=4*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m4",
+      "label": "Range cell 4 gate",
+      "formula": "=IF(AND(@r4>=@start,@r4<=@stop),IF(@r4<@start+@edge,0.5-0.5*COS(PI()*(@r4-@start)/@edge),IF(@r4>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r4)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri4",
+      "label": "Gated range cell 4 I",
+      "formula": "=((@i0*COS(2*PI()*4*0/@size)-@q0*SIN(2*PI()*4*0/@size))+(@i1*COS(2*PI()*4*1/@size)-@q1*SIN(2*PI()*4*1/@size))+(@i2*COS(2*PI()*4*2/@size)-@q2*SIN(2*PI()*4*2/@size))+(@i3*COS(2*PI()*4*3/@size)-@q3*SIN(2*PI()*4*3/@size)))/@size*@m4",
+      "unit": ""
+    },
+    {
+      "id": "rq4",
+      "label": "Gated range cell 4 Q",
+      "formula": "=((@i0*SIN(2*PI()*4*0/@size)+@q0*COS(2*PI()*4*0/@size))+(@i1*SIN(2*PI()*4*1/@size)+@q1*COS(2*PI()*4*1/@size))+(@i2*SIN(2*PI()*4*2/@size)+@q2*COS(2*PI()*4*2/@size))+(@i3*SIN(2*PI()*4*3/@size)+@q3*COS(2*PI()*4*3/@size)))/@size*@m4",
+      "unit": ""
+    },
+    {
+      "id": "r5",
+      "label": "Range cell 5",
+      "formula": "=5*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m5",
+      "label": "Range cell 5 gate",
+      "formula": "=IF(AND(@r5>=@start,@r5<=@stop),IF(@r5<@start+@edge,0.5-0.5*COS(PI()*(@r5-@start)/@edge),IF(@r5>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r5)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri5",
+      "label": "Gated range cell 5 I",
+      "formula": "=((@i0*COS(2*PI()*5*0/@size)-@q0*SIN(2*PI()*5*0/@size))+(@i1*COS(2*PI()*5*1/@size)-@q1*SIN(2*PI()*5*1/@size))+(@i2*COS(2*PI()*5*2/@size)-@q2*SIN(2*PI()*5*2/@size))+(@i3*COS(2*PI()*5*3/@size)-@q3*SIN(2*PI()*5*3/@size)))/@size*@m5",
+      "unit": ""
+    },
+    {
+      "id": "rq5",
+      "label": "Gated range cell 5 Q",
+      "formula": "=((@i0*SIN(2*PI()*5*0/@size)+@q0*COS(2*PI()*5*0/@size))+(@i1*SIN(2*PI()*5*1/@size)+@q1*COS(2*PI()*5*1/@size))+(@i2*SIN(2*PI()*5*2/@size)+@q2*COS(2*PI()*5*2/@size))+(@i3*SIN(2*PI()*5*3/@size)+@q3*COS(2*PI()*5*3/@size)))/@size*@m5",
+      "unit": ""
+    },
+    {
+      "id": "r6",
+      "label": "Range cell 6",
+      "formula": "=6*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m6",
+      "label": "Range cell 6 gate",
+      "formula": "=IF(AND(@r6>=@start,@r6<=@stop),IF(@r6<@start+@edge,0.5-0.5*COS(PI()*(@r6-@start)/@edge),IF(@r6>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r6)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri6",
+      "label": "Gated range cell 6 I",
+      "formula": "=((@i0*COS(2*PI()*6*0/@size)-@q0*SIN(2*PI()*6*0/@size))+(@i1*COS(2*PI()*6*1/@size)-@q1*SIN(2*PI()*6*1/@size))+(@i2*COS(2*PI()*6*2/@size)-@q2*SIN(2*PI()*6*2/@size))+(@i3*COS(2*PI()*6*3/@size)-@q3*SIN(2*PI()*6*3/@size)))/@size*@m6",
+      "unit": ""
+    },
+    {
+      "id": "rq6",
+      "label": "Gated range cell 6 Q",
+      "formula": "=((@i0*SIN(2*PI()*6*0/@size)+@q0*COS(2*PI()*6*0/@size))+(@i1*SIN(2*PI()*6*1/@size)+@q1*COS(2*PI()*6*1/@size))+(@i2*SIN(2*PI()*6*2/@size)+@q2*COS(2*PI()*6*2/@size))+(@i3*SIN(2*PI()*6*3/@size)+@q3*COS(2*PI()*6*3/@size)))/@size*@m6",
+      "unit": ""
+    },
+    {
+      "id": "r7",
+      "label": "Range cell 7",
+      "formula": "=7*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m7",
+      "label": "Range cell 7 gate",
+      "formula": "=IF(AND(@r7>=@start,@r7<=@stop),IF(@r7<@start+@edge,0.5-0.5*COS(PI()*(@r7-@start)/@edge),IF(@r7>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r7)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri7",
+      "label": "Gated range cell 7 I",
+      "formula": "=((@i0*COS(2*PI()*7*0/@size)-@q0*SIN(2*PI()*7*0/@size))+(@i1*COS(2*PI()*7*1/@size)-@q1*SIN(2*PI()*7*1/@size))+(@i2*COS(2*PI()*7*2/@size)-@q2*SIN(2*PI()*7*2/@size))+(@i3*COS(2*PI()*7*3/@size)-@q3*SIN(2*PI()*7*3/@size)))/@size*@m7",
+      "unit": ""
+    },
+    {
+      "id": "rq7",
+      "label": "Gated range cell 7 Q",
+      "formula": "=((@i0*SIN(2*PI()*7*0/@size)+@q0*COS(2*PI()*7*0/@size))+(@i1*SIN(2*PI()*7*1/@size)+@q1*COS(2*PI()*7*1/@size))+(@i2*SIN(2*PI()*7*2/@size)+@q2*COS(2*PI()*7*2/@size))+(@i3*SIN(2*PI()*7*3/@size)+@q3*COS(2*PI()*7*3/@size)))/@size*@m7",
+      "unit": ""
+    },
+    {
+      "id": "r8",
+      "label": "Range cell 8",
+      "formula": "=-8*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m8",
+      "label": "Range cell 8 gate",
+      "formula": "=IF(AND(@r8>=@start,@r8<=@stop),IF(@r8<@start+@edge,0.5-0.5*COS(PI()*(@r8-@start)/@edge),IF(@r8>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r8)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri8",
+      "label": "Gated range cell 8 I",
+      "formula": "=((@i0*COS(2*PI()*8*0/@size)-@q0*SIN(2*PI()*8*0/@size))+(@i1*COS(2*PI()*8*1/@size)-@q1*SIN(2*PI()*8*1/@size))+(@i2*COS(2*PI()*8*2/@size)-@q2*SIN(2*PI()*8*2/@size))+(@i3*COS(2*PI()*8*3/@size)-@q3*SIN(2*PI()*8*3/@size)))/@size*@m8",
+      "unit": ""
+    },
+    {
+      "id": "rq8",
+      "label": "Gated range cell 8 Q",
+      "formula": "=((@i0*SIN(2*PI()*8*0/@size)+@q0*COS(2*PI()*8*0/@size))+(@i1*SIN(2*PI()*8*1/@size)+@q1*COS(2*PI()*8*1/@size))+(@i2*SIN(2*PI()*8*2/@size)+@q2*COS(2*PI()*8*2/@size))+(@i3*SIN(2*PI()*8*3/@size)+@q3*COS(2*PI()*8*3/@size)))/@size*@m8",
+      "unit": ""
+    },
+    {
+      "id": "r9",
+      "label": "Range cell 9",
+      "formula": "=-7*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m9",
+      "label": "Range cell 9 gate",
+      "formula": "=IF(AND(@r9>=@start,@r9<=@stop),IF(@r9<@start+@edge,0.5-0.5*COS(PI()*(@r9-@start)/@edge),IF(@r9>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r9)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri9",
+      "label": "Gated range cell 9 I",
+      "formula": "=((@i0*COS(2*PI()*9*0/@size)-@q0*SIN(2*PI()*9*0/@size))+(@i1*COS(2*PI()*9*1/@size)-@q1*SIN(2*PI()*9*1/@size))+(@i2*COS(2*PI()*9*2/@size)-@q2*SIN(2*PI()*9*2/@size))+(@i3*COS(2*PI()*9*3/@size)-@q3*SIN(2*PI()*9*3/@size)))/@size*@m9",
+      "unit": ""
+    },
+    {
+      "id": "rq9",
+      "label": "Gated range cell 9 Q",
+      "formula": "=((@i0*SIN(2*PI()*9*0/@size)+@q0*COS(2*PI()*9*0/@size))+(@i1*SIN(2*PI()*9*1/@size)+@q1*COS(2*PI()*9*1/@size))+(@i2*SIN(2*PI()*9*2/@size)+@q2*COS(2*PI()*9*2/@size))+(@i3*SIN(2*PI()*9*3/@size)+@q3*COS(2*PI()*9*3/@size)))/@size*@m9",
+      "unit": ""
+    },
+    {
+      "id": "r10",
+      "label": "Range cell 10",
+      "formula": "=-6*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m10",
+      "label": "Range cell 10 gate",
+      "formula": "=IF(AND(@r10>=@start,@r10<=@stop),IF(@r10<@start+@edge,0.5-0.5*COS(PI()*(@r10-@start)/@edge),IF(@r10>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r10)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri10",
+      "label": "Gated range cell 10 I",
+      "formula": "=((@i0*COS(2*PI()*10*0/@size)-@q0*SIN(2*PI()*10*0/@size))+(@i1*COS(2*PI()*10*1/@size)-@q1*SIN(2*PI()*10*1/@size))+(@i2*COS(2*PI()*10*2/@size)-@q2*SIN(2*PI()*10*2/@size))+(@i3*COS(2*PI()*10*3/@size)-@q3*SIN(2*PI()*10*3/@size)))/@size*@m10",
+      "unit": ""
+    },
+    {
+      "id": "rq10",
+      "label": "Gated range cell 10 Q",
+      "formula": "=((@i0*SIN(2*PI()*10*0/@size)+@q0*COS(2*PI()*10*0/@size))+(@i1*SIN(2*PI()*10*1/@size)+@q1*COS(2*PI()*10*1/@size))+(@i2*SIN(2*PI()*10*2/@size)+@q2*COS(2*PI()*10*2/@size))+(@i3*SIN(2*PI()*10*3/@size)+@q3*COS(2*PI()*10*3/@size)))/@size*@m10",
+      "unit": ""
+    },
+    {
+      "id": "r11",
+      "label": "Range cell 11",
+      "formula": "=-5*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m11",
+      "label": "Range cell 11 gate",
+      "formula": "=IF(AND(@r11>=@start,@r11<=@stop),IF(@r11<@start+@edge,0.5-0.5*COS(PI()*(@r11-@start)/@edge),IF(@r11>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r11)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri11",
+      "label": "Gated range cell 11 I",
+      "formula": "=((@i0*COS(2*PI()*11*0/@size)-@q0*SIN(2*PI()*11*0/@size))+(@i1*COS(2*PI()*11*1/@size)-@q1*SIN(2*PI()*11*1/@size))+(@i2*COS(2*PI()*11*2/@size)-@q2*SIN(2*PI()*11*2/@size))+(@i3*COS(2*PI()*11*3/@size)-@q3*SIN(2*PI()*11*3/@size)))/@size*@m11",
+      "unit": ""
+    },
+    {
+      "id": "rq11",
+      "label": "Gated range cell 11 Q",
+      "formula": "=((@i0*SIN(2*PI()*11*0/@size)+@q0*COS(2*PI()*11*0/@size))+(@i1*SIN(2*PI()*11*1/@size)+@q1*COS(2*PI()*11*1/@size))+(@i2*SIN(2*PI()*11*2/@size)+@q2*COS(2*PI()*11*2/@size))+(@i3*SIN(2*PI()*11*3/@size)+@q3*COS(2*PI()*11*3/@size)))/@size*@m11",
+      "unit": ""
+    },
+    {
+      "id": "r12",
+      "label": "Range cell 12",
+      "formula": "=-4*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m12",
+      "label": "Range cell 12 gate",
+      "formula": "=IF(AND(@r12>=@start,@r12<=@stop),IF(@r12<@start+@edge,0.5-0.5*COS(PI()*(@r12-@start)/@edge),IF(@r12>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r12)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri12",
+      "label": "Gated range cell 12 I",
+      "formula": "=((@i0*COS(2*PI()*12*0/@size)-@q0*SIN(2*PI()*12*0/@size))+(@i1*COS(2*PI()*12*1/@size)-@q1*SIN(2*PI()*12*1/@size))+(@i2*COS(2*PI()*12*2/@size)-@q2*SIN(2*PI()*12*2/@size))+(@i3*COS(2*PI()*12*3/@size)-@q3*SIN(2*PI()*12*3/@size)))/@size*@m12",
+      "unit": ""
+    },
+    {
+      "id": "rq12",
+      "label": "Gated range cell 12 Q",
+      "formula": "=((@i0*SIN(2*PI()*12*0/@size)+@q0*COS(2*PI()*12*0/@size))+(@i1*SIN(2*PI()*12*1/@size)+@q1*COS(2*PI()*12*1/@size))+(@i2*SIN(2*PI()*12*2/@size)+@q2*COS(2*PI()*12*2/@size))+(@i3*SIN(2*PI()*12*3/@size)+@q3*COS(2*PI()*12*3/@size)))/@size*@m12",
+      "unit": ""
+    },
+    {
+      "id": "r13",
+      "label": "Range cell 13",
+      "formula": "=-3*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m13",
+      "label": "Range cell 13 gate",
+      "formula": "=IF(AND(@r13>=@start,@r13<=@stop),IF(@r13<@start+@edge,0.5-0.5*COS(PI()*(@r13-@start)/@edge),IF(@r13>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r13)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri13",
+      "label": "Gated range cell 13 I",
+      "formula": "=((@i0*COS(2*PI()*13*0/@size)-@q0*SIN(2*PI()*13*0/@size))+(@i1*COS(2*PI()*13*1/@size)-@q1*SIN(2*PI()*13*1/@size))+(@i2*COS(2*PI()*13*2/@size)-@q2*SIN(2*PI()*13*2/@size))+(@i3*COS(2*PI()*13*3/@size)-@q3*SIN(2*PI()*13*3/@size)))/@size*@m13",
+      "unit": ""
+    },
+    {
+      "id": "rq13",
+      "label": "Gated range cell 13 Q",
+      "formula": "=((@i0*SIN(2*PI()*13*0/@size)+@q0*COS(2*PI()*13*0/@size))+(@i1*SIN(2*PI()*13*1/@size)+@q1*COS(2*PI()*13*1/@size))+(@i2*SIN(2*PI()*13*2/@size)+@q2*COS(2*PI()*13*2/@size))+(@i3*SIN(2*PI()*13*3/@size)+@q3*COS(2*PI()*13*3/@size)))/@size*@m13",
+      "unit": ""
+    },
+    {
+      "id": "r14",
+      "label": "Range cell 14",
+      "formula": "=-2*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m14",
+      "label": "Range cell 14 gate",
+      "formula": "=IF(AND(@r14>=@start,@r14<=@stop),IF(@r14<@start+@edge,0.5-0.5*COS(PI()*(@r14-@start)/@edge),IF(@r14>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r14)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri14",
+      "label": "Gated range cell 14 I",
+      "formula": "=((@i0*COS(2*PI()*14*0/@size)-@q0*SIN(2*PI()*14*0/@size))+(@i1*COS(2*PI()*14*1/@size)-@q1*SIN(2*PI()*14*1/@size))+(@i2*COS(2*PI()*14*2/@size)-@q2*SIN(2*PI()*14*2/@size))+(@i3*COS(2*PI()*14*3/@size)-@q3*SIN(2*PI()*14*3/@size)))/@size*@m14",
+      "unit": ""
+    },
+    {
+      "id": "rq14",
+      "label": "Gated range cell 14 Q",
+      "formula": "=((@i0*SIN(2*PI()*14*0/@size)+@q0*COS(2*PI()*14*0/@size))+(@i1*SIN(2*PI()*14*1/@size)+@q1*COS(2*PI()*14*1/@size))+(@i2*SIN(2*PI()*14*2/@size)+@q2*COS(2*PI()*14*2/@size))+(@i3*SIN(2*PI()*14*3/@size)+@q3*COS(2*PI()*14*3/@size)))/@size*@m14",
+      "unit": ""
+    },
+    {
+      "id": "r15",
+      "label": "Range cell 15",
+      "formula": "=-1*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "m15",
+      "label": "Range cell 15 gate",
+      "formula": "=IF(AND(@r15>=@start,@r15<=@stop),IF(@r15<@start+@edge,0.5-0.5*COS(PI()*(@r15-@start)/@edge),IF(@r15>@stop-@edge,0.5-0.5*COS(PI()*(@stop-@r15)/@edge),1)),0)",
+      "unit": ""
+    },
+    {
+      "id": "ri15",
+      "label": "Gated range cell 15 I",
+      "formula": "=((@i0*COS(2*PI()*15*0/@size)-@q0*SIN(2*PI()*15*0/@size))+(@i1*COS(2*PI()*15*1/@size)-@q1*SIN(2*PI()*15*1/@size))+(@i2*COS(2*PI()*15*2/@size)-@q2*SIN(2*PI()*15*2/@size))+(@i3*COS(2*PI()*15*3/@size)-@q3*SIN(2*PI()*15*3/@size)))/@size*@m15",
+      "unit": ""
+    },
+    {
+      "id": "rq15",
+      "label": "Gated range cell 15 Q",
+      "formula": "=((@i0*SIN(2*PI()*15*0/@size)+@q0*COS(2*PI()*15*0/@size))+(@i1*SIN(2*PI()*15*1/@size)+@q1*COS(2*PI()*15*1/@size))+(@i2*SIN(2*PI()*15*2/@size)+@q2*COS(2*PI()*15*2/@size))+(@i3*SIN(2*PI()*15*3/@size)+@q3*COS(2*PI()*15*3/@size)))/@size*@m15",
+      "unit": ""
+    },
+    {
+      "id": "out_i0",
+      "label": "Forward DFT frequency 1 I",
+      "formula": "=(@ri0*COS(2*PI()*0*0/@size)+@rq0*SIN(2*PI()*0*0/@size))+(@ri1*COS(2*PI()*1*0/@size)+@rq1*SIN(2*PI()*1*0/@size))+(@ri2*COS(2*PI()*2*0/@size)+@rq2*SIN(2*PI()*2*0/@size))+(@ri3*COS(2*PI()*3*0/@size)+@rq3*SIN(2*PI()*3*0/@size))+(@ri4*COS(2*PI()*4*0/@size)+@rq4*SIN(2*PI()*4*0/@size))+(@ri5*COS(2*PI()*5*0/@size)+@rq5*SIN(2*PI()*5*0/@size))+(@ri6*COS(2*PI()*6*0/@size)+@rq6*SIN(2*PI()*6*0/@size))+(@ri7*COS(2*PI()*7*0/@size)+@rq7*SIN(2*PI()*7*0/@size))+(@ri8*COS(2*PI()*8*0/@size)+@rq8*SIN(2*PI()*8*0/@size))+(@ri9*COS(2*PI()*9*0/@size)+@rq9*SIN(2*PI()*9*0/@size))+(@ri10*COS(2*PI()*10*0/@size)+@rq10*SIN(2*PI()*10*0/@size))+(@ri11*COS(2*PI()*11*0/@size)+@rq11*SIN(2*PI()*11*0/@size))+(@ri12*COS(2*PI()*12*0/@size)+@rq12*SIN(2*PI()*12*0/@size))+(@ri13*COS(2*PI()*13*0/@size)+@rq13*SIN(2*PI()*13*0/@size))+(@ri14*COS(2*PI()*14*0/@size)+@rq14*SIN(2*PI()*14*0/@size))+(@ri15*COS(2*PI()*15*0/@size)+@rq15*SIN(2*PI()*15*0/@size))",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "out_q0",
+      "label": "Forward DFT frequency 1 Q",
+      "formula": "=(@rq0*COS(2*PI()*0*0/@size)-@ri0*SIN(2*PI()*0*0/@size))+(@rq1*COS(2*PI()*1*0/@size)-@ri1*SIN(2*PI()*1*0/@size))+(@rq2*COS(2*PI()*2*0/@size)-@ri2*SIN(2*PI()*2*0/@size))+(@rq3*COS(2*PI()*3*0/@size)-@ri3*SIN(2*PI()*3*0/@size))+(@rq4*COS(2*PI()*4*0/@size)-@ri4*SIN(2*PI()*4*0/@size))+(@rq5*COS(2*PI()*5*0/@size)-@ri5*SIN(2*PI()*5*0/@size))+(@rq6*COS(2*PI()*6*0/@size)-@ri6*SIN(2*PI()*6*0/@size))+(@rq7*COS(2*PI()*7*0/@size)-@ri7*SIN(2*PI()*7*0/@size))+(@rq8*COS(2*PI()*8*0/@size)-@ri8*SIN(2*PI()*8*0/@size))+(@rq9*COS(2*PI()*9*0/@size)-@ri9*SIN(2*PI()*9*0/@size))+(@rq10*COS(2*PI()*10*0/@size)-@ri10*SIN(2*PI()*10*0/@size))+(@rq11*COS(2*PI()*11*0/@size)-@ri11*SIN(2*PI()*11*0/@size))+(@rq12*COS(2*PI()*12*0/@size)-@ri12*SIN(2*PI()*12*0/@size))+(@rq13*COS(2*PI()*13*0/@size)-@ri13*SIN(2*PI()*13*0/@size))+(@rq14*COS(2*PI()*14*0/@size)-@ri14*SIN(2*PI()*14*0/@size))+(@rq15*COS(2*PI()*15*0/@size)-@ri15*SIN(2*PI()*15*0/@size))",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "out_i1",
+      "label": "Forward DFT frequency 2 I",
+      "formula": "=(@ri0*COS(2*PI()*0*1/@size)+@rq0*SIN(2*PI()*0*1/@size))+(@ri1*COS(2*PI()*1*1/@size)+@rq1*SIN(2*PI()*1*1/@size))+(@ri2*COS(2*PI()*2*1/@size)+@rq2*SIN(2*PI()*2*1/@size))+(@ri3*COS(2*PI()*3*1/@size)+@rq3*SIN(2*PI()*3*1/@size))+(@ri4*COS(2*PI()*4*1/@size)+@rq4*SIN(2*PI()*4*1/@size))+(@ri5*COS(2*PI()*5*1/@size)+@rq5*SIN(2*PI()*5*1/@size))+(@ri6*COS(2*PI()*6*1/@size)+@rq6*SIN(2*PI()*6*1/@size))+(@ri7*COS(2*PI()*7*1/@size)+@rq7*SIN(2*PI()*7*1/@size))+(@ri8*COS(2*PI()*8*1/@size)+@rq8*SIN(2*PI()*8*1/@size))+(@ri9*COS(2*PI()*9*1/@size)+@rq9*SIN(2*PI()*9*1/@size))+(@ri10*COS(2*PI()*10*1/@size)+@rq10*SIN(2*PI()*10*1/@size))+(@ri11*COS(2*PI()*11*1/@size)+@rq11*SIN(2*PI()*11*1/@size))+(@ri12*COS(2*PI()*12*1/@size)+@rq12*SIN(2*PI()*12*1/@size))+(@ri13*COS(2*PI()*13*1/@size)+@rq13*SIN(2*PI()*13*1/@size))+(@ri14*COS(2*PI()*14*1/@size)+@rq14*SIN(2*PI()*14*1/@size))+(@ri15*COS(2*PI()*15*1/@size)+@rq15*SIN(2*PI()*15*1/@size))",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "out_q1",
+      "label": "Forward DFT frequency 2 Q",
+      "formula": "=(@rq0*COS(2*PI()*0*1/@size)-@ri0*SIN(2*PI()*0*1/@size))+(@rq1*COS(2*PI()*1*1/@size)-@ri1*SIN(2*PI()*1*1/@size))+(@rq2*COS(2*PI()*2*1/@size)-@ri2*SIN(2*PI()*2*1/@size))+(@rq3*COS(2*PI()*3*1/@size)-@ri3*SIN(2*PI()*3*1/@size))+(@rq4*COS(2*PI()*4*1/@size)-@ri4*SIN(2*PI()*4*1/@size))+(@rq5*COS(2*PI()*5*1/@size)-@ri5*SIN(2*PI()*5*1/@size))+(@rq6*COS(2*PI()*6*1/@size)-@ri6*SIN(2*PI()*6*1/@size))+(@rq7*COS(2*PI()*7*1/@size)-@ri7*SIN(2*PI()*7*1/@size))+(@rq8*COS(2*PI()*8*1/@size)-@ri8*SIN(2*PI()*8*1/@size))+(@rq9*COS(2*PI()*9*1/@size)-@ri9*SIN(2*PI()*9*1/@size))+(@rq10*COS(2*PI()*10*1/@size)-@ri10*SIN(2*PI()*10*1/@size))+(@rq11*COS(2*PI()*11*1/@size)-@ri11*SIN(2*PI()*11*1/@size))+(@rq12*COS(2*PI()*12*1/@size)-@ri12*SIN(2*PI()*12*1/@size))+(@rq13*COS(2*PI()*13*1/@size)-@ri13*SIN(2*PI()*13*1/@size))+(@rq14*COS(2*PI()*14*1/@size)-@ri14*SIN(2*PI()*14*1/@size))+(@rq15*COS(2*PI()*15*1/@size)-@ri15*SIN(2*PI()*15*1/@size))",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "out_i2",
+      "label": "Forward DFT frequency 3 I",
+      "formula": "=(@ri0*COS(2*PI()*0*2/@size)+@rq0*SIN(2*PI()*0*2/@size))+(@ri1*COS(2*PI()*1*2/@size)+@rq1*SIN(2*PI()*1*2/@size))+(@ri2*COS(2*PI()*2*2/@size)+@rq2*SIN(2*PI()*2*2/@size))+(@ri3*COS(2*PI()*3*2/@size)+@rq3*SIN(2*PI()*3*2/@size))+(@ri4*COS(2*PI()*4*2/@size)+@rq4*SIN(2*PI()*4*2/@size))+(@ri5*COS(2*PI()*5*2/@size)+@rq5*SIN(2*PI()*5*2/@size))+(@ri6*COS(2*PI()*6*2/@size)+@rq6*SIN(2*PI()*6*2/@size))+(@ri7*COS(2*PI()*7*2/@size)+@rq7*SIN(2*PI()*7*2/@size))+(@ri8*COS(2*PI()*8*2/@size)+@rq8*SIN(2*PI()*8*2/@size))+(@ri9*COS(2*PI()*9*2/@size)+@rq9*SIN(2*PI()*9*2/@size))+(@ri10*COS(2*PI()*10*2/@size)+@rq10*SIN(2*PI()*10*2/@size))+(@ri11*COS(2*PI()*11*2/@size)+@rq11*SIN(2*PI()*11*2/@size))+(@ri12*COS(2*PI()*12*2/@size)+@rq12*SIN(2*PI()*12*2/@size))+(@ri13*COS(2*PI()*13*2/@size)+@rq13*SIN(2*PI()*13*2/@size))+(@ri14*COS(2*PI()*14*2/@size)+@rq14*SIN(2*PI()*14*2/@size))+(@ri15*COS(2*PI()*15*2/@size)+@rq15*SIN(2*PI()*15*2/@size))",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "out_q2",
+      "label": "Forward DFT frequency 3 Q",
+      "formula": "=(@rq0*COS(2*PI()*0*2/@size)-@ri0*SIN(2*PI()*0*2/@size))+(@rq1*COS(2*PI()*1*2/@size)-@ri1*SIN(2*PI()*1*2/@size))+(@rq2*COS(2*PI()*2*2/@size)-@ri2*SIN(2*PI()*2*2/@size))+(@rq3*COS(2*PI()*3*2/@size)-@ri3*SIN(2*PI()*3*2/@size))+(@rq4*COS(2*PI()*4*2/@size)-@ri4*SIN(2*PI()*4*2/@size))+(@rq5*COS(2*PI()*5*2/@size)-@ri5*SIN(2*PI()*5*2/@size))+(@rq6*COS(2*PI()*6*2/@size)-@ri6*SIN(2*PI()*6*2/@size))+(@rq7*COS(2*PI()*7*2/@size)-@ri7*SIN(2*PI()*7*2/@size))+(@rq8*COS(2*PI()*8*2/@size)-@ri8*SIN(2*PI()*8*2/@size))+(@rq9*COS(2*PI()*9*2/@size)-@ri9*SIN(2*PI()*9*2/@size))+(@rq10*COS(2*PI()*10*2/@size)-@ri10*SIN(2*PI()*10*2/@size))+(@rq11*COS(2*PI()*11*2/@size)-@ri11*SIN(2*PI()*11*2/@size))+(@rq12*COS(2*PI()*12*2/@size)-@ri12*SIN(2*PI()*12*2/@size))+(@rq13*COS(2*PI()*13*2/@size)-@ri13*SIN(2*PI()*13*2/@size))+(@rq14*COS(2*PI()*14*2/@size)-@ri14*SIN(2*PI()*14*2/@size))+(@rq15*COS(2*PI()*15*2/@size)-@ri15*SIN(2*PI()*15*2/@size))",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "out_i3",
+      "label": "Forward DFT frequency 4 I",
+      "formula": "=(@ri0*COS(2*PI()*0*3/@size)+@rq0*SIN(2*PI()*0*3/@size))+(@ri1*COS(2*PI()*1*3/@size)+@rq1*SIN(2*PI()*1*3/@size))+(@ri2*COS(2*PI()*2*3/@size)+@rq2*SIN(2*PI()*2*3/@size))+(@ri3*COS(2*PI()*3*3/@size)+@rq3*SIN(2*PI()*3*3/@size))+(@ri4*COS(2*PI()*4*3/@size)+@rq4*SIN(2*PI()*4*3/@size))+(@ri5*COS(2*PI()*5*3/@size)+@rq5*SIN(2*PI()*5*3/@size))+(@ri6*COS(2*PI()*6*3/@size)+@rq6*SIN(2*PI()*6*3/@size))+(@ri7*COS(2*PI()*7*3/@size)+@rq7*SIN(2*PI()*7*3/@size))+(@ri8*COS(2*PI()*8*3/@size)+@rq8*SIN(2*PI()*8*3/@size))+(@ri9*COS(2*PI()*9*3/@size)+@rq9*SIN(2*PI()*9*3/@size))+(@ri10*COS(2*PI()*10*3/@size)+@rq10*SIN(2*PI()*10*3/@size))+(@ri11*COS(2*PI()*11*3/@size)+@rq11*SIN(2*PI()*11*3/@size))+(@ri12*COS(2*PI()*12*3/@size)+@rq12*SIN(2*PI()*12*3/@size))+(@ri13*COS(2*PI()*13*3/@size)+@rq13*SIN(2*PI()*13*3/@size))+(@ri14*COS(2*PI()*14*3/@size)+@rq14*SIN(2*PI()*14*3/@size))+(@ri15*COS(2*PI()*15*3/@size)+@rq15*SIN(2*PI()*15*3/@size))",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "out_q3",
+      "label": "Forward DFT frequency 4 Q",
+      "formula": "=(@rq0*COS(2*PI()*0*3/@size)-@ri0*SIN(2*PI()*0*3/@size))+(@rq1*COS(2*PI()*1*3/@size)-@ri1*SIN(2*PI()*1*3/@size))+(@rq2*COS(2*PI()*2*3/@size)-@ri2*SIN(2*PI()*2*3/@size))+(@rq3*COS(2*PI()*3*3/@size)-@ri3*SIN(2*PI()*3*3/@size))+(@rq4*COS(2*PI()*4*3/@size)-@ri4*SIN(2*PI()*4*3/@size))+(@rq5*COS(2*PI()*5*3/@size)-@ri5*SIN(2*PI()*5*3/@size))+(@rq6*COS(2*PI()*6*3/@size)-@ri6*SIN(2*PI()*6*3/@size))+(@rq7*COS(2*PI()*7*3/@size)-@ri7*SIN(2*PI()*7*3/@size))+(@rq8*COS(2*PI()*8*3/@size)-@ri8*SIN(2*PI()*8*3/@size))+(@rq9*COS(2*PI()*9*3/@size)-@ri9*SIN(2*PI()*9*3/@size))+(@rq10*COS(2*PI()*10*3/@size)-@ri10*SIN(2*PI()*10*3/@size))+(@rq11*COS(2*PI()*11*3/@size)-@ri11*SIN(2*PI()*11*3/@size))+(@rq12*COS(2*PI()*12*3/@size)-@ri12*SIN(2*PI()*12*3/@size))+(@rq13*COS(2*PI()*13*3/@size)-@ri13*SIN(2*PI()*13*3/@size))+(@rq14*COS(2*PI()*14*3/@size)-@ri14*SIN(2*PI()*14*3/@size))+(@rq15*COS(2*PI()*15*3/@size)-@ri15*SIN(2*PI()*15*3/@size))",
+      "unit": "sqrt(m2)"
+    }
+  ],
+  "checks": [
+    {
+      "case": "keep frequency 1",
+      "metric": "Field I",
+      "formula": "=@out_i0",
+      "actual": 0.8424057179081558,
+      "unit": "sqrt(m2)",
+      "source": "result_keep.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "keep frequency 1",
+      "metric": "Field Q",
+      "formula": "=@out_q0",
+      "actual": 0.6304018149771725,
+      "unit": "sqrt(m2)",
+      "source": "result_keep.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "keep frequency 2",
+      "metric": "Field I",
+      "formula": "=@out_i1",
+      "actual": 1.2579731876625178,
+      "unit": "sqrt(m2)",
+      "source": "result_keep.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "keep frequency 2",
+      "metric": "Field Q",
+      "formula": "=@out_q1",
+      "actual": 0.6041598032175893,
+      "unit": "sqrt(m2)",
+      "source": "result_keep.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "keep frequency 3",
+      "metric": "Field I",
+      "formula": "=@out_i2",
+      "actual": 1.3451609673567757,
+      "unit": "sqrt(m2)",
+      "source": "result_keep.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "keep frequency 3",
+      "metric": "Field Q",
+      "formula": "=@out_q2",
+      "actual": 0.45632667924797,
+      "unit": "sqrt(m2)",
+      "source": "result_keep.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "keep frequency 4",
+      "metric": "Field I",
+      "formula": "=@out_i3",
+      "actual": 1.0986478908462225,
+      "unit": "sqrt(m2)",
+      "source": "result_keep.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "keep frequency 4",
+      "metric": "Field Q",
+      "formula": "=@out_q3",
+      "actual": 0.29340163096070104,
+      "unit": "sqrt(m2)",
+      "source": "result_keep.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "remove frequency 1",
+      "metric": "Field I",
+      "formula": "=@i0-@out_i0",
+      "actual": 0.15759428209184406,
+      "unit": "sqrt(m2)",
+      "source": "result_remove.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "remove frequency 1",
+      "metric": "Field Q",
+      "formula": "=@q0-@out_q0",
+      "actual": 1.3695981850228276,
+      "unit": "sqrt(m2)",
+      "source": "result_remove.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "remove frequency 2",
+      "metric": "Field I",
+      "formula": "=@i1-@out_i1",
+      "actual": 0.7420268123374821,
+      "unit": "sqrt(m2)",
+      "source": "result_remove.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "remove frequency 2",
+      "metric": "Field Q",
+      "formula": "=@q1-@out_q1",
+      "actual": -1.1041598032175897,
+      "unit": "sqrt(m2)",
+      "source": "result_remove.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "remove frequency 3",
+      "metric": "Field I",
+      "formula": "=@i2-@out_i2",
+      "actual": -1.8451609673567755,
+      "unit": "sqrt(m2)",
+      "source": "result_remove.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "remove frequency 3",
+      "metric": "Field Q",
+      "formula": "=@q2-@out_q2",
+      "actual": -0.2063266792479706,
+      "unit": "sqrt(m2)",
+      "source": "result_remove.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "remove frequency 4",
+      "metric": "Field I",
+      "formula": "=@i3-@out_i3",
+      "actual": 1.9013521091537777,
+      "unit": "sqrt(m2)",
+      "source": "result_remove.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "remove frequency 4",
+      "metric": "Field Q",
+      "formula": "=@q3-@out_q3",
+      "actual": 0.7065983690392994,
+      "unit": "sqrt(m2)",
+      "source": "result_remove.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Negative time frequency 1",
+      "metric": "Field I",
+      "formula": "=@out_i0",
+      "actual": 0.8424057179081558,
+      "unit": "sqrt(m2)",
+      "source": "result_negative_time.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Negative time frequency 1",
+      "metric": "Field Q",
+      "formula": "=-@out_q0",
+      "actual": -0.6304018149771725,
+      "unit": "sqrt(m2)",
+      "source": "result_negative_time.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Negative time frequency 2",
+      "metric": "Field I",
+      "formula": "=@out_i1",
+      "actual": 1.2579731876625178,
+      "unit": "sqrt(m2)",
+      "source": "result_negative_time.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Negative time frequency 2",
+      "metric": "Field Q",
+      "formula": "=-@out_q1",
+      "actual": -0.6041598032175893,
+      "unit": "sqrt(m2)",
+      "source": "result_negative_time.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Negative time frequency 3",
+      "metric": "Field I",
+      "formula": "=@out_i2",
+      "actual": 1.3451609673567757,
+      "unit": "sqrt(m2)",
+      "source": "result_negative_time.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Negative time frequency 3",
+      "metric": "Field Q",
+      "formula": "=-@out_q2",
+      "actual": -0.45632667924797,
+      "unit": "sqrt(m2)",
+      "source": "result_negative_time.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Negative time frequency 4",
+      "metric": "Field I",
+      "formula": "=@out_i3",
+      "actual": 1.0986478908462225,
+      "unit": "sqrt(m2)",
+      "source": "result_negative_time.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Negative time frequency 4",
+      "metric": "Field Q",
+      "formula": "=-@out_q3",
+      "actual": -0.29340163096070104,
+      "unit": "sqrt(m2)",
+      "source": "result_negative_time.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Full gate frequency 1",
+      "metric": "Field I",
+      "formula": "=@i0",
+      "actual": 0.9999999999999998,
+      "unit": "sqrt(m2)",
+      "source": "result_full_gate.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Full gate frequency 1",
+      "metric": "Field Q",
+      "formula": "=@q0",
+      "actual": 2.0000000000000004,
+      "unit": "sqrt(m2)",
+      "source": "result_full_gate.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Full gate frequency 2",
+      "metric": "Field I",
+      "formula": "=@i1",
+      "actual": 2.0,
+      "unit": "sqrt(m2)",
+      "source": "result_full_gate.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Full gate frequency 2",
+      "metric": "Field Q",
+      "formula": "=@q1",
+      "actual": -0.5000000000000002,
+      "unit": "sqrt(m2)",
+      "source": "result_full_gate.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Full gate frequency 3",
+      "metric": "Field I",
+      "formula": "=@i2",
+      "actual": -0.5,
+      "unit": "sqrt(m2)",
+      "source": "result_full_gate.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Full gate frequency 3",
+      "metric": "Field Q",
+      "formula": "=@q2",
+      "actual": 0.24999999999999983,
+      "unit": "sqrt(m2)",
+      "source": "result_full_gate.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Full gate frequency 4",
+      "metric": "Field I",
+      "formula": "=@i3",
+      "actual": 3.0,
+      "unit": "sqrt(m2)",
+      "source": "result_full_gate.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Full gate frequency 4",
+      "metric": "Field Q",
+      "formula": "=@q3",
+      "actual": 1.0000000000000009,
+      "unit": "sqrt(m2)",
+      "source": "result_full_gate.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Compensated center frequency 1",
+      "metric": "Field I",
+      "formula": "=COS(-4*PI()*1*@df*(@start+@stop)/2/@c)",
+      "actual": 0.9781174449295801,
+      "unit": "sqrt(m2)",
+      "source": "result_compensated_center.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Compensated center frequency 1",
+      "metric": "Field Q",
+      "formula": "=SIN(-4*PI()*1*@df*(@start+@stop)/2/@c)",
+      "actual": -0.2080535121655723,
+      "unit": "sqrt(m2)",
+      "source": "result_compensated_center.csv row 2: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Compensated center frequency 2",
+      "metric": "Field I",
+      "formula": "=COS(-4*PI()*2*@df*(@start+@stop)/2/@c)",
+      "actual": 0.9134274721511401,
+      "unit": "sqrt(m2)",
+      "source": "result_compensated_center.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Compensated center frequency 2",
+      "metric": "Field Q",
+      "formula": "=SIN(-4*PI()*2*@df*(@start+@stop)/2/@c)",
+      "actual": -0.4070015394560297,
+      "unit": "sqrt(m2)",
+      "source": "result_compensated_center.csv row 3: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Compensated center frequency 3",
+      "metric": "Field I",
+      "formula": "=COS(-4*PI()*3*@df*(@start+@stop)/2/@c)",
+      "actual": 0.8087612454483365,
+      "unit": "sqrt(m2)",
+      "source": "result_compensated_center.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Compensated center frequency 3",
+      "metric": "Field Q",
+      "formula": "=SIN(-4*PI()*3*@df*(@start+@stop)/2/@c)",
+      "actual": -0.5881370995447027,
+      "unit": "sqrt(m2)",
+      "source": "result_compensated_center.csv row 4: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Compensated center frequency 4",
+      "metric": "Field I",
+      "formula": "=COS(-4*PI()*4*@df*(@start+@stop)/2/@c)",
+      "actual": 0.6686994937608437,
+      "unit": "sqrt(m2)",
+      "source": "result_compensated_center.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Compensated center frequency 4",
+      "metric": "Field Q",
+      "formula": "=SIN(-4*PI()*4*@df*(@start+@stop)/2/@c)",
+      "actual": -0.7435327746938876,
+      "unit": "sqrt(m2)",
+      "source": "result_compensated_center.csv row 5: sqrt(magnitude_power_linear) and phase_deg",
+      "tolerance": null
+    },
+    {
+      "case": "Gate narrower than native range cell",
+      "metric": "Invalid input handling",
+      "formula": "=\"REJECTED\"",
+      "actual": "REJECTED",
+      "unit": "",
+      "source": "Recorded GRIM operation response",
+      "tolerance": null
+    },
+    {
+      "case": "Irregular frequencies",
+      "metric": "Invalid input handling",
+      "formula": "=\"REJECTED\"",
+      "actual": "REJECTED",
+      "unit": "",
+      "source": "Recorded GRIM operation response",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input",
+      "native": "datasets/time_gate/input.grim",
+      "csv": "datasets/time_gate/input.csv",
+      "rows": 4
+    },
+    {
+      "name": "result_keep",
+      "native": "datasets/time_gate/result_keep.grim",
+      "csv": "datasets/time_gate/result_keep.csv",
+      "rows": 4
+    },
+    {
+      "name": "result_remove",
+      "native": "datasets/time_gate/result_remove.grim",
+      "csv": "datasets/time_gate/result_remove.csv",
+      "rows": 4
+    },
+    {
+      "name": "input_negative_time",
+      "native": "datasets/time_gate/input_negative_time.grim",
+      "csv": "datasets/time_gate/input_negative_time.csv",
+      "rows": 4
+    },
+    {
+      "name": "result_negative_time",
+      "native": "datasets/time_gate/result_negative_time.grim",
+      "csv": "datasets/time_gate/result_negative_time.csv",
+      "rows": 4
+    },
+    {
+      "name": "result_full_gate",
+      "native": "datasets/time_gate/result_full_gate.grim",
+      "csv": "datasets/time_gate/result_full_gate.csv",
+      "rows": 4
+    },
+    {
+      "name": "input_center_point",
+      "native": "datasets/time_gate/input_center_point.grim",
+      "csv": "datasets/time_gate/input_center_point.csv",
+      "rows": 4
+    },
+    {
+      "name": "result_compensated_center",
+      "native": "datasets/time_gate/result_compensated_center.grim",
+      "csv": "datasets/time_gate/result_compensated_center.csv",
+      "rows": 4
+    },
+    {
+      "name": "input_irregular_frequency",
+      "native": "datasets/time_gate/input_irregular_frequency.grim",
+      "csv": "datasets/time_gate/input_irregular_frequency.csv",
+      "rows": 3
+    }
+  ],
+  "notes": [
+    "Gate narrower than native range cell: the gate is narrower than the 0.03747 m native range-cell spacing (minimum gate width)",
+    "Irregular frequencies: time gating needs increasing, uniformly spaced frequencies; Regrid the frequency axis first"
+  ]
+}

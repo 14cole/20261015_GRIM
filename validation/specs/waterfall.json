@@ -1,0 +1,155 @@
+{
+  "slug": "waterfall",
+  "title": "Waterfall",
+  "description": "Native image values averaged over elevation in linear power.",
+  "settings": "Axes azimuth/frequency; aggregation Mean power; dBsm.",
+  "scope": "Native pixels and axis association; shared cut axes and display decimation need GUI checks.",
+  "category": "Plot",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "p0_0_0_0",
+      "label": "Power at az/el/f index (0, 0, 0)",
+      "value": 1.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p0_0_1_0",
+      "label": "Power at az/el/f index (0, 0, 1)",
+      "value": 2.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p0_0_2_0",
+      "label": "Power at az/el/f index (0, 0, 2)",
+      "value": 4.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p0_1_0_0",
+      "label": "Power at az/el/f index (0, 1, 0)",
+      "value": 3.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p0_1_1_0",
+      "label": "Power at az/el/f index (0, 1, 1)",
+      "value": 6.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p0_1_2_0",
+      "label": "Power at az/el/f index (0, 1, 2)",
+      "value": 12.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p1_0_0_0",
+      "label": "Power at az/el/f index (1, 0, 0)",
+      "value": 5.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p1_0_1_0",
+      "label": "Power at az/el/f index (1, 0, 1)",
+      "value": 10.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p1_0_2_0",
+      "label": "Power at az/el/f index (1, 0, 2)",
+      "value": 20.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p1_1_0_0",
+      "label": "Power at az/el/f index (1, 1, 0)",
+      "value": 7.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p1_1_1_0",
+      "label": "Power at az/el/f index (1, 1, 1)",
+      "value": 14.0,
+      "unit": "m^2"
+    },
+    {
+      "id": "p1_1_2_0",
+      "label": "Power at az/el/f index (1, 1, 2)",
+      "value": 28.0,
+      "unit": "m^2"
+    }
+  ],
+  "calculations": [],
+  "checks": [
+    {
+      "case": "Az 1, f 1",
+      "metric": "Pixel level",
+      "formula": "=10*LOG10(AVERAGE(@p0_0_0_0,@p0_1_0_0))",
+      "actual": 3.010299956639812,
+      "unit": "dBsm",
+      "source": "image_values.csv row 2: level_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "Az 1, f 2",
+      "metric": "Pixel level",
+      "formula": "=10*LOG10(AVERAGE(@p0_0_1_0,@p0_1_1_0))",
+      "actual": 6.020599913279624,
+      "unit": "dBsm",
+      "source": "image_values.csv row 3: level_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "Az 1, f 3",
+      "metric": "Pixel level",
+      "formula": "=10*LOG10(AVERAGE(@p0_0_2_0,@p0_1_2_0))",
+      "actual": 9.030899869919436,
+      "unit": "dBsm",
+      "source": "image_values.csv row 4: level_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "Az 2, f 1",
+      "metric": "Pixel level",
+      "formula": "=10*LOG10(AVERAGE(@p1_0_0_0,@p1_1_0_0))",
+      "actual": 7.781512503836437,
+      "unit": "dBsm",
+      "source": "image_values.csv row 5: level_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "Az 2, f 2",
+      "metric": "Pixel level",
+      "formula": "=10*LOG10(AVERAGE(@p1_0_1_0,@p1_1_1_0))",
+      "actual": 10.79181246047625,
+      "unit": "dBsm",
+      "source": "image_values.csv row 6: level_dbsm",
+      "tolerance": null
+    },
+    {
+      "case": "Az 2, f 3",
+      "metric": "Pixel level",
+      "formula": "=10*LOG10(AVERAGE(@p1_0_2_0,@p1_1_2_0))",
+      "actual": 13.80211241711606,
+      "unit": "dBsm",
+      "source": "image_values.csv row 7: level_dbsm",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input",
+      "native": "datasets/waterfall/input.grim",
+      "csv": "datasets/waterfall/input.csv",
+      "rows": 12
+    },
+    {
+      "name": "image_values",
+      "csv": "datasets/waterfall/image_values.csv",
+      "rows": 6
+    }
+  ],
+  "notes": []
+}

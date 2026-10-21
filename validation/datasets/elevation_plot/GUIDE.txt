@@ -1,0 +1,39 @@
+Elevation Sweep
+---------------
+
+WORKBOOK EXAMPLE
+Reduce the three azimuths in linear power, then convert the result to dBsm.
+The worksheet shows 8 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+All azimuths; VV; test Mean, P50, P90 and Max.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/elevation_plot.json.
+Mean at 0° (dBsm): Excel H8; GRIM I8; percent error J8; original check 2; source mean_plot.csv row 2: level
+Mean at 30° (dBsm): Excel H9; GRIM I9; percent error J9; original check 4; source mean_plot.csv row 3: level
+Median at 0° (dBsm): Excel H10; GRIM I10; percent error J10; original check 20; source median_plot.csv row 2: level
+Median at 30° (dBsm): Excel H11; GRIM I11; percent error J11; original check 22; source median_plot.csv row 3: level
+Percentile at 0° (dBsm): Excel H12; GRIM I12; percent error J12; original check 38; source percentile_plot.csv row 2: level
+Percentile at 30° (dBsm): Excel H13; GRIM I13; percent error J13; original check 40; source percentile_plot.csv row 3: level
+Max at 0° (dBsm): Excel H14; GRIM I14; percent error J14; original check 56; source max_plot.csv row 2: level
+Max at 30° (dBsm): Excel H15; GRIM I15; percent error J15; original check 58; source max_plot.csv row 3: level
+
+FILES
+input: datasets/elevation_plot/input.grim; datasets/elevation_plot/input.csv
+mean_plot: datasets/elevation_plot/mean_plot.csv
+median_plot: datasets/elevation_plot/median_plot.csv
+percentile_plot: datasets/elevation_plot/percentile_plot.csv
+max_plot: datasets/elevation_plot/max_plot.csv
+
+SCOPE
+Numerical behavior for the supplied fixtures; not all possible inputs.
+The full specification retains 72 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+None.

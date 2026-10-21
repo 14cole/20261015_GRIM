@@ -1,0 +1,214 @@
+{
+  "slug": "rf_compare",
+  "title": "RF Compare",
+  "description": "Compare two six-sample traces with a fourfold power difference.",
+  "settings": "Magnitude comparison using gain_x4_left and gain_x4_right; 10 GHz, elevation 0\u00b0, VV.",
+  "scope": "Validates the defined metric arithmetic on positive synthetic powers. The RF index is a chosen scoring policy, not a universal physical-quality certificate.",
+  "rawHeaders": [
+    "Azimuth (deg)",
+    "A RCS (m\u00b2)",
+    "B RCS (m\u00b2)",
+    "A (dBsm, calc.)",
+    "B (dBsm, calc.)",
+    "Difference (dB)",
+    "|Difference| (dB)"
+  ],
+  "rawRows": [
+    [
+      {
+        "id": "gain_x4_x0",
+        "value": 0.0
+      },
+      {
+        "id": "gain_x4_l0",
+        "value": 1.0
+      },
+      {
+        "id": "gain_x4_r0",
+        "value": 4.0
+      },
+      {
+        "id": "gain_x4_ld0",
+        "formula": "=10*LOG10(@gain_x4_l0)"
+      },
+      {
+        "id": "gain_x4_rd0",
+        "formula": "=10*LOG10(@gain_x4_r0)"
+      },
+      {
+        "id": "gain_x4_delta0",
+        "formula": "=@gain_x4_ld0-@gain_x4_rd0"
+      },
+      {
+        "id": "gain_x4_abs0",
+        "formula": "=ABS(@gain_x4_delta0)"
+      }
+    ],
+    [
+      {
+        "id": "gain_x4_x1",
+        "value": 10.0
+      },
+      {
+        "id": "gain_x4_l1",
+        "value": 2.0
+      },
+      {
+        "id": "gain_x4_r1",
+        "value": 8.0
+      },
+      {
+        "id": "gain_x4_ld1",
+        "formula": "=10*LOG10(@gain_x4_l1)"
+      },
+      {
+        "id": "gain_x4_rd1",
+        "formula": "=10*LOG10(@gain_x4_r1)"
+      },
+      {
+        "id": "gain_x4_delta1",
+        "formula": "=@gain_x4_ld1-@gain_x4_rd1"
+      },
+      {
+        "id": "gain_x4_abs1",
+        "formula": "=ABS(@gain_x4_delta1)"
+      }
+    ],
+    [
+      {
+        "id": "gain_x4_x2",
+        "value": 20.0
+      },
+      {
+        "id": "gain_x4_l2",
+        "value": 4.0
+      },
+      {
+        "id": "gain_x4_r2",
+        "value": 16.0
+      },
+      {
+        "id": "gain_x4_ld2",
+        "formula": "=10*LOG10(@gain_x4_l2)"
+      },
+      {
+        "id": "gain_x4_rd2",
+        "formula": "=10*LOG10(@gain_x4_r2)"
+      },
+      {
+        "id": "gain_x4_delta2",
+        "formula": "=@gain_x4_ld2-@gain_x4_rd2"
+      },
+      {
+        "id": "gain_x4_abs2",
+        "formula": "=ABS(@gain_x4_delta2)"
+      }
+    ],
+    [
+      {
+        "id": "gain_x4_x3",
+        "value": 30.0
+      },
+      {
+        "id": "gain_x4_l3",
+        "value": 8.0
+      },
+      {
+        "id": "gain_x4_r3",
+        "value": 32.0
+      },
+      {
+        "id": "gain_x4_ld3",
+        "formula": "=10*LOG10(@gain_x4_l3)"
+      },
+      {
+        "id": "gain_x4_rd3",
+        "formula": "=10*LOG10(@gain_x4_r3)"
+      },
+      {
+        "id": "gain_x4_delta3",
+        "formula": "=@gain_x4_ld3-@gain_x4_rd3"
+      },
+      {
+        "id": "gain_x4_abs3",
+        "formula": "=ABS(@gain_x4_delta3)"
+      }
+    ],
+    [
+      {
+        "id": "gain_x4_x4",
+        "value": 40.0
+      },
+      {
+        "id": "gain_x4_l4",
+        "value": 16.0
+      },
+      {
+        "id": "gain_x4_r4",
+        "value": 64.0
+      },
+      {
+        "id": "gain_x4_ld4",
+        "formula": "=10*LOG10(@gain_x4_l4)"
+      },
+      {
+        "id": "gain_x4_rd4",
+        "formula": "=10*LOG10(@gain_x4_r4)"
+      },
+      {
+        "id": "gain_x4_delta4",
+        "formula": "=@gain_x4_ld4-@gain_x4_rd4"
+      },
+      {
+        "id": "gain_x4_abs4",
+        "formula": "=ABS(@gain_x4_delta4)"
+      }
+    ],
+    [
+      {
+        "id": "gain_x4_x5",
+        "value": 50.0
+      },
+      {
+        "id": "gain_x4_l5",
+        "value": 32.0
+      },
+      {
+        "id": "gain_x4_r5",
+        "value": 128.0
+      },
+      {
+        "id": "gain_x4_ld5",
+        "formula": "=10*LOG10(@gain_x4_l5)"
+      },
+      {
+        "id": "gain_x4_rd5",
+        "formula": "=10*LOG10(@gain_x4_r5)"
+      },
+      {
+        "id": "gain_x4_delta5",
+        "formula": "=@gain_x4_ld5-@gain_x4_rd5"
+      },
+      {
+        "id": "gain_x4_abs5",
+        "formula": "=ABS(@gain_x4_delta5)"
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    16,
+    18,
+    19,
+    20,
+    21,
+    22
+  ],
+  "labelOverrides": {
+    "16": "Linear CCC",
+    "18": "Normalized RMS error",
+    "19": "Median A \u2212 B (dB)",
+    "20": "Mean absolute difference (dB)",
+    "21": "P95 absolute difference (dB)",
+    "22": "Peak azimuth offset (deg)"
+  }
+}

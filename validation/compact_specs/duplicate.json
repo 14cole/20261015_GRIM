@@ -1,0 +1,248 @@
+{
+  "slug": "duplicate",
+  "title": "Duplicate",
+  "description": "A copy retains all coordinates and samples.",
+  "settings": "Duplicate the dataset. Compare copied RCS, zero, missing, and coordinates.",
+  "scope": "Worked examples from the supplied input and output files. Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Polarization",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "input",
+      {
+        "id": "input_0_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_0_el",
+        "value": -5.0
+      },
+      {
+        "id": "input_0_f",
+        "value": 9.0
+      },
+      {
+        "id": "input_0_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_0_p",
+        "value": 1.0
+      },
+      {
+        "id": "input_0_ph",
+        "value": -150.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_1_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_1_el",
+        "value": -5.0
+      },
+      {
+        "id": "input_1_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_1_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_1_p",
+        "value": 0.0
+      },
+      {
+        "id": "input_1_ph",
+        "value": -137.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_2_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_2_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_2_f",
+        "value": 9.0
+      },
+      {
+        "id": "input_2_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_2_p",
+        "value": "missing"
+      },
+      {
+        "id": "input_2_ph",
+        "value": -124.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_3_az",
+        "value": 0.0
+      },
+      {
+        "id": "input_3_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_3_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_3_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_3_p",
+        "value": 4.0
+      },
+      {
+        "id": "input_3_ph",
+        "value": -111.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_4_az",
+        "value": 45.0
+      },
+      {
+        "id": "input_4_el",
+        "value": -5.0
+      },
+      {
+        "id": "input_4_f",
+        "value": 9.0
+      },
+      {
+        "id": "input_4_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_4_p",
+        "value": 5.0
+      },
+      {
+        "id": "input_4_ph",
+        "value": -98.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_5_az",
+        "value": 45.0
+      },
+      {
+        "id": "input_5_el",
+        "value": -5.0
+      },
+      {
+        "id": "input_5_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_5_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_5_p",
+        "value": 6.0
+      },
+      {
+        "id": "input_5_ph",
+        "value": -85.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_6_az",
+        "value": 45.0
+      },
+      {
+        "id": "input_6_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_6_f",
+        "value": 9.0
+      },
+      {
+        "id": "input_6_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_6_p",
+        "value": 7.0
+      },
+      {
+        "id": "input_6_ph",
+        "value": -72.0
+      }
+    ],
+    [
+      "input",
+      {
+        "id": "input_7_az",
+        "value": 45.0
+      },
+      {
+        "id": "input_7_el",
+        "value": 5.0
+      },
+      {
+        "id": "input_7_f",
+        "value": 10.0
+      },
+      {
+        "id": "input_7_pol",
+        "value": "VV"
+      },
+      {
+        "id": "input_7_p",
+        "value": 8.0
+      },
+      {
+        "id": "input_7_ph",
+        "value": -59.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    5,
+    11,
+    16,
+    22,
+    28,
+    34,
+    40,
+    46,
+    42,
+    44
+  ],
+  "labelOverrides": {},
+  "formulaOverrides": {}
+}

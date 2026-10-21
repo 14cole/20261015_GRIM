@@ -1,0 +1,41 @@
+El to Az360
+-----------
+
+WORKBOOK EXAMPLE
+Attested opposite elevation pair. Shift +10 deg cut by 180 deg azimuth; output elevation stays -10 deg.
+The worksheet shows 9 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Elevations -10/+10 deg; base azimuth [0,90] deg. Higher cut shifts +180 deg; output elevation -10 deg.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/el_az360.json.
+Output 1: azimuth (deg): Excel J8; GRIM K8; percent error L8; original check 1; source result.csv row 2: azimuth
+Output 1: RCS (m²): Excel J9; GRIM K9; percent error L9; original check 5; source result.csv row 2: magnitude_power_linear
+Output 2: azimuth (deg): Excel J10; GRIM K10; percent error L10; original check 7; source result.csv row 3: azimuth
+Output 2: RCS (m²): Excel J11; GRIM K11; percent error L11; original check 11; source result.csv row 3: magnitude_power_linear
+Output 3: azimuth (deg): Excel J12; GRIM K12; percent error L12; original check 13; source result.csv row 4: azimuth
+Output 3: RCS (m²): Excel J13; GRIM K13; percent error L13; original check 17; source result.csv row 4: magnitude_power_linear
+Output 4: azimuth (deg): Excel J14; GRIM K14; percent error L14; original check 19; source result.csv row 5: azimuth
+Output 4: RCS (m²): Excel J15; GRIM K15; percent error L15; original check 23; source result.csv row 5: magnitude_power_linear
+Output 1: elevation (deg): Excel J16; GRIM K16; percent error L16; original check 2; source result.csv row 2: elevation
+
+FILES
+input: datasets/el_az360/input.grim; datasets/el_az360/input.csv
+result: datasets/el_az360/result.grim; datasets/el_az360/result.csv
+input_asymmetric: datasets/el_az360/input_asymmetric.grim; datasets/el_az360/input_asymmetric.csv
+input_seam_conflict: datasets/el_az360/input_seam_conflict.grim; datasets/el_az360/input_seam_conflict.csv
+
+SCOPE
+Worked examples from the supplied input and output files. Acquisition-specific relabel only; does not prove equivalence of arbitrary elevation and azimuth sweeps.
+The full specification retains 28 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+No acquisition attestation: El->Az360 is an acquisition-specific relabel. Confirm the opposite-elevation/180-degree acquisition assumption before creating the result.
+Asymmetric elevation pair: El->Az360 requires equal-and-opposite elevation cuts about zero; got -5 and 10 deg
+Conflicting 180-degree seam: El->Az360 shifted higher elevation at azimuth 180 deg: conflicting finite seam samples would overlap

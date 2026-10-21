@@ -1,0 +1,96 @@
+{
+  "slug": "stats",
+  "title": "Stats",
+  "description": "Independent linear-power statistics over azimuth, with frequency, elevation and polarization kept separate.",
+  "settings": "Reduce azimuth in linear power. This example uses 8 GHz, elevation -5°, VV. Percentile setting: 90.",
+  "scope": "Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Pol",
+    "RCS (m²)"
+  ],
+  "rawRows": [
+    [
+      "Input",
+      -10.0,
+      -5.0,
+      8.0,
+      "VV",
+      {
+        "id": "p000_0",
+        "value": 0.0
+      }
+    ],
+    [
+      "Input",
+      0.0,
+      -5.0,
+      8.0,
+      "VV",
+      {
+        "id": "p000_1",
+        "value": 1.0
+      }
+    ],
+    [
+      "Input",
+      10.0,
+      -5.0,
+      8.0,
+      "VV",
+      {
+        "id": "p000_2",
+        "value": 4.0
+      }
+    ],
+    [
+      "Input",
+      20.0,
+      -5.0,
+      8.0,
+      "VV",
+      {
+        "id": "p000_3",
+        "value": 16.0
+      }
+    ],
+    [
+      "Input",
+      30.0,
+      -5.0,
+      8.0,
+      "VV",
+      {
+        "id": "p000_4",
+        "value": 100.0
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    0,
+    40,
+    80,
+    120,
+    160,
+    200
+  ],
+  "labelOverrides": {
+    "0": "Mean",
+    "40": "Median",
+    "80": "Minimum",
+    "120": "Maximum",
+    "160": "Population standard deviation",
+    "200": "90th percentile"
+  },
+  "formulaOverrides": {
+    "0": "=AVERAGE(@p000_0:@p000_4)",
+    "40": "=MEDIAN(@p000_0:@p000_4)",
+    "80": "=MIN(@p000_0:@p000_4)",
+    "120": "=MAX(@p000_0:@p000_4)",
+    "160": "=STDEV.P(@p000_0:@p000_4)",
+    "200": "=PERCENTILE.INC(@p000_0:@p000_4,@q/100)"
+  }
+}

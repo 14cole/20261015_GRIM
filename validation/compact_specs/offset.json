@@ -1,0 +1,115 @@
+{
+  "slug": "offset",
+  "title": "Offset",
+  "description": "Constant dB offset scales linear power while preserving known phase and missing data.",
+  "settings": "Offset +6 dB. A second output applies -6 dB to the first output.",
+  "scope": "Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Pol",
+    "RCS (m²)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "Input",
+      0.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "p0",
+        "value": 1.0
+      },
+      {
+        "id": "ph0",
+        "value": 179.0
+      }
+    ],
+    [
+      "Input",
+      1.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "p1",
+        "value": 0.0
+      },
+      {
+        "id": "ph1",
+        "value": "missing"
+      }
+    ],
+    [
+      "Input",
+      2.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "p2",
+        "value": 100.0
+      },
+      {
+        "id": "ph2",
+        "value": -179.0
+      }
+    ],
+    [
+      "Input",
+      3.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "p3",
+        "value": "missing"
+      },
+      {
+        "id": "ph3",
+        "value": 45.0
+      }
+    ],
+    [
+      "Input",
+      4.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "p4",
+        "value": 4.0
+      },
+      {
+        "id": "ph4",
+        "value": "missing"
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    0,
+    3,
+    6,
+    9,
+    12,
+    1,
+    7,
+    2,
+    8
+  ],
+  "labelOverrides": {
+    "0": "Az 0: power after +6 dB",
+    "3": "Az 1: power after +6 dB",
+    "6": "Az 2: power after +6 dB",
+    "9": "Az 3: power after +6 dB",
+    "12": "Az 4: power after +6 dB",
+    "1": "Az 0: preserved phase",
+    "7": "Az 2: preserved phase",
+    "2": "Az 0: power after reversing offset",
+    "8": "Az 2: power after reversing offset"
+  }
+}

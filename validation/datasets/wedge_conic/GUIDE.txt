@@ -1,0 +1,38 @@
+Wedge Conic
+-----------
+
+WORKBOOK EXAMPLE
+Waterline elevation 0 deg; 10 GHz; HH polarization.
+The worksheet shows 7 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Waterline: 0/90/180/270 degrees; tilted: 30-degree azimuth steps and tilts -30/-15/0/15/30 degrees; VV HH VH.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/wedge_conic.json.
+Output row 1: azimuth (deg): Excel I8; GRIM J8; percent error K8; original check 0; source result_waterline.csv row 2: azimuth
+Output row 1: RCS (m2): Excel I9; GRIM J9; percent error K9; original check 1; source result_waterline.csv row 2: magnitude_power_linear
+Output row 2: azimuth (deg): Excel I10; GRIM J10; percent error K10; original check 3; source result_waterline.csv row 3: azimuth
+Output row 2: RCS (m2): Excel I11; GRIM J11; percent error K11; original check 4; source result_waterline.csv row 3: magnitude_power_linear
+Output row 3: azimuth (deg): Excel I12; GRIM J12; percent error K12; original check 6; source result_waterline.csv row 4: azimuth
+Output row 3: RCS (m2): Excel I13; GRIM J13; percent error K13; original check 7; source result_waterline.csv row 4: magnitude_power_linear
+Output row 4: azimuth (deg): Excel I14; GRIM J14; percent error K14; original check 9; source result_waterline.csv row 5: azimuth
+
+FILES
+input_waterline: datasets/wedge_conic/input_waterline.grim; datasets/wedge_conic/input_waterline.csv
+result_waterline: datasets/wedge_conic/result_waterline.grim; datasets/wedge_conic/result_waterline.csv
+input_tilted: datasets/wedge_conic/input_tilted.grim; datasets/wedge_conic/input_tilted.csv
+result_tilted: datasets/wedge_conic/result_tilted.grim; datasets/wedge_conic/result_tilted.csv
+input_single_tilt: datasets/wedge_conic/input_single_tilt.grim; datasets/wedge_conic/input_single_tilt.csv
+
+SCOPE
+Waterline coordinate example only. Tilted polarization mixing and sparse-angle interpolation are outside this compact sheet.
+The full specification retains 28 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+One nonzero tilt cannot fill conic grid: One fixed wedge tilt away from waterline traces a great circle and cannot be converted into a normal constant-elevation azimuth sweep. Supply at least two measured wedge tilts.

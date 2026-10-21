@@ -1,0 +1,40 @@
+Medianize
+---------
+
+WORKBOOK EXAMPLE
+Periodic: window 200 deg, slide 90 deg. Open/gapped: window 20 deg, slide 20 deg, nonperiodic.
+The worksheet shows 9 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Periodic: window 200 deg, slide 90 deg. Open/gapped: window 20 deg, slide 20 deg, nonperiodic.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/medianize.json.
+Periodic center 0 deg: Excel I8; GRIM J8; percent error K8; original check 0; source result_periodic.csv row 2: magnitude_power_linear
+Periodic center 90 deg: Excel I9; GRIM J9; percent error K9; original check 2; source result_periodic.csv row 3: magnitude_power_linear
+Periodic center 180 deg: Excel I10; GRIM J10; percent error K10; original check 4; source result_periodic.csv row 4: magnitude_power_linear
+Periodic center 270 deg: Excel I11; GRIM J11; percent error K11; original check 6; source result_periodic.csv row 5: magnitude_power_linear
+Gapped center 10 deg: Excel I12; GRIM J12; percent error K12; original check 8; source result_gapped.csv row 2: magnitude_power_linear
+Gapped center 30 deg: Excel I13; GRIM J13; percent error K13; original check 10; source result_gapped.csv row 3: magnitude_power_linear
+Gapped center 50 deg: Excel I14; GRIM J14; percent error K14; original check 12; source result_gapped.csv row 4: magnitude_power_linear
+Gapped center 70 deg: Excel I15; GRIM J15; percent error K15; original check 14; source result_gapped.csv row 5: magnitude_power_linear
+Gapped center 90 deg: Excel I16; GRIM J16; percent error K16; original check 16; source result_gapped.csv row 6: magnitude_power_linear
+
+FILES
+input_periodic: datasets/medianize/input_periodic.grim; datasets/medianize/input_periodic.csv
+result_periodic: datasets/medianize/result_periodic.grim; datasets/medianize/result_periodic.csv
+input_gapped: datasets/medianize/input_gapped.grim; datasets/medianize/input_gapped.csv
+result_gapped: datasets/medianize/result_gapped.grim; datasets/medianize/result_gapped.csv
+
+SCOPE
+Numerical behavior for the supplied fixtures; not all possible inputs.
+The full specification retains 19 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+Nonpositive window: window_degrees and slide_degrees must be positive and finite
+The 360-degree closing sample repeats the 0-degree direction and is counted once.

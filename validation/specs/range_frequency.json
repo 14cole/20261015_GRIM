@@ -1,0 +1,4102 @@
+{
+  "slug": "range_frequency",
+  "title": "Range Freq",
+  "description": "Direct DFT power profiles and explicit range-phase normalization.",
+  "settings": "8 frequencies, 1 to 8 GHz; full selected band; Rectangular window; linear scale; 64 padded range bins.",
+  "scope": "Numerical plot values and coordinate direction for both declared range signs and missing declarations. Plot CSV is a direct numerical export, not a derived native dataset.",
+  "category": "Plot",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "c",
+      "label": "c",
+      "value": 299792458.0,
+      "unit": "m/s"
+    },
+    {
+      "id": "df",
+      "label": "df",
+      "value": 1000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "size",
+      "label": "size",
+      "value": 64,
+      "unit": ""
+    },
+    {
+      "id": "n",
+      "label": "n",
+      "value": 8,
+      "unit": ""
+    },
+    {
+      "id": "target",
+      "label": "target",
+      "value": 0.011710642890625,
+      "unit": "m"
+    },
+    {
+      "id": "amplitude",
+      "label": "amplitude",
+      "value": 2.0,
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "f0",
+      "label": "Frequency sample 1",
+      "value": 1000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "f1",
+      "label": "Frequency sample 2",
+      "value": 2000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "f2",
+      "label": "Frequency sample 3",
+      "value": 3000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "f3",
+      "label": "Frequency sample 4",
+      "value": 4000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "f4",
+      "label": "Frequency sample 5",
+      "value": 5000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "f5",
+      "label": "Frequency sample 6",
+      "value": 6000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "f6",
+      "label": "Frequency sample 7",
+      "value": 7000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "f7",
+      "label": "Frequency sample 8",
+      "value": 8000000000.0,
+      "unit": "Hz"
+    }
+  ],
+  "calculations": [
+    {
+      "id": "i0",
+      "label": "Canonical point sample 1 I",
+      "formula": "=@amplitude*COS(-4*PI()*@f0*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q0",
+      "label": "Canonical point sample 1 Q",
+      "formula": "=@amplitude*SIN(-4*PI()*@f0*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i1",
+      "label": "Canonical point sample 2 I",
+      "formula": "=@amplitude*COS(-4*PI()*@f1*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q1",
+      "label": "Canonical point sample 2 Q",
+      "formula": "=@amplitude*SIN(-4*PI()*@f1*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i2",
+      "label": "Canonical point sample 3 I",
+      "formula": "=@amplitude*COS(-4*PI()*@f2*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q2",
+      "label": "Canonical point sample 3 Q",
+      "formula": "=@amplitude*SIN(-4*PI()*@f2*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i3",
+      "label": "Canonical point sample 4 I",
+      "formula": "=@amplitude*COS(-4*PI()*@f3*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q3",
+      "label": "Canonical point sample 4 Q",
+      "formula": "=@amplitude*SIN(-4*PI()*@f3*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i4",
+      "label": "Canonical point sample 5 I",
+      "formula": "=@amplitude*COS(-4*PI()*@f4*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q4",
+      "label": "Canonical point sample 5 Q",
+      "formula": "=@amplitude*SIN(-4*PI()*@f4*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i5",
+      "label": "Canonical point sample 6 I",
+      "formula": "=@amplitude*COS(-4*PI()*@f5*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q5",
+      "label": "Canonical point sample 6 Q",
+      "formula": "=@amplitude*SIN(-4*PI()*@f5*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i6",
+      "label": "Canonical point sample 7 I",
+      "formula": "=@amplitude*COS(-4*PI()*@f6*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q6",
+      "label": "Canonical point sample 7 Q",
+      "formula": "=@amplitude*SIN(-4*PI()*@f6*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "i7",
+      "label": "Canonical point sample 8 I",
+      "formula": "=@amplitude*COS(-4*PI()*@f7*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "q7",
+      "label": "Canonical point sample 8 Q",
+      "formula": "=@amplitude*SIN(-4*PI()*@f7*@target/@c)",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "r0",
+      "label": "Shifted range bin 0",
+      "formula": "=-32*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi0",
+      "label": "Profile bin 0 I",
+      "formula": "=((@i0*COS(2*PI()*32*0/@size)-@q0*SIN(2*PI()*32*0/@size))+(@i1*COS(2*PI()*32*1/@size)-@q1*SIN(2*PI()*32*1/@size))+(@i2*COS(2*PI()*32*2/@size)-@q2*SIN(2*PI()*32*2/@size))+(@i3*COS(2*PI()*32*3/@size)-@q3*SIN(2*PI()*32*3/@size))+(@i4*COS(2*PI()*32*4/@size)-@q4*SIN(2*PI()*32*4/@size))+(@i5*COS(2*PI()*32*5/@size)-@q5*SIN(2*PI()*32*5/@size))+(@i6*COS(2*PI()*32*6/@size)-@q6*SIN(2*PI()*32*6/@size))+(@i7*COS(2*PI()*32*7/@size)-@q7*SIN(2*PI()*32*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq0",
+      "label": "Profile bin 0 Q",
+      "formula": "=((@i0*SIN(2*PI()*32*0/@size)+@q0*COS(2*PI()*32*0/@size))+(@i1*SIN(2*PI()*32*1/@size)+@q1*COS(2*PI()*32*1/@size))+(@i2*SIN(2*PI()*32*2/@size)+@q2*COS(2*PI()*32*2/@size))+(@i3*SIN(2*PI()*32*3/@size)+@q3*COS(2*PI()*32*3/@size))+(@i4*SIN(2*PI()*32*4/@size)+@q4*COS(2*PI()*32*4/@size))+(@i5*SIN(2*PI()*32*5/@size)+@q5*COS(2*PI()*32*5/@size))+(@i6*SIN(2*PI()*32*6/@size)+@q6*COS(2*PI()*32*6/@size))+(@i7*SIN(2*PI()*32*7/@size)+@q7*COS(2*PI()*32*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p0",
+      "label": "Profile bin 0 power",
+      "formula": "=@pi0^2+@pq0^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r1",
+      "label": "Shifted range bin 1",
+      "formula": "=-31*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi1",
+      "label": "Profile bin 1 I",
+      "formula": "=((@i0*COS(2*PI()*33*0/@size)-@q0*SIN(2*PI()*33*0/@size))+(@i1*COS(2*PI()*33*1/@size)-@q1*SIN(2*PI()*33*1/@size))+(@i2*COS(2*PI()*33*2/@size)-@q2*SIN(2*PI()*33*2/@size))+(@i3*COS(2*PI()*33*3/@size)-@q3*SIN(2*PI()*33*3/@size))+(@i4*COS(2*PI()*33*4/@size)-@q4*SIN(2*PI()*33*4/@size))+(@i5*COS(2*PI()*33*5/@size)-@q5*SIN(2*PI()*33*5/@size))+(@i6*COS(2*PI()*33*6/@size)-@q6*SIN(2*PI()*33*6/@size))+(@i7*COS(2*PI()*33*7/@size)-@q7*SIN(2*PI()*33*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq1",
+      "label": "Profile bin 1 Q",
+      "formula": "=((@i0*SIN(2*PI()*33*0/@size)+@q0*COS(2*PI()*33*0/@size))+(@i1*SIN(2*PI()*33*1/@size)+@q1*COS(2*PI()*33*1/@size))+(@i2*SIN(2*PI()*33*2/@size)+@q2*COS(2*PI()*33*2/@size))+(@i3*SIN(2*PI()*33*3/@size)+@q3*COS(2*PI()*33*3/@size))+(@i4*SIN(2*PI()*33*4/@size)+@q4*COS(2*PI()*33*4/@size))+(@i5*SIN(2*PI()*33*5/@size)+@q5*COS(2*PI()*33*5/@size))+(@i6*SIN(2*PI()*33*6/@size)+@q6*COS(2*PI()*33*6/@size))+(@i7*SIN(2*PI()*33*7/@size)+@q7*COS(2*PI()*33*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p1",
+      "label": "Profile bin 1 power",
+      "formula": "=@pi1^2+@pq1^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r2",
+      "label": "Shifted range bin 2",
+      "formula": "=-30*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi2",
+      "label": "Profile bin 2 I",
+      "formula": "=((@i0*COS(2*PI()*34*0/@size)-@q0*SIN(2*PI()*34*0/@size))+(@i1*COS(2*PI()*34*1/@size)-@q1*SIN(2*PI()*34*1/@size))+(@i2*COS(2*PI()*34*2/@size)-@q2*SIN(2*PI()*34*2/@size))+(@i3*COS(2*PI()*34*3/@size)-@q3*SIN(2*PI()*34*3/@size))+(@i4*COS(2*PI()*34*4/@size)-@q4*SIN(2*PI()*34*4/@size))+(@i5*COS(2*PI()*34*5/@size)-@q5*SIN(2*PI()*34*5/@size))+(@i6*COS(2*PI()*34*6/@size)-@q6*SIN(2*PI()*34*6/@size))+(@i7*COS(2*PI()*34*7/@size)-@q7*SIN(2*PI()*34*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq2",
+      "label": "Profile bin 2 Q",
+      "formula": "=((@i0*SIN(2*PI()*34*0/@size)+@q0*COS(2*PI()*34*0/@size))+(@i1*SIN(2*PI()*34*1/@size)+@q1*COS(2*PI()*34*1/@size))+(@i2*SIN(2*PI()*34*2/@size)+@q2*COS(2*PI()*34*2/@size))+(@i3*SIN(2*PI()*34*3/@size)+@q3*COS(2*PI()*34*3/@size))+(@i4*SIN(2*PI()*34*4/@size)+@q4*COS(2*PI()*34*4/@size))+(@i5*SIN(2*PI()*34*5/@size)+@q5*COS(2*PI()*34*5/@size))+(@i6*SIN(2*PI()*34*6/@size)+@q6*COS(2*PI()*34*6/@size))+(@i7*SIN(2*PI()*34*7/@size)+@q7*COS(2*PI()*34*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p2",
+      "label": "Profile bin 2 power",
+      "formula": "=@pi2^2+@pq2^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r3",
+      "label": "Shifted range bin 3",
+      "formula": "=-29*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi3",
+      "label": "Profile bin 3 I",
+      "formula": "=((@i0*COS(2*PI()*35*0/@size)-@q0*SIN(2*PI()*35*0/@size))+(@i1*COS(2*PI()*35*1/@size)-@q1*SIN(2*PI()*35*1/@size))+(@i2*COS(2*PI()*35*2/@size)-@q2*SIN(2*PI()*35*2/@size))+(@i3*COS(2*PI()*35*3/@size)-@q3*SIN(2*PI()*35*3/@size))+(@i4*COS(2*PI()*35*4/@size)-@q4*SIN(2*PI()*35*4/@size))+(@i5*COS(2*PI()*35*5/@size)-@q5*SIN(2*PI()*35*5/@size))+(@i6*COS(2*PI()*35*6/@size)-@q6*SIN(2*PI()*35*6/@size))+(@i7*COS(2*PI()*35*7/@size)-@q7*SIN(2*PI()*35*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq3",
+      "label": "Profile bin 3 Q",
+      "formula": "=((@i0*SIN(2*PI()*35*0/@size)+@q0*COS(2*PI()*35*0/@size))+(@i1*SIN(2*PI()*35*1/@size)+@q1*COS(2*PI()*35*1/@size))+(@i2*SIN(2*PI()*35*2/@size)+@q2*COS(2*PI()*35*2/@size))+(@i3*SIN(2*PI()*35*3/@size)+@q3*COS(2*PI()*35*3/@size))+(@i4*SIN(2*PI()*35*4/@size)+@q4*COS(2*PI()*35*4/@size))+(@i5*SIN(2*PI()*35*5/@size)+@q5*COS(2*PI()*35*5/@size))+(@i6*SIN(2*PI()*35*6/@size)+@q6*COS(2*PI()*35*6/@size))+(@i7*SIN(2*PI()*35*7/@size)+@q7*COS(2*PI()*35*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p3",
+      "label": "Profile bin 3 power",
+      "formula": "=@pi3^2+@pq3^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r4",
+      "label": "Shifted range bin 4",
+      "formula": "=-28*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi4",
+      "label": "Profile bin 4 I",
+      "formula": "=((@i0*COS(2*PI()*36*0/@size)-@q0*SIN(2*PI()*36*0/@size))+(@i1*COS(2*PI()*36*1/@size)-@q1*SIN(2*PI()*36*1/@size))+(@i2*COS(2*PI()*36*2/@size)-@q2*SIN(2*PI()*36*2/@size))+(@i3*COS(2*PI()*36*3/@size)-@q3*SIN(2*PI()*36*3/@size))+(@i4*COS(2*PI()*36*4/@size)-@q4*SIN(2*PI()*36*4/@size))+(@i5*COS(2*PI()*36*5/@size)-@q5*SIN(2*PI()*36*5/@size))+(@i6*COS(2*PI()*36*6/@size)-@q6*SIN(2*PI()*36*6/@size))+(@i7*COS(2*PI()*36*7/@size)-@q7*SIN(2*PI()*36*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq4",
+      "label": "Profile bin 4 Q",
+      "formula": "=((@i0*SIN(2*PI()*36*0/@size)+@q0*COS(2*PI()*36*0/@size))+(@i1*SIN(2*PI()*36*1/@size)+@q1*COS(2*PI()*36*1/@size))+(@i2*SIN(2*PI()*36*2/@size)+@q2*COS(2*PI()*36*2/@size))+(@i3*SIN(2*PI()*36*3/@size)+@q3*COS(2*PI()*36*3/@size))+(@i4*SIN(2*PI()*36*4/@size)+@q4*COS(2*PI()*36*4/@size))+(@i5*SIN(2*PI()*36*5/@size)+@q5*COS(2*PI()*36*5/@size))+(@i6*SIN(2*PI()*36*6/@size)+@q6*COS(2*PI()*36*6/@size))+(@i7*SIN(2*PI()*36*7/@size)+@q7*COS(2*PI()*36*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p4",
+      "label": "Profile bin 4 power",
+      "formula": "=@pi4^2+@pq4^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r5",
+      "label": "Shifted range bin 5",
+      "formula": "=-27*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi5",
+      "label": "Profile bin 5 I",
+      "formula": "=((@i0*COS(2*PI()*37*0/@size)-@q0*SIN(2*PI()*37*0/@size))+(@i1*COS(2*PI()*37*1/@size)-@q1*SIN(2*PI()*37*1/@size))+(@i2*COS(2*PI()*37*2/@size)-@q2*SIN(2*PI()*37*2/@size))+(@i3*COS(2*PI()*37*3/@size)-@q3*SIN(2*PI()*37*3/@size))+(@i4*COS(2*PI()*37*4/@size)-@q4*SIN(2*PI()*37*4/@size))+(@i5*COS(2*PI()*37*5/@size)-@q5*SIN(2*PI()*37*5/@size))+(@i6*COS(2*PI()*37*6/@size)-@q6*SIN(2*PI()*37*6/@size))+(@i7*COS(2*PI()*37*7/@size)-@q7*SIN(2*PI()*37*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq5",
+      "label": "Profile bin 5 Q",
+      "formula": "=((@i0*SIN(2*PI()*37*0/@size)+@q0*COS(2*PI()*37*0/@size))+(@i1*SIN(2*PI()*37*1/@size)+@q1*COS(2*PI()*37*1/@size))+(@i2*SIN(2*PI()*37*2/@size)+@q2*COS(2*PI()*37*2/@size))+(@i3*SIN(2*PI()*37*3/@size)+@q3*COS(2*PI()*37*3/@size))+(@i4*SIN(2*PI()*37*4/@size)+@q4*COS(2*PI()*37*4/@size))+(@i5*SIN(2*PI()*37*5/@size)+@q5*COS(2*PI()*37*5/@size))+(@i6*SIN(2*PI()*37*6/@size)+@q6*COS(2*PI()*37*6/@size))+(@i7*SIN(2*PI()*37*7/@size)+@q7*COS(2*PI()*37*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p5",
+      "label": "Profile bin 5 power",
+      "formula": "=@pi5^2+@pq5^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r6",
+      "label": "Shifted range bin 6",
+      "formula": "=-26*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi6",
+      "label": "Profile bin 6 I",
+      "formula": "=((@i0*COS(2*PI()*38*0/@size)-@q0*SIN(2*PI()*38*0/@size))+(@i1*COS(2*PI()*38*1/@size)-@q1*SIN(2*PI()*38*1/@size))+(@i2*COS(2*PI()*38*2/@size)-@q2*SIN(2*PI()*38*2/@size))+(@i3*COS(2*PI()*38*3/@size)-@q3*SIN(2*PI()*38*3/@size))+(@i4*COS(2*PI()*38*4/@size)-@q4*SIN(2*PI()*38*4/@size))+(@i5*COS(2*PI()*38*5/@size)-@q5*SIN(2*PI()*38*5/@size))+(@i6*COS(2*PI()*38*6/@size)-@q6*SIN(2*PI()*38*6/@size))+(@i7*COS(2*PI()*38*7/@size)-@q7*SIN(2*PI()*38*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq6",
+      "label": "Profile bin 6 Q",
+      "formula": "=((@i0*SIN(2*PI()*38*0/@size)+@q0*COS(2*PI()*38*0/@size))+(@i1*SIN(2*PI()*38*1/@size)+@q1*COS(2*PI()*38*1/@size))+(@i2*SIN(2*PI()*38*2/@size)+@q2*COS(2*PI()*38*2/@size))+(@i3*SIN(2*PI()*38*3/@size)+@q3*COS(2*PI()*38*3/@size))+(@i4*SIN(2*PI()*38*4/@size)+@q4*COS(2*PI()*38*4/@size))+(@i5*SIN(2*PI()*38*5/@size)+@q5*COS(2*PI()*38*5/@size))+(@i6*SIN(2*PI()*38*6/@size)+@q6*COS(2*PI()*38*6/@size))+(@i7*SIN(2*PI()*38*7/@size)+@q7*COS(2*PI()*38*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p6",
+      "label": "Profile bin 6 power",
+      "formula": "=@pi6^2+@pq6^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r7",
+      "label": "Shifted range bin 7",
+      "formula": "=-25*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi7",
+      "label": "Profile bin 7 I",
+      "formula": "=((@i0*COS(2*PI()*39*0/@size)-@q0*SIN(2*PI()*39*0/@size))+(@i1*COS(2*PI()*39*1/@size)-@q1*SIN(2*PI()*39*1/@size))+(@i2*COS(2*PI()*39*2/@size)-@q2*SIN(2*PI()*39*2/@size))+(@i3*COS(2*PI()*39*3/@size)-@q3*SIN(2*PI()*39*3/@size))+(@i4*COS(2*PI()*39*4/@size)-@q4*SIN(2*PI()*39*4/@size))+(@i5*COS(2*PI()*39*5/@size)-@q5*SIN(2*PI()*39*5/@size))+(@i6*COS(2*PI()*39*6/@size)-@q6*SIN(2*PI()*39*6/@size))+(@i7*COS(2*PI()*39*7/@size)-@q7*SIN(2*PI()*39*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq7",
+      "label": "Profile bin 7 Q",
+      "formula": "=((@i0*SIN(2*PI()*39*0/@size)+@q0*COS(2*PI()*39*0/@size))+(@i1*SIN(2*PI()*39*1/@size)+@q1*COS(2*PI()*39*1/@size))+(@i2*SIN(2*PI()*39*2/@size)+@q2*COS(2*PI()*39*2/@size))+(@i3*SIN(2*PI()*39*3/@size)+@q3*COS(2*PI()*39*3/@size))+(@i4*SIN(2*PI()*39*4/@size)+@q4*COS(2*PI()*39*4/@size))+(@i5*SIN(2*PI()*39*5/@size)+@q5*COS(2*PI()*39*5/@size))+(@i6*SIN(2*PI()*39*6/@size)+@q6*COS(2*PI()*39*6/@size))+(@i7*SIN(2*PI()*39*7/@size)+@q7*COS(2*PI()*39*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p7",
+      "label": "Profile bin 7 power",
+      "formula": "=@pi7^2+@pq7^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r8",
+      "label": "Shifted range bin 8",
+      "formula": "=-24*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi8",
+      "label": "Profile bin 8 I",
+      "formula": "=((@i0*COS(2*PI()*40*0/@size)-@q0*SIN(2*PI()*40*0/@size))+(@i1*COS(2*PI()*40*1/@size)-@q1*SIN(2*PI()*40*1/@size))+(@i2*COS(2*PI()*40*2/@size)-@q2*SIN(2*PI()*40*2/@size))+(@i3*COS(2*PI()*40*3/@size)-@q3*SIN(2*PI()*40*3/@size))+(@i4*COS(2*PI()*40*4/@size)-@q4*SIN(2*PI()*40*4/@size))+(@i5*COS(2*PI()*40*5/@size)-@q5*SIN(2*PI()*40*5/@size))+(@i6*COS(2*PI()*40*6/@size)-@q6*SIN(2*PI()*40*6/@size))+(@i7*COS(2*PI()*40*7/@size)-@q7*SIN(2*PI()*40*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq8",
+      "label": "Profile bin 8 Q",
+      "formula": "=((@i0*SIN(2*PI()*40*0/@size)+@q0*COS(2*PI()*40*0/@size))+(@i1*SIN(2*PI()*40*1/@size)+@q1*COS(2*PI()*40*1/@size))+(@i2*SIN(2*PI()*40*2/@size)+@q2*COS(2*PI()*40*2/@size))+(@i3*SIN(2*PI()*40*3/@size)+@q3*COS(2*PI()*40*3/@size))+(@i4*SIN(2*PI()*40*4/@size)+@q4*COS(2*PI()*40*4/@size))+(@i5*SIN(2*PI()*40*5/@size)+@q5*COS(2*PI()*40*5/@size))+(@i6*SIN(2*PI()*40*6/@size)+@q6*COS(2*PI()*40*6/@size))+(@i7*SIN(2*PI()*40*7/@size)+@q7*COS(2*PI()*40*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p8",
+      "label": "Profile bin 8 power",
+      "formula": "=@pi8^2+@pq8^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r9",
+      "label": "Shifted range bin 9",
+      "formula": "=-23*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi9",
+      "label": "Profile bin 9 I",
+      "formula": "=((@i0*COS(2*PI()*41*0/@size)-@q0*SIN(2*PI()*41*0/@size))+(@i1*COS(2*PI()*41*1/@size)-@q1*SIN(2*PI()*41*1/@size))+(@i2*COS(2*PI()*41*2/@size)-@q2*SIN(2*PI()*41*2/@size))+(@i3*COS(2*PI()*41*3/@size)-@q3*SIN(2*PI()*41*3/@size))+(@i4*COS(2*PI()*41*4/@size)-@q4*SIN(2*PI()*41*4/@size))+(@i5*COS(2*PI()*41*5/@size)-@q5*SIN(2*PI()*41*5/@size))+(@i6*COS(2*PI()*41*6/@size)-@q6*SIN(2*PI()*41*6/@size))+(@i7*COS(2*PI()*41*7/@size)-@q7*SIN(2*PI()*41*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq9",
+      "label": "Profile bin 9 Q",
+      "formula": "=((@i0*SIN(2*PI()*41*0/@size)+@q0*COS(2*PI()*41*0/@size))+(@i1*SIN(2*PI()*41*1/@size)+@q1*COS(2*PI()*41*1/@size))+(@i2*SIN(2*PI()*41*2/@size)+@q2*COS(2*PI()*41*2/@size))+(@i3*SIN(2*PI()*41*3/@size)+@q3*COS(2*PI()*41*3/@size))+(@i4*SIN(2*PI()*41*4/@size)+@q4*COS(2*PI()*41*4/@size))+(@i5*SIN(2*PI()*41*5/@size)+@q5*COS(2*PI()*41*5/@size))+(@i6*SIN(2*PI()*41*6/@size)+@q6*COS(2*PI()*41*6/@size))+(@i7*SIN(2*PI()*41*7/@size)+@q7*COS(2*PI()*41*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p9",
+      "label": "Profile bin 9 power",
+      "formula": "=@pi9^2+@pq9^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r10",
+      "label": "Shifted range bin 10",
+      "formula": "=-22*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi10",
+      "label": "Profile bin 10 I",
+      "formula": "=((@i0*COS(2*PI()*42*0/@size)-@q0*SIN(2*PI()*42*0/@size))+(@i1*COS(2*PI()*42*1/@size)-@q1*SIN(2*PI()*42*1/@size))+(@i2*COS(2*PI()*42*2/@size)-@q2*SIN(2*PI()*42*2/@size))+(@i3*COS(2*PI()*42*3/@size)-@q3*SIN(2*PI()*42*3/@size))+(@i4*COS(2*PI()*42*4/@size)-@q4*SIN(2*PI()*42*4/@size))+(@i5*COS(2*PI()*42*5/@size)-@q5*SIN(2*PI()*42*5/@size))+(@i6*COS(2*PI()*42*6/@size)-@q6*SIN(2*PI()*42*6/@size))+(@i7*COS(2*PI()*42*7/@size)-@q7*SIN(2*PI()*42*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq10",
+      "label": "Profile bin 10 Q",
+      "formula": "=((@i0*SIN(2*PI()*42*0/@size)+@q0*COS(2*PI()*42*0/@size))+(@i1*SIN(2*PI()*42*1/@size)+@q1*COS(2*PI()*42*1/@size))+(@i2*SIN(2*PI()*42*2/@size)+@q2*COS(2*PI()*42*2/@size))+(@i3*SIN(2*PI()*42*3/@size)+@q3*COS(2*PI()*42*3/@size))+(@i4*SIN(2*PI()*42*4/@size)+@q4*COS(2*PI()*42*4/@size))+(@i5*SIN(2*PI()*42*5/@size)+@q5*COS(2*PI()*42*5/@size))+(@i6*SIN(2*PI()*42*6/@size)+@q6*COS(2*PI()*42*6/@size))+(@i7*SIN(2*PI()*42*7/@size)+@q7*COS(2*PI()*42*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p10",
+      "label": "Profile bin 10 power",
+      "formula": "=@pi10^2+@pq10^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r11",
+      "label": "Shifted range bin 11",
+      "formula": "=-21*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi11",
+      "label": "Profile bin 11 I",
+      "formula": "=((@i0*COS(2*PI()*43*0/@size)-@q0*SIN(2*PI()*43*0/@size))+(@i1*COS(2*PI()*43*1/@size)-@q1*SIN(2*PI()*43*1/@size))+(@i2*COS(2*PI()*43*2/@size)-@q2*SIN(2*PI()*43*2/@size))+(@i3*COS(2*PI()*43*3/@size)-@q3*SIN(2*PI()*43*3/@size))+(@i4*COS(2*PI()*43*4/@size)-@q4*SIN(2*PI()*43*4/@size))+(@i5*COS(2*PI()*43*5/@size)-@q5*SIN(2*PI()*43*5/@size))+(@i6*COS(2*PI()*43*6/@size)-@q6*SIN(2*PI()*43*6/@size))+(@i7*COS(2*PI()*43*7/@size)-@q7*SIN(2*PI()*43*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq11",
+      "label": "Profile bin 11 Q",
+      "formula": "=((@i0*SIN(2*PI()*43*0/@size)+@q0*COS(2*PI()*43*0/@size))+(@i1*SIN(2*PI()*43*1/@size)+@q1*COS(2*PI()*43*1/@size))+(@i2*SIN(2*PI()*43*2/@size)+@q2*COS(2*PI()*43*2/@size))+(@i3*SIN(2*PI()*43*3/@size)+@q3*COS(2*PI()*43*3/@size))+(@i4*SIN(2*PI()*43*4/@size)+@q4*COS(2*PI()*43*4/@size))+(@i5*SIN(2*PI()*43*5/@size)+@q5*COS(2*PI()*43*5/@size))+(@i6*SIN(2*PI()*43*6/@size)+@q6*COS(2*PI()*43*6/@size))+(@i7*SIN(2*PI()*43*7/@size)+@q7*COS(2*PI()*43*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p11",
+      "label": "Profile bin 11 power",
+      "formula": "=@pi11^2+@pq11^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r12",
+      "label": "Shifted range bin 12",
+      "formula": "=-20*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi12",
+      "label": "Profile bin 12 I",
+      "formula": "=((@i0*COS(2*PI()*44*0/@size)-@q0*SIN(2*PI()*44*0/@size))+(@i1*COS(2*PI()*44*1/@size)-@q1*SIN(2*PI()*44*1/@size))+(@i2*COS(2*PI()*44*2/@size)-@q2*SIN(2*PI()*44*2/@size))+(@i3*COS(2*PI()*44*3/@size)-@q3*SIN(2*PI()*44*3/@size))+(@i4*COS(2*PI()*44*4/@size)-@q4*SIN(2*PI()*44*4/@size))+(@i5*COS(2*PI()*44*5/@size)-@q5*SIN(2*PI()*44*5/@size))+(@i6*COS(2*PI()*44*6/@size)-@q6*SIN(2*PI()*44*6/@size))+(@i7*COS(2*PI()*44*7/@size)-@q7*SIN(2*PI()*44*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq12",
+      "label": "Profile bin 12 Q",
+      "formula": "=((@i0*SIN(2*PI()*44*0/@size)+@q0*COS(2*PI()*44*0/@size))+(@i1*SIN(2*PI()*44*1/@size)+@q1*COS(2*PI()*44*1/@size))+(@i2*SIN(2*PI()*44*2/@size)+@q2*COS(2*PI()*44*2/@size))+(@i3*SIN(2*PI()*44*3/@size)+@q3*COS(2*PI()*44*3/@size))+(@i4*SIN(2*PI()*44*4/@size)+@q4*COS(2*PI()*44*4/@size))+(@i5*SIN(2*PI()*44*5/@size)+@q5*COS(2*PI()*44*5/@size))+(@i6*SIN(2*PI()*44*6/@size)+@q6*COS(2*PI()*44*6/@size))+(@i7*SIN(2*PI()*44*7/@size)+@q7*COS(2*PI()*44*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p12",
+      "label": "Profile bin 12 power",
+      "formula": "=@pi12^2+@pq12^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r13",
+      "label": "Shifted range bin 13",
+      "formula": "=-19*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi13",
+      "label": "Profile bin 13 I",
+      "formula": "=((@i0*COS(2*PI()*45*0/@size)-@q0*SIN(2*PI()*45*0/@size))+(@i1*COS(2*PI()*45*1/@size)-@q1*SIN(2*PI()*45*1/@size))+(@i2*COS(2*PI()*45*2/@size)-@q2*SIN(2*PI()*45*2/@size))+(@i3*COS(2*PI()*45*3/@size)-@q3*SIN(2*PI()*45*3/@size))+(@i4*COS(2*PI()*45*4/@size)-@q4*SIN(2*PI()*45*4/@size))+(@i5*COS(2*PI()*45*5/@size)-@q5*SIN(2*PI()*45*5/@size))+(@i6*COS(2*PI()*45*6/@size)-@q6*SIN(2*PI()*45*6/@size))+(@i7*COS(2*PI()*45*7/@size)-@q7*SIN(2*PI()*45*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq13",
+      "label": "Profile bin 13 Q",
+      "formula": "=((@i0*SIN(2*PI()*45*0/@size)+@q0*COS(2*PI()*45*0/@size))+(@i1*SIN(2*PI()*45*1/@size)+@q1*COS(2*PI()*45*1/@size))+(@i2*SIN(2*PI()*45*2/@size)+@q2*COS(2*PI()*45*2/@size))+(@i3*SIN(2*PI()*45*3/@size)+@q3*COS(2*PI()*45*3/@size))+(@i4*SIN(2*PI()*45*4/@size)+@q4*COS(2*PI()*45*4/@size))+(@i5*SIN(2*PI()*45*5/@size)+@q5*COS(2*PI()*45*5/@size))+(@i6*SIN(2*PI()*45*6/@size)+@q6*COS(2*PI()*45*6/@size))+(@i7*SIN(2*PI()*45*7/@size)+@q7*COS(2*PI()*45*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p13",
+      "label": "Profile bin 13 power",
+      "formula": "=@pi13^2+@pq13^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r14",
+      "label": "Shifted range bin 14",
+      "formula": "=-18*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi14",
+      "label": "Profile bin 14 I",
+      "formula": "=((@i0*COS(2*PI()*46*0/@size)-@q0*SIN(2*PI()*46*0/@size))+(@i1*COS(2*PI()*46*1/@size)-@q1*SIN(2*PI()*46*1/@size))+(@i2*COS(2*PI()*46*2/@size)-@q2*SIN(2*PI()*46*2/@size))+(@i3*COS(2*PI()*46*3/@size)-@q3*SIN(2*PI()*46*3/@size))+(@i4*COS(2*PI()*46*4/@size)-@q4*SIN(2*PI()*46*4/@size))+(@i5*COS(2*PI()*46*5/@size)-@q5*SIN(2*PI()*46*5/@size))+(@i6*COS(2*PI()*46*6/@size)-@q6*SIN(2*PI()*46*6/@size))+(@i7*COS(2*PI()*46*7/@size)-@q7*SIN(2*PI()*46*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq14",
+      "label": "Profile bin 14 Q",
+      "formula": "=((@i0*SIN(2*PI()*46*0/@size)+@q0*COS(2*PI()*46*0/@size))+(@i1*SIN(2*PI()*46*1/@size)+@q1*COS(2*PI()*46*1/@size))+(@i2*SIN(2*PI()*46*2/@size)+@q2*COS(2*PI()*46*2/@size))+(@i3*SIN(2*PI()*46*3/@size)+@q3*COS(2*PI()*46*3/@size))+(@i4*SIN(2*PI()*46*4/@size)+@q4*COS(2*PI()*46*4/@size))+(@i5*SIN(2*PI()*46*5/@size)+@q5*COS(2*PI()*46*5/@size))+(@i6*SIN(2*PI()*46*6/@size)+@q6*COS(2*PI()*46*6/@size))+(@i7*SIN(2*PI()*46*7/@size)+@q7*COS(2*PI()*46*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p14",
+      "label": "Profile bin 14 power",
+      "formula": "=@pi14^2+@pq14^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r15",
+      "label": "Shifted range bin 15",
+      "formula": "=-17*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi15",
+      "label": "Profile bin 15 I",
+      "formula": "=((@i0*COS(2*PI()*47*0/@size)-@q0*SIN(2*PI()*47*0/@size))+(@i1*COS(2*PI()*47*1/@size)-@q1*SIN(2*PI()*47*1/@size))+(@i2*COS(2*PI()*47*2/@size)-@q2*SIN(2*PI()*47*2/@size))+(@i3*COS(2*PI()*47*3/@size)-@q3*SIN(2*PI()*47*3/@size))+(@i4*COS(2*PI()*47*4/@size)-@q4*SIN(2*PI()*47*4/@size))+(@i5*COS(2*PI()*47*5/@size)-@q5*SIN(2*PI()*47*5/@size))+(@i6*COS(2*PI()*47*6/@size)-@q6*SIN(2*PI()*47*6/@size))+(@i7*COS(2*PI()*47*7/@size)-@q7*SIN(2*PI()*47*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq15",
+      "label": "Profile bin 15 Q",
+      "formula": "=((@i0*SIN(2*PI()*47*0/@size)+@q0*COS(2*PI()*47*0/@size))+(@i1*SIN(2*PI()*47*1/@size)+@q1*COS(2*PI()*47*1/@size))+(@i2*SIN(2*PI()*47*2/@size)+@q2*COS(2*PI()*47*2/@size))+(@i3*SIN(2*PI()*47*3/@size)+@q3*COS(2*PI()*47*3/@size))+(@i4*SIN(2*PI()*47*4/@size)+@q4*COS(2*PI()*47*4/@size))+(@i5*SIN(2*PI()*47*5/@size)+@q5*COS(2*PI()*47*5/@size))+(@i6*SIN(2*PI()*47*6/@size)+@q6*COS(2*PI()*47*6/@size))+(@i7*SIN(2*PI()*47*7/@size)+@q7*COS(2*PI()*47*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p15",
+      "label": "Profile bin 15 power",
+      "formula": "=@pi15^2+@pq15^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r16",
+      "label": "Shifted range bin 16",
+      "formula": "=-16*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi16",
+      "label": "Profile bin 16 I",
+      "formula": "=((@i0*COS(2*PI()*48*0/@size)-@q0*SIN(2*PI()*48*0/@size))+(@i1*COS(2*PI()*48*1/@size)-@q1*SIN(2*PI()*48*1/@size))+(@i2*COS(2*PI()*48*2/@size)-@q2*SIN(2*PI()*48*2/@size))+(@i3*COS(2*PI()*48*3/@size)-@q3*SIN(2*PI()*48*3/@size))+(@i4*COS(2*PI()*48*4/@size)-@q4*SIN(2*PI()*48*4/@size))+(@i5*COS(2*PI()*48*5/@size)-@q5*SIN(2*PI()*48*5/@size))+(@i6*COS(2*PI()*48*6/@size)-@q6*SIN(2*PI()*48*6/@size))+(@i7*COS(2*PI()*48*7/@size)-@q7*SIN(2*PI()*48*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq16",
+      "label": "Profile bin 16 Q",
+      "formula": "=((@i0*SIN(2*PI()*48*0/@size)+@q0*COS(2*PI()*48*0/@size))+(@i1*SIN(2*PI()*48*1/@size)+@q1*COS(2*PI()*48*1/@size))+(@i2*SIN(2*PI()*48*2/@size)+@q2*COS(2*PI()*48*2/@size))+(@i3*SIN(2*PI()*48*3/@size)+@q3*COS(2*PI()*48*3/@size))+(@i4*SIN(2*PI()*48*4/@size)+@q4*COS(2*PI()*48*4/@size))+(@i5*SIN(2*PI()*48*5/@size)+@q5*COS(2*PI()*48*5/@size))+(@i6*SIN(2*PI()*48*6/@size)+@q6*COS(2*PI()*48*6/@size))+(@i7*SIN(2*PI()*48*7/@size)+@q7*COS(2*PI()*48*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p16",
+      "label": "Profile bin 16 power",
+      "formula": "=@pi16^2+@pq16^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r17",
+      "label": "Shifted range bin 17",
+      "formula": "=-15*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi17",
+      "label": "Profile bin 17 I",
+      "formula": "=((@i0*COS(2*PI()*49*0/@size)-@q0*SIN(2*PI()*49*0/@size))+(@i1*COS(2*PI()*49*1/@size)-@q1*SIN(2*PI()*49*1/@size))+(@i2*COS(2*PI()*49*2/@size)-@q2*SIN(2*PI()*49*2/@size))+(@i3*COS(2*PI()*49*3/@size)-@q3*SIN(2*PI()*49*3/@size))+(@i4*COS(2*PI()*49*4/@size)-@q4*SIN(2*PI()*49*4/@size))+(@i5*COS(2*PI()*49*5/@size)-@q5*SIN(2*PI()*49*5/@size))+(@i6*COS(2*PI()*49*6/@size)-@q6*SIN(2*PI()*49*6/@size))+(@i7*COS(2*PI()*49*7/@size)-@q7*SIN(2*PI()*49*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq17",
+      "label": "Profile bin 17 Q",
+      "formula": "=((@i0*SIN(2*PI()*49*0/@size)+@q0*COS(2*PI()*49*0/@size))+(@i1*SIN(2*PI()*49*1/@size)+@q1*COS(2*PI()*49*1/@size))+(@i2*SIN(2*PI()*49*2/@size)+@q2*COS(2*PI()*49*2/@size))+(@i3*SIN(2*PI()*49*3/@size)+@q3*COS(2*PI()*49*3/@size))+(@i4*SIN(2*PI()*49*4/@size)+@q4*COS(2*PI()*49*4/@size))+(@i5*SIN(2*PI()*49*5/@size)+@q5*COS(2*PI()*49*5/@size))+(@i6*SIN(2*PI()*49*6/@size)+@q6*COS(2*PI()*49*6/@size))+(@i7*SIN(2*PI()*49*7/@size)+@q7*COS(2*PI()*49*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p17",
+      "label": "Profile bin 17 power",
+      "formula": "=@pi17^2+@pq17^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r18",
+      "label": "Shifted range bin 18",
+      "formula": "=-14*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi18",
+      "label": "Profile bin 18 I",
+      "formula": "=((@i0*COS(2*PI()*50*0/@size)-@q0*SIN(2*PI()*50*0/@size))+(@i1*COS(2*PI()*50*1/@size)-@q1*SIN(2*PI()*50*1/@size))+(@i2*COS(2*PI()*50*2/@size)-@q2*SIN(2*PI()*50*2/@size))+(@i3*COS(2*PI()*50*3/@size)-@q3*SIN(2*PI()*50*3/@size))+(@i4*COS(2*PI()*50*4/@size)-@q4*SIN(2*PI()*50*4/@size))+(@i5*COS(2*PI()*50*5/@size)-@q5*SIN(2*PI()*50*5/@size))+(@i6*COS(2*PI()*50*6/@size)-@q6*SIN(2*PI()*50*6/@size))+(@i7*COS(2*PI()*50*7/@size)-@q7*SIN(2*PI()*50*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq18",
+      "label": "Profile bin 18 Q",
+      "formula": "=((@i0*SIN(2*PI()*50*0/@size)+@q0*COS(2*PI()*50*0/@size))+(@i1*SIN(2*PI()*50*1/@size)+@q1*COS(2*PI()*50*1/@size))+(@i2*SIN(2*PI()*50*2/@size)+@q2*COS(2*PI()*50*2/@size))+(@i3*SIN(2*PI()*50*3/@size)+@q3*COS(2*PI()*50*3/@size))+(@i4*SIN(2*PI()*50*4/@size)+@q4*COS(2*PI()*50*4/@size))+(@i5*SIN(2*PI()*50*5/@size)+@q5*COS(2*PI()*50*5/@size))+(@i6*SIN(2*PI()*50*6/@size)+@q6*COS(2*PI()*50*6/@size))+(@i7*SIN(2*PI()*50*7/@size)+@q7*COS(2*PI()*50*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p18",
+      "label": "Profile bin 18 power",
+      "formula": "=@pi18^2+@pq18^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r19",
+      "label": "Shifted range bin 19",
+      "formula": "=-13*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi19",
+      "label": "Profile bin 19 I",
+      "formula": "=((@i0*COS(2*PI()*51*0/@size)-@q0*SIN(2*PI()*51*0/@size))+(@i1*COS(2*PI()*51*1/@size)-@q1*SIN(2*PI()*51*1/@size))+(@i2*COS(2*PI()*51*2/@size)-@q2*SIN(2*PI()*51*2/@size))+(@i3*COS(2*PI()*51*3/@size)-@q3*SIN(2*PI()*51*3/@size))+(@i4*COS(2*PI()*51*4/@size)-@q4*SIN(2*PI()*51*4/@size))+(@i5*COS(2*PI()*51*5/@size)-@q5*SIN(2*PI()*51*5/@size))+(@i6*COS(2*PI()*51*6/@size)-@q6*SIN(2*PI()*51*6/@size))+(@i7*COS(2*PI()*51*7/@size)-@q7*SIN(2*PI()*51*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq19",
+      "label": "Profile bin 19 Q",
+      "formula": "=((@i0*SIN(2*PI()*51*0/@size)+@q0*COS(2*PI()*51*0/@size))+(@i1*SIN(2*PI()*51*1/@size)+@q1*COS(2*PI()*51*1/@size))+(@i2*SIN(2*PI()*51*2/@size)+@q2*COS(2*PI()*51*2/@size))+(@i3*SIN(2*PI()*51*3/@size)+@q3*COS(2*PI()*51*3/@size))+(@i4*SIN(2*PI()*51*4/@size)+@q4*COS(2*PI()*51*4/@size))+(@i5*SIN(2*PI()*51*5/@size)+@q5*COS(2*PI()*51*5/@size))+(@i6*SIN(2*PI()*51*6/@size)+@q6*COS(2*PI()*51*6/@size))+(@i7*SIN(2*PI()*51*7/@size)+@q7*COS(2*PI()*51*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p19",
+      "label": "Profile bin 19 power",
+      "formula": "=@pi19^2+@pq19^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r20",
+      "label": "Shifted range bin 20",
+      "formula": "=-12*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi20",
+      "label": "Profile bin 20 I",
+      "formula": "=((@i0*COS(2*PI()*52*0/@size)-@q0*SIN(2*PI()*52*0/@size))+(@i1*COS(2*PI()*52*1/@size)-@q1*SIN(2*PI()*52*1/@size))+(@i2*COS(2*PI()*52*2/@size)-@q2*SIN(2*PI()*52*2/@size))+(@i3*COS(2*PI()*52*3/@size)-@q3*SIN(2*PI()*52*3/@size))+(@i4*COS(2*PI()*52*4/@size)-@q4*SIN(2*PI()*52*4/@size))+(@i5*COS(2*PI()*52*5/@size)-@q5*SIN(2*PI()*52*5/@size))+(@i6*COS(2*PI()*52*6/@size)-@q6*SIN(2*PI()*52*6/@size))+(@i7*COS(2*PI()*52*7/@size)-@q7*SIN(2*PI()*52*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq20",
+      "label": "Profile bin 20 Q",
+      "formula": "=((@i0*SIN(2*PI()*52*0/@size)+@q0*COS(2*PI()*52*0/@size))+(@i1*SIN(2*PI()*52*1/@size)+@q1*COS(2*PI()*52*1/@size))+(@i2*SIN(2*PI()*52*2/@size)+@q2*COS(2*PI()*52*2/@size))+(@i3*SIN(2*PI()*52*3/@size)+@q3*COS(2*PI()*52*3/@size))+(@i4*SIN(2*PI()*52*4/@size)+@q4*COS(2*PI()*52*4/@size))+(@i5*SIN(2*PI()*52*5/@size)+@q5*COS(2*PI()*52*5/@size))+(@i6*SIN(2*PI()*52*6/@size)+@q6*COS(2*PI()*52*6/@size))+(@i7*SIN(2*PI()*52*7/@size)+@q7*COS(2*PI()*52*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p20",
+      "label": "Profile bin 20 power",
+      "formula": "=@pi20^2+@pq20^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r21",
+      "label": "Shifted range bin 21",
+      "formula": "=-11*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi21",
+      "label": "Profile bin 21 I",
+      "formula": "=((@i0*COS(2*PI()*53*0/@size)-@q0*SIN(2*PI()*53*0/@size))+(@i1*COS(2*PI()*53*1/@size)-@q1*SIN(2*PI()*53*1/@size))+(@i2*COS(2*PI()*53*2/@size)-@q2*SIN(2*PI()*53*2/@size))+(@i3*COS(2*PI()*53*3/@size)-@q3*SIN(2*PI()*53*3/@size))+(@i4*COS(2*PI()*53*4/@size)-@q4*SIN(2*PI()*53*4/@size))+(@i5*COS(2*PI()*53*5/@size)-@q5*SIN(2*PI()*53*5/@size))+(@i6*COS(2*PI()*53*6/@size)-@q6*SIN(2*PI()*53*6/@size))+(@i7*COS(2*PI()*53*7/@size)-@q7*SIN(2*PI()*53*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq21",
+      "label": "Profile bin 21 Q",
+      "formula": "=((@i0*SIN(2*PI()*53*0/@size)+@q0*COS(2*PI()*53*0/@size))+(@i1*SIN(2*PI()*53*1/@size)+@q1*COS(2*PI()*53*1/@size))+(@i2*SIN(2*PI()*53*2/@size)+@q2*COS(2*PI()*53*2/@size))+(@i3*SIN(2*PI()*53*3/@size)+@q3*COS(2*PI()*53*3/@size))+(@i4*SIN(2*PI()*53*4/@size)+@q4*COS(2*PI()*53*4/@size))+(@i5*SIN(2*PI()*53*5/@size)+@q5*COS(2*PI()*53*5/@size))+(@i6*SIN(2*PI()*53*6/@size)+@q6*COS(2*PI()*53*6/@size))+(@i7*SIN(2*PI()*53*7/@size)+@q7*COS(2*PI()*53*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p21",
+      "label": "Profile bin 21 power",
+      "formula": "=@pi21^2+@pq21^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r22",
+      "label": "Shifted range bin 22",
+      "formula": "=-10*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi22",
+      "label": "Profile bin 22 I",
+      "formula": "=((@i0*COS(2*PI()*54*0/@size)-@q0*SIN(2*PI()*54*0/@size))+(@i1*COS(2*PI()*54*1/@size)-@q1*SIN(2*PI()*54*1/@size))+(@i2*COS(2*PI()*54*2/@size)-@q2*SIN(2*PI()*54*2/@size))+(@i3*COS(2*PI()*54*3/@size)-@q3*SIN(2*PI()*54*3/@size))+(@i4*COS(2*PI()*54*4/@size)-@q4*SIN(2*PI()*54*4/@size))+(@i5*COS(2*PI()*54*5/@size)-@q5*SIN(2*PI()*54*5/@size))+(@i6*COS(2*PI()*54*6/@size)-@q6*SIN(2*PI()*54*6/@size))+(@i7*COS(2*PI()*54*7/@size)-@q7*SIN(2*PI()*54*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq22",
+      "label": "Profile bin 22 Q",
+      "formula": "=((@i0*SIN(2*PI()*54*0/@size)+@q0*COS(2*PI()*54*0/@size))+(@i1*SIN(2*PI()*54*1/@size)+@q1*COS(2*PI()*54*1/@size))+(@i2*SIN(2*PI()*54*2/@size)+@q2*COS(2*PI()*54*2/@size))+(@i3*SIN(2*PI()*54*3/@size)+@q3*COS(2*PI()*54*3/@size))+(@i4*SIN(2*PI()*54*4/@size)+@q4*COS(2*PI()*54*4/@size))+(@i5*SIN(2*PI()*54*5/@size)+@q5*COS(2*PI()*54*5/@size))+(@i6*SIN(2*PI()*54*6/@size)+@q6*COS(2*PI()*54*6/@size))+(@i7*SIN(2*PI()*54*7/@size)+@q7*COS(2*PI()*54*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p22",
+      "label": "Profile bin 22 power",
+      "formula": "=@pi22^2+@pq22^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r23",
+      "label": "Shifted range bin 23",
+      "formula": "=-9*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi23",
+      "label": "Profile bin 23 I",
+      "formula": "=((@i0*COS(2*PI()*55*0/@size)-@q0*SIN(2*PI()*55*0/@size))+(@i1*COS(2*PI()*55*1/@size)-@q1*SIN(2*PI()*55*1/@size))+(@i2*COS(2*PI()*55*2/@size)-@q2*SIN(2*PI()*55*2/@size))+(@i3*COS(2*PI()*55*3/@size)-@q3*SIN(2*PI()*55*3/@size))+(@i4*COS(2*PI()*55*4/@size)-@q4*SIN(2*PI()*55*4/@size))+(@i5*COS(2*PI()*55*5/@size)-@q5*SIN(2*PI()*55*5/@size))+(@i6*COS(2*PI()*55*6/@size)-@q6*SIN(2*PI()*55*6/@size))+(@i7*COS(2*PI()*55*7/@size)-@q7*SIN(2*PI()*55*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq23",
+      "label": "Profile bin 23 Q",
+      "formula": "=((@i0*SIN(2*PI()*55*0/@size)+@q0*COS(2*PI()*55*0/@size))+(@i1*SIN(2*PI()*55*1/@size)+@q1*COS(2*PI()*55*1/@size))+(@i2*SIN(2*PI()*55*2/@size)+@q2*COS(2*PI()*55*2/@size))+(@i3*SIN(2*PI()*55*3/@size)+@q3*COS(2*PI()*55*3/@size))+(@i4*SIN(2*PI()*55*4/@size)+@q4*COS(2*PI()*55*4/@size))+(@i5*SIN(2*PI()*55*5/@size)+@q5*COS(2*PI()*55*5/@size))+(@i6*SIN(2*PI()*55*6/@size)+@q6*COS(2*PI()*55*6/@size))+(@i7*SIN(2*PI()*55*7/@size)+@q7*COS(2*PI()*55*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p23",
+      "label": "Profile bin 23 power",
+      "formula": "=@pi23^2+@pq23^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r24",
+      "label": "Shifted range bin 24",
+      "formula": "=-8*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi24",
+      "label": "Profile bin 24 I",
+      "formula": "=((@i0*COS(2*PI()*56*0/@size)-@q0*SIN(2*PI()*56*0/@size))+(@i1*COS(2*PI()*56*1/@size)-@q1*SIN(2*PI()*56*1/@size))+(@i2*COS(2*PI()*56*2/@size)-@q2*SIN(2*PI()*56*2/@size))+(@i3*COS(2*PI()*56*3/@size)-@q3*SIN(2*PI()*56*3/@size))+(@i4*COS(2*PI()*56*4/@size)-@q4*SIN(2*PI()*56*4/@size))+(@i5*COS(2*PI()*56*5/@size)-@q5*SIN(2*PI()*56*5/@size))+(@i6*COS(2*PI()*56*6/@size)-@q6*SIN(2*PI()*56*6/@size))+(@i7*COS(2*PI()*56*7/@size)-@q7*SIN(2*PI()*56*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq24",
+      "label": "Profile bin 24 Q",
+      "formula": "=((@i0*SIN(2*PI()*56*0/@size)+@q0*COS(2*PI()*56*0/@size))+(@i1*SIN(2*PI()*56*1/@size)+@q1*COS(2*PI()*56*1/@size))+(@i2*SIN(2*PI()*56*2/@size)+@q2*COS(2*PI()*56*2/@size))+(@i3*SIN(2*PI()*56*3/@size)+@q3*COS(2*PI()*56*3/@size))+(@i4*SIN(2*PI()*56*4/@size)+@q4*COS(2*PI()*56*4/@size))+(@i5*SIN(2*PI()*56*5/@size)+@q5*COS(2*PI()*56*5/@size))+(@i6*SIN(2*PI()*56*6/@size)+@q6*COS(2*PI()*56*6/@size))+(@i7*SIN(2*PI()*56*7/@size)+@q7*COS(2*PI()*56*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p24",
+      "label": "Profile bin 24 power",
+      "formula": "=@pi24^2+@pq24^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r25",
+      "label": "Shifted range bin 25",
+      "formula": "=-7*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi25",
+      "label": "Profile bin 25 I",
+      "formula": "=((@i0*COS(2*PI()*57*0/@size)-@q0*SIN(2*PI()*57*0/@size))+(@i1*COS(2*PI()*57*1/@size)-@q1*SIN(2*PI()*57*1/@size))+(@i2*COS(2*PI()*57*2/@size)-@q2*SIN(2*PI()*57*2/@size))+(@i3*COS(2*PI()*57*3/@size)-@q3*SIN(2*PI()*57*3/@size))+(@i4*COS(2*PI()*57*4/@size)-@q4*SIN(2*PI()*57*4/@size))+(@i5*COS(2*PI()*57*5/@size)-@q5*SIN(2*PI()*57*5/@size))+(@i6*COS(2*PI()*57*6/@size)-@q6*SIN(2*PI()*57*6/@size))+(@i7*COS(2*PI()*57*7/@size)-@q7*SIN(2*PI()*57*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq25",
+      "label": "Profile bin 25 Q",
+      "formula": "=((@i0*SIN(2*PI()*57*0/@size)+@q0*COS(2*PI()*57*0/@size))+(@i1*SIN(2*PI()*57*1/@size)+@q1*COS(2*PI()*57*1/@size))+(@i2*SIN(2*PI()*57*2/@size)+@q2*COS(2*PI()*57*2/@size))+(@i3*SIN(2*PI()*57*3/@size)+@q3*COS(2*PI()*57*3/@size))+(@i4*SIN(2*PI()*57*4/@size)+@q4*COS(2*PI()*57*4/@size))+(@i5*SIN(2*PI()*57*5/@size)+@q5*COS(2*PI()*57*5/@size))+(@i6*SIN(2*PI()*57*6/@size)+@q6*COS(2*PI()*57*6/@size))+(@i7*SIN(2*PI()*57*7/@size)+@q7*COS(2*PI()*57*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p25",
+      "label": "Profile bin 25 power",
+      "formula": "=@pi25^2+@pq25^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r26",
+      "label": "Shifted range bin 26",
+      "formula": "=-6*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi26",
+      "label": "Profile bin 26 I",
+      "formula": "=((@i0*COS(2*PI()*58*0/@size)-@q0*SIN(2*PI()*58*0/@size))+(@i1*COS(2*PI()*58*1/@size)-@q1*SIN(2*PI()*58*1/@size))+(@i2*COS(2*PI()*58*2/@size)-@q2*SIN(2*PI()*58*2/@size))+(@i3*COS(2*PI()*58*3/@size)-@q3*SIN(2*PI()*58*3/@size))+(@i4*COS(2*PI()*58*4/@size)-@q4*SIN(2*PI()*58*4/@size))+(@i5*COS(2*PI()*58*5/@size)-@q5*SIN(2*PI()*58*5/@size))+(@i6*COS(2*PI()*58*6/@size)-@q6*SIN(2*PI()*58*6/@size))+(@i7*COS(2*PI()*58*7/@size)-@q7*SIN(2*PI()*58*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq26",
+      "label": "Profile bin 26 Q",
+      "formula": "=((@i0*SIN(2*PI()*58*0/@size)+@q0*COS(2*PI()*58*0/@size))+(@i1*SIN(2*PI()*58*1/@size)+@q1*COS(2*PI()*58*1/@size))+(@i2*SIN(2*PI()*58*2/@size)+@q2*COS(2*PI()*58*2/@size))+(@i3*SIN(2*PI()*58*3/@size)+@q3*COS(2*PI()*58*3/@size))+(@i4*SIN(2*PI()*58*4/@size)+@q4*COS(2*PI()*58*4/@size))+(@i5*SIN(2*PI()*58*5/@size)+@q5*COS(2*PI()*58*5/@size))+(@i6*SIN(2*PI()*58*6/@size)+@q6*COS(2*PI()*58*6/@size))+(@i7*SIN(2*PI()*58*7/@size)+@q7*COS(2*PI()*58*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p26",
+      "label": "Profile bin 26 power",
+      "formula": "=@pi26^2+@pq26^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r27",
+      "label": "Shifted range bin 27",
+      "formula": "=-5*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi27",
+      "label": "Profile bin 27 I",
+      "formula": "=((@i0*COS(2*PI()*59*0/@size)-@q0*SIN(2*PI()*59*0/@size))+(@i1*COS(2*PI()*59*1/@size)-@q1*SIN(2*PI()*59*1/@size))+(@i2*COS(2*PI()*59*2/@size)-@q2*SIN(2*PI()*59*2/@size))+(@i3*COS(2*PI()*59*3/@size)-@q3*SIN(2*PI()*59*3/@size))+(@i4*COS(2*PI()*59*4/@size)-@q4*SIN(2*PI()*59*4/@size))+(@i5*COS(2*PI()*59*5/@size)-@q5*SIN(2*PI()*59*5/@size))+(@i6*COS(2*PI()*59*6/@size)-@q6*SIN(2*PI()*59*6/@size))+(@i7*COS(2*PI()*59*7/@size)-@q7*SIN(2*PI()*59*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq27",
+      "label": "Profile bin 27 Q",
+      "formula": "=((@i0*SIN(2*PI()*59*0/@size)+@q0*COS(2*PI()*59*0/@size))+(@i1*SIN(2*PI()*59*1/@size)+@q1*COS(2*PI()*59*1/@size))+(@i2*SIN(2*PI()*59*2/@size)+@q2*COS(2*PI()*59*2/@size))+(@i3*SIN(2*PI()*59*3/@size)+@q3*COS(2*PI()*59*3/@size))+(@i4*SIN(2*PI()*59*4/@size)+@q4*COS(2*PI()*59*4/@size))+(@i5*SIN(2*PI()*59*5/@size)+@q5*COS(2*PI()*59*5/@size))+(@i6*SIN(2*PI()*59*6/@size)+@q6*COS(2*PI()*59*6/@size))+(@i7*SIN(2*PI()*59*7/@size)+@q7*COS(2*PI()*59*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p27",
+      "label": "Profile bin 27 power",
+      "formula": "=@pi27^2+@pq27^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r28",
+      "label": "Shifted range bin 28",
+      "formula": "=-4*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi28",
+      "label": "Profile bin 28 I",
+      "formula": "=((@i0*COS(2*PI()*60*0/@size)-@q0*SIN(2*PI()*60*0/@size))+(@i1*COS(2*PI()*60*1/@size)-@q1*SIN(2*PI()*60*1/@size))+(@i2*COS(2*PI()*60*2/@size)-@q2*SIN(2*PI()*60*2/@size))+(@i3*COS(2*PI()*60*3/@size)-@q3*SIN(2*PI()*60*3/@size))+(@i4*COS(2*PI()*60*4/@size)-@q4*SIN(2*PI()*60*4/@size))+(@i5*COS(2*PI()*60*5/@size)-@q5*SIN(2*PI()*60*5/@size))+(@i6*COS(2*PI()*60*6/@size)-@q6*SIN(2*PI()*60*6/@size))+(@i7*COS(2*PI()*60*7/@size)-@q7*SIN(2*PI()*60*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq28",
+      "label": "Profile bin 28 Q",
+      "formula": "=((@i0*SIN(2*PI()*60*0/@size)+@q0*COS(2*PI()*60*0/@size))+(@i1*SIN(2*PI()*60*1/@size)+@q1*COS(2*PI()*60*1/@size))+(@i2*SIN(2*PI()*60*2/@size)+@q2*COS(2*PI()*60*2/@size))+(@i3*SIN(2*PI()*60*3/@size)+@q3*COS(2*PI()*60*3/@size))+(@i4*SIN(2*PI()*60*4/@size)+@q4*COS(2*PI()*60*4/@size))+(@i5*SIN(2*PI()*60*5/@size)+@q5*COS(2*PI()*60*5/@size))+(@i6*SIN(2*PI()*60*6/@size)+@q6*COS(2*PI()*60*6/@size))+(@i7*SIN(2*PI()*60*7/@size)+@q7*COS(2*PI()*60*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p28",
+      "label": "Profile bin 28 power",
+      "formula": "=@pi28^2+@pq28^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r29",
+      "label": "Shifted range bin 29",
+      "formula": "=-3*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi29",
+      "label": "Profile bin 29 I",
+      "formula": "=((@i0*COS(2*PI()*61*0/@size)-@q0*SIN(2*PI()*61*0/@size))+(@i1*COS(2*PI()*61*1/@size)-@q1*SIN(2*PI()*61*1/@size))+(@i2*COS(2*PI()*61*2/@size)-@q2*SIN(2*PI()*61*2/@size))+(@i3*COS(2*PI()*61*3/@size)-@q3*SIN(2*PI()*61*3/@size))+(@i4*COS(2*PI()*61*4/@size)-@q4*SIN(2*PI()*61*4/@size))+(@i5*COS(2*PI()*61*5/@size)-@q5*SIN(2*PI()*61*5/@size))+(@i6*COS(2*PI()*61*6/@size)-@q6*SIN(2*PI()*61*6/@size))+(@i7*COS(2*PI()*61*7/@size)-@q7*SIN(2*PI()*61*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq29",
+      "label": "Profile bin 29 Q",
+      "formula": "=((@i0*SIN(2*PI()*61*0/@size)+@q0*COS(2*PI()*61*0/@size))+(@i1*SIN(2*PI()*61*1/@size)+@q1*COS(2*PI()*61*1/@size))+(@i2*SIN(2*PI()*61*2/@size)+@q2*COS(2*PI()*61*2/@size))+(@i3*SIN(2*PI()*61*3/@size)+@q3*COS(2*PI()*61*3/@size))+(@i4*SIN(2*PI()*61*4/@size)+@q4*COS(2*PI()*61*4/@size))+(@i5*SIN(2*PI()*61*5/@size)+@q5*COS(2*PI()*61*5/@size))+(@i6*SIN(2*PI()*61*6/@size)+@q6*COS(2*PI()*61*6/@size))+(@i7*SIN(2*PI()*61*7/@size)+@q7*COS(2*PI()*61*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p29",
+      "label": "Profile bin 29 power",
+      "formula": "=@pi29^2+@pq29^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r30",
+      "label": "Shifted range bin 30",
+      "formula": "=-2*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi30",
+      "label": "Profile bin 30 I",
+      "formula": "=((@i0*COS(2*PI()*62*0/@size)-@q0*SIN(2*PI()*62*0/@size))+(@i1*COS(2*PI()*62*1/@size)-@q1*SIN(2*PI()*62*1/@size))+(@i2*COS(2*PI()*62*2/@size)-@q2*SIN(2*PI()*62*2/@size))+(@i3*COS(2*PI()*62*3/@size)-@q3*SIN(2*PI()*62*3/@size))+(@i4*COS(2*PI()*62*4/@size)-@q4*SIN(2*PI()*62*4/@size))+(@i5*COS(2*PI()*62*5/@size)-@q5*SIN(2*PI()*62*5/@size))+(@i6*COS(2*PI()*62*6/@size)-@q6*SIN(2*PI()*62*6/@size))+(@i7*COS(2*PI()*62*7/@size)-@q7*SIN(2*PI()*62*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq30",
+      "label": "Profile bin 30 Q",
+      "formula": "=((@i0*SIN(2*PI()*62*0/@size)+@q0*COS(2*PI()*62*0/@size))+(@i1*SIN(2*PI()*62*1/@size)+@q1*COS(2*PI()*62*1/@size))+(@i2*SIN(2*PI()*62*2/@size)+@q2*COS(2*PI()*62*2/@size))+(@i3*SIN(2*PI()*62*3/@size)+@q3*COS(2*PI()*62*3/@size))+(@i4*SIN(2*PI()*62*4/@size)+@q4*COS(2*PI()*62*4/@size))+(@i5*SIN(2*PI()*62*5/@size)+@q5*COS(2*PI()*62*5/@size))+(@i6*SIN(2*PI()*62*6/@size)+@q6*COS(2*PI()*62*6/@size))+(@i7*SIN(2*PI()*62*7/@size)+@q7*COS(2*PI()*62*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p30",
+      "label": "Profile bin 30 power",
+      "formula": "=@pi30^2+@pq30^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r31",
+      "label": "Shifted range bin 31",
+      "formula": "=-1*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi31",
+      "label": "Profile bin 31 I",
+      "formula": "=((@i0*COS(2*PI()*63*0/@size)-@q0*SIN(2*PI()*63*0/@size))+(@i1*COS(2*PI()*63*1/@size)-@q1*SIN(2*PI()*63*1/@size))+(@i2*COS(2*PI()*63*2/@size)-@q2*SIN(2*PI()*63*2/@size))+(@i3*COS(2*PI()*63*3/@size)-@q3*SIN(2*PI()*63*3/@size))+(@i4*COS(2*PI()*63*4/@size)-@q4*SIN(2*PI()*63*4/@size))+(@i5*COS(2*PI()*63*5/@size)-@q5*SIN(2*PI()*63*5/@size))+(@i6*COS(2*PI()*63*6/@size)-@q6*SIN(2*PI()*63*6/@size))+(@i7*COS(2*PI()*63*7/@size)-@q7*SIN(2*PI()*63*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq31",
+      "label": "Profile bin 31 Q",
+      "formula": "=((@i0*SIN(2*PI()*63*0/@size)+@q0*COS(2*PI()*63*0/@size))+(@i1*SIN(2*PI()*63*1/@size)+@q1*COS(2*PI()*63*1/@size))+(@i2*SIN(2*PI()*63*2/@size)+@q2*COS(2*PI()*63*2/@size))+(@i3*SIN(2*PI()*63*3/@size)+@q3*COS(2*PI()*63*3/@size))+(@i4*SIN(2*PI()*63*4/@size)+@q4*COS(2*PI()*63*4/@size))+(@i5*SIN(2*PI()*63*5/@size)+@q5*COS(2*PI()*63*5/@size))+(@i6*SIN(2*PI()*63*6/@size)+@q6*COS(2*PI()*63*6/@size))+(@i7*SIN(2*PI()*63*7/@size)+@q7*COS(2*PI()*63*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p31",
+      "label": "Profile bin 31 power",
+      "formula": "=@pi31^2+@pq31^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r32",
+      "label": "Shifted range bin 32",
+      "formula": "=0*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi32",
+      "label": "Profile bin 32 I",
+      "formula": "=((@i0*COS(2*PI()*0*0/@size)-@q0*SIN(2*PI()*0*0/@size))+(@i1*COS(2*PI()*0*1/@size)-@q1*SIN(2*PI()*0*1/@size))+(@i2*COS(2*PI()*0*2/@size)-@q2*SIN(2*PI()*0*2/@size))+(@i3*COS(2*PI()*0*3/@size)-@q3*SIN(2*PI()*0*3/@size))+(@i4*COS(2*PI()*0*4/@size)-@q4*SIN(2*PI()*0*4/@size))+(@i5*COS(2*PI()*0*5/@size)-@q5*SIN(2*PI()*0*5/@size))+(@i6*COS(2*PI()*0*6/@size)-@q6*SIN(2*PI()*0*6/@size))+(@i7*COS(2*PI()*0*7/@size)-@q7*SIN(2*PI()*0*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq32",
+      "label": "Profile bin 32 Q",
+      "formula": "=((@i0*SIN(2*PI()*0*0/@size)+@q0*COS(2*PI()*0*0/@size))+(@i1*SIN(2*PI()*0*1/@size)+@q1*COS(2*PI()*0*1/@size))+(@i2*SIN(2*PI()*0*2/@size)+@q2*COS(2*PI()*0*2/@size))+(@i3*SIN(2*PI()*0*3/@size)+@q3*COS(2*PI()*0*3/@size))+(@i4*SIN(2*PI()*0*4/@size)+@q4*COS(2*PI()*0*4/@size))+(@i5*SIN(2*PI()*0*5/@size)+@q5*COS(2*PI()*0*5/@size))+(@i6*SIN(2*PI()*0*6/@size)+@q6*COS(2*PI()*0*6/@size))+(@i7*SIN(2*PI()*0*7/@size)+@q7*COS(2*PI()*0*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p32",
+      "label": "Profile bin 32 power",
+      "formula": "=@pi32^2+@pq32^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r33",
+      "label": "Shifted range bin 33",
+      "formula": "=1*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi33",
+      "label": "Profile bin 33 I",
+      "formula": "=((@i0*COS(2*PI()*1*0/@size)-@q0*SIN(2*PI()*1*0/@size))+(@i1*COS(2*PI()*1*1/@size)-@q1*SIN(2*PI()*1*1/@size))+(@i2*COS(2*PI()*1*2/@size)-@q2*SIN(2*PI()*1*2/@size))+(@i3*COS(2*PI()*1*3/@size)-@q3*SIN(2*PI()*1*3/@size))+(@i4*COS(2*PI()*1*4/@size)-@q4*SIN(2*PI()*1*4/@size))+(@i5*COS(2*PI()*1*5/@size)-@q5*SIN(2*PI()*1*5/@size))+(@i6*COS(2*PI()*1*6/@size)-@q6*SIN(2*PI()*1*6/@size))+(@i7*COS(2*PI()*1*7/@size)-@q7*SIN(2*PI()*1*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq33",
+      "label": "Profile bin 33 Q",
+      "formula": "=((@i0*SIN(2*PI()*1*0/@size)+@q0*COS(2*PI()*1*0/@size))+(@i1*SIN(2*PI()*1*1/@size)+@q1*COS(2*PI()*1*1/@size))+(@i2*SIN(2*PI()*1*2/@size)+@q2*COS(2*PI()*1*2/@size))+(@i3*SIN(2*PI()*1*3/@size)+@q3*COS(2*PI()*1*3/@size))+(@i4*SIN(2*PI()*1*4/@size)+@q4*COS(2*PI()*1*4/@size))+(@i5*SIN(2*PI()*1*5/@size)+@q5*COS(2*PI()*1*5/@size))+(@i6*SIN(2*PI()*1*6/@size)+@q6*COS(2*PI()*1*6/@size))+(@i7*SIN(2*PI()*1*7/@size)+@q7*COS(2*PI()*1*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p33",
+      "label": "Profile bin 33 power",
+      "formula": "=@pi33^2+@pq33^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r34",
+      "label": "Shifted range bin 34",
+      "formula": "=2*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi34",
+      "label": "Profile bin 34 I",
+      "formula": "=((@i0*COS(2*PI()*2*0/@size)-@q0*SIN(2*PI()*2*0/@size))+(@i1*COS(2*PI()*2*1/@size)-@q1*SIN(2*PI()*2*1/@size))+(@i2*COS(2*PI()*2*2/@size)-@q2*SIN(2*PI()*2*2/@size))+(@i3*COS(2*PI()*2*3/@size)-@q3*SIN(2*PI()*2*3/@size))+(@i4*COS(2*PI()*2*4/@size)-@q4*SIN(2*PI()*2*4/@size))+(@i5*COS(2*PI()*2*5/@size)-@q5*SIN(2*PI()*2*5/@size))+(@i6*COS(2*PI()*2*6/@size)-@q6*SIN(2*PI()*2*6/@size))+(@i7*COS(2*PI()*2*7/@size)-@q7*SIN(2*PI()*2*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq34",
+      "label": "Profile bin 34 Q",
+      "formula": "=((@i0*SIN(2*PI()*2*0/@size)+@q0*COS(2*PI()*2*0/@size))+(@i1*SIN(2*PI()*2*1/@size)+@q1*COS(2*PI()*2*1/@size))+(@i2*SIN(2*PI()*2*2/@size)+@q2*COS(2*PI()*2*2/@size))+(@i3*SIN(2*PI()*2*3/@size)+@q3*COS(2*PI()*2*3/@size))+(@i4*SIN(2*PI()*2*4/@size)+@q4*COS(2*PI()*2*4/@size))+(@i5*SIN(2*PI()*2*5/@size)+@q5*COS(2*PI()*2*5/@size))+(@i6*SIN(2*PI()*2*6/@size)+@q6*COS(2*PI()*2*6/@size))+(@i7*SIN(2*PI()*2*7/@size)+@q7*COS(2*PI()*2*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p34",
+      "label": "Profile bin 34 power",
+      "formula": "=@pi34^2+@pq34^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r35",
+      "label": "Shifted range bin 35",
+      "formula": "=3*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi35",
+      "label": "Profile bin 35 I",
+      "formula": "=((@i0*COS(2*PI()*3*0/@size)-@q0*SIN(2*PI()*3*0/@size))+(@i1*COS(2*PI()*3*1/@size)-@q1*SIN(2*PI()*3*1/@size))+(@i2*COS(2*PI()*3*2/@size)-@q2*SIN(2*PI()*3*2/@size))+(@i3*COS(2*PI()*3*3/@size)-@q3*SIN(2*PI()*3*3/@size))+(@i4*COS(2*PI()*3*4/@size)-@q4*SIN(2*PI()*3*4/@size))+(@i5*COS(2*PI()*3*5/@size)-@q5*SIN(2*PI()*3*5/@size))+(@i6*COS(2*PI()*3*6/@size)-@q6*SIN(2*PI()*3*6/@size))+(@i7*COS(2*PI()*3*7/@size)-@q7*SIN(2*PI()*3*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq35",
+      "label": "Profile bin 35 Q",
+      "formula": "=((@i0*SIN(2*PI()*3*0/@size)+@q0*COS(2*PI()*3*0/@size))+(@i1*SIN(2*PI()*3*1/@size)+@q1*COS(2*PI()*3*1/@size))+(@i2*SIN(2*PI()*3*2/@size)+@q2*COS(2*PI()*3*2/@size))+(@i3*SIN(2*PI()*3*3/@size)+@q3*COS(2*PI()*3*3/@size))+(@i4*SIN(2*PI()*3*4/@size)+@q4*COS(2*PI()*3*4/@size))+(@i5*SIN(2*PI()*3*5/@size)+@q5*COS(2*PI()*3*5/@size))+(@i6*SIN(2*PI()*3*6/@size)+@q6*COS(2*PI()*3*6/@size))+(@i7*SIN(2*PI()*3*7/@size)+@q7*COS(2*PI()*3*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p35",
+      "label": "Profile bin 35 power",
+      "formula": "=@pi35^2+@pq35^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r36",
+      "label": "Shifted range bin 36",
+      "formula": "=4*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi36",
+      "label": "Profile bin 36 I",
+      "formula": "=((@i0*COS(2*PI()*4*0/@size)-@q0*SIN(2*PI()*4*0/@size))+(@i1*COS(2*PI()*4*1/@size)-@q1*SIN(2*PI()*4*1/@size))+(@i2*COS(2*PI()*4*2/@size)-@q2*SIN(2*PI()*4*2/@size))+(@i3*COS(2*PI()*4*3/@size)-@q3*SIN(2*PI()*4*3/@size))+(@i4*COS(2*PI()*4*4/@size)-@q4*SIN(2*PI()*4*4/@size))+(@i5*COS(2*PI()*4*5/@size)-@q5*SIN(2*PI()*4*5/@size))+(@i6*COS(2*PI()*4*6/@size)-@q6*SIN(2*PI()*4*6/@size))+(@i7*COS(2*PI()*4*7/@size)-@q7*SIN(2*PI()*4*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq36",
+      "label": "Profile bin 36 Q",
+      "formula": "=((@i0*SIN(2*PI()*4*0/@size)+@q0*COS(2*PI()*4*0/@size))+(@i1*SIN(2*PI()*4*1/@size)+@q1*COS(2*PI()*4*1/@size))+(@i2*SIN(2*PI()*4*2/@size)+@q2*COS(2*PI()*4*2/@size))+(@i3*SIN(2*PI()*4*3/@size)+@q3*COS(2*PI()*4*3/@size))+(@i4*SIN(2*PI()*4*4/@size)+@q4*COS(2*PI()*4*4/@size))+(@i5*SIN(2*PI()*4*5/@size)+@q5*COS(2*PI()*4*5/@size))+(@i6*SIN(2*PI()*4*6/@size)+@q6*COS(2*PI()*4*6/@size))+(@i7*SIN(2*PI()*4*7/@size)+@q7*COS(2*PI()*4*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p36",
+      "label": "Profile bin 36 power",
+      "formula": "=@pi36^2+@pq36^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r37",
+      "label": "Shifted range bin 37",
+      "formula": "=5*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi37",
+      "label": "Profile bin 37 I",
+      "formula": "=((@i0*COS(2*PI()*5*0/@size)-@q0*SIN(2*PI()*5*0/@size))+(@i1*COS(2*PI()*5*1/@size)-@q1*SIN(2*PI()*5*1/@size))+(@i2*COS(2*PI()*5*2/@size)-@q2*SIN(2*PI()*5*2/@size))+(@i3*COS(2*PI()*5*3/@size)-@q3*SIN(2*PI()*5*3/@size))+(@i4*COS(2*PI()*5*4/@size)-@q4*SIN(2*PI()*5*4/@size))+(@i5*COS(2*PI()*5*5/@size)-@q5*SIN(2*PI()*5*5/@size))+(@i6*COS(2*PI()*5*6/@size)-@q6*SIN(2*PI()*5*6/@size))+(@i7*COS(2*PI()*5*7/@size)-@q7*SIN(2*PI()*5*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq37",
+      "label": "Profile bin 37 Q",
+      "formula": "=((@i0*SIN(2*PI()*5*0/@size)+@q0*COS(2*PI()*5*0/@size))+(@i1*SIN(2*PI()*5*1/@size)+@q1*COS(2*PI()*5*1/@size))+(@i2*SIN(2*PI()*5*2/@size)+@q2*COS(2*PI()*5*2/@size))+(@i3*SIN(2*PI()*5*3/@size)+@q3*COS(2*PI()*5*3/@size))+(@i4*SIN(2*PI()*5*4/@size)+@q4*COS(2*PI()*5*4/@size))+(@i5*SIN(2*PI()*5*5/@size)+@q5*COS(2*PI()*5*5/@size))+(@i6*SIN(2*PI()*5*6/@size)+@q6*COS(2*PI()*5*6/@size))+(@i7*SIN(2*PI()*5*7/@size)+@q7*COS(2*PI()*5*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p37",
+      "label": "Profile bin 37 power",
+      "formula": "=@pi37^2+@pq37^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r38",
+      "label": "Shifted range bin 38",
+      "formula": "=6*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi38",
+      "label": "Profile bin 38 I",
+      "formula": "=((@i0*COS(2*PI()*6*0/@size)-@q0*SIN(2*PI()*6*0/@size))+(@i1*COS(2*PI()*6*1/@size)-@q1*SIN(2*PI()*6*1/@size))+(@i2*COS(2*PI()*6*2/@size)-@q2*SIN(2*PI()*6*2/@size))+(@i3*COS(2*PI()*6*3/@size)-@q3*SIN(2*PI()*6*3/@size))+(@i4*COS(2*PI()*6*4/@size)-@q4*SIN(2*PI()*6*4/@size))+(@i5*COS(2*PI()*6*5/@size)-@q5*SIN(2*PI()*6*5/@size))+(@i6*COS(2*PI()*6*6/@size)-@q6*SIN(2*PI()*6*6/@size))+(@i7*COS(2*PI()*6*7/@size)-@q7*SIN(2*PI()*6*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq38",
+      "label": "Profile bin 38 Q",
+      "formula": "=((@i0*SIN(2*PI()*6*0/@size)+@q0*COS(2*PI()*6*0/@size))+(@i1*SIN(2*PI()*6*1/@size)+@q1*COS(2*PI()*6*1/@size))+(@i2*SIN(2*PI()*6*2/@size)+@q2*COS(2*PI()*6*2/@size))+(@i3*SIN(2*PI()*6*3/@size)+@q3*COS(2*PI()*6*3/@size))+(@i4*SIN(2*PI()*6*4/@size)+@q4*COS(2*PI()*6*4/@size))+(@i5*SIN(2*PI()*6*5/@size)+@q5*COS(2*PI()*6*5/@size))+(@i6*SIN(2*PI()*6*6/@size)+@q6*COS(2*PI()*6*6/@size))+(@i7*SIN(2*PI()*6*7/@size)+@q7*COS(2*PI()*6*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p38",
+      "label": "Profile bin 38 power",
+      "formula": "=@pi38^2+@pq38^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r39",
+      "label": "Shifted range bin 39",
+      "formula": "=7*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi39",
+      "label": "Profile bin 39 I",
+      "formula": "=((@i0*COS(2*PI()*7*0/@size)-@q0*SIN(2*PI()*7*0/@size))+(@i1*COS(2*PI()*7*1/@size)-@q1*SIN(2*PI()*7*1/@size))+(@i2*COS(2*PI()*7*2/@size)-@q2*SIN(2*PI()*7*2/@size))+(@i3*COS(2*PI()*7*3/@size)-@q3*SIN(2*PI()*7*3/@size))+(@i4*COS(2*PI()*7*4/@size)-@q4*SIN(2*PI()*7*4/@size))+(@i5*COS(2*PI()*7*5/@size)-@q5*SIN(2*PI()*7*5/@size))+(@i6*COS(2*PI()*7*6/@size)-@q6*SIN(2*PI()*7*6/@size))+(@i7*COS(2*PI()*7*7/@size)-@q7*SIN(2*PI()*7*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq39",
+      "label": "Profile bin 39 Q",
+      "formula": "=((@i0*SIN(2*PI()*7*0/@size)+@q0*COS(2*PI()*7*0/@size))+(@i1*SIN(2*PI()*7*1/@size)+@q1*COS(2*PI()*7*1/@size))+(@i2*SIN(2*PI()*7*2/@size)+@q2*COS(2*PI()*7*2/@size))+(@i3*SIN(2*PI()*7*3/@size)+@q3*COS(2*PI()*7*3/@size))+(@i4*SIN(2*PI()*7*4/@size)+@q4*COS(2*PI()*7*4/@size))+(@i5*SIN(2*PI()*7*5/@size)+@q5*COS(2*PI()*7*5/@size))+(@i6*SIN(2*PI()*7*6/@size)+@q6*COS(2*PI()*7*6/@size))+(@i7*SIN(2*PI()*7*7/@size)+@q7*COS(2*PI()*7*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p39",
+      "label": "Profile bin 39 power",
+      "formula": "=@pi39^2+@pq39^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r40",
+      "label": "Shifted range bin 40",
+      "formula": "=8*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi40",
+      "label": "Profile bin 40 I",
+      "formula": "=((@i0*COS(2*PI()*8*0/@size)-@q0*SIN(2*PI()*8*0/@size))+(@i1*COS(2*PI()*8*1/@size)-@q1*SIN(2*PI()*8*1/@size))+(@i2*COS(2*PI()*8*2/@size)-@q2*SIN(2*PI()*8*2/@size))+(@i3*COS(2*PI()*8*3/@size)-@q3*SIN(2*PI()*8*3/@size))+(@i4*COS(2*PI()*8*4/@size)-@q4*SIN(2*PI()*8*4/@size))+(@i5*COS(2*PI()*8*5/@size)-@q5*SIN(2*PI()*8*5/@size))+(@i6*COS(2*PI()*8*6/@size)-@q6*SIN(2*PI()*8*6/@size))+(@i7*COS(2*PI()*8*7/@size)-@q7*SIN(2*PI()*8*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq40",
+      "label": "Profile bin 40 Q",
+      "formula": "=((@i0*SIN(2*PI()*8*0/@size)+@q0*COS(2*PI()*8*0/@size))+(@i1*SIN(2*PI()*8*1/@size)+@q1*COS(2*PI()*8*1/@size))+(@i2*SIN(2*PI()*8*2/@size)+@q2*COS(2*PI()*8*2/@size))+(@i3*SIN(2*PI()*8*3/@size)+@q3*COS(2*PI()*8*3/@size))+(@i4*SIN(2*PI()*8*4/@size)+@q4*COS(2*PI()*8*4/@size))+(@i5*SIN(2*PI()*8*5/@size)+@q5*COS(2*PI()*8*5/@size))+(@i6*SIN(2*PI()*8*6/@size)+@q6*COS(2*PI()*8*6/@size))+(@i7*SIN(2*PI()*8*7/@size)+@q7*COS(2*PI()*8*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p40",
+      "label": "Profile bin 40 power",
+      "formula": "=@pi40^2+@pq40^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r41",
+      "label": "Shifted range bin 41",
+      "formula": "=9*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi41",
+      "label": "Profile bin 41 I",
+      "formula": "=((@i0*COS(2*PI()*9*0/@size)-@q0*SIN(2*PI()*9*0/@size))+(@i1*COS(2*PI()*9*1/@size)-@q1*SIN(2*PI()*9*1/@size))+(@i2*COS(2*PI()*9*2/@size)-@q2*SIN(2*PI()*9*2/@size))+(@i3*COS(2*PI()*9*3/@size)-@q3*SIN(2*PI()*9*3/@size))+(@i4*COS(2*PI()*9*4/@size)-@q4*SIN(2*PI()*9*4/@size))+(@i5*COS(2*PI()*9*5/@size)-@q5*SIN(2*PI()*9*5/@size))+(@i6*COS(2*PI()*9*6/@size)-@q6*SIN(2*PI()*9*6/@size))+(@i7*COS(2*PI()*9*7/@size)-@q7*SIN(2*PI()*9*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq41",
+      "label": "Profile bin 41 Q",
+      "formula": "=((@i0*SIN(2*PI()*9*0/@size)+@q0*COS(2*PI()*9*0/@size))+(@i1*SIN(2*PI()*9*1/@size)+@q1*COS(2*PI()*9*1/@size))+(@i2*SIN(2*PI()*9*2/@size)+@q2*COS(2*PI()*9*2/@size))+(@i3*SIN(2*PI()*9*3/@size)+@q3*COS(2*PI()*9*3/@size))+(@i4*SIN(2*PI()*9*4/@size)+@q4*COS(2*PI()*9*4/@size))+(@i5*SIN(2*PI()*9*5/@size)+@q5*COS(2*PI()*9*5/@size))+(@i6*SIN(2*PI()*9*6/@size)+@q6*COS(2*PI()*9*6/@size))+(@i7*SIN(2*PI()*9*7/@size)+@q7*COS(2*PI()*9*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p41",
+      "label": "Profile bin 41 power",
+      "formula": "=@pi41^2+@pq41^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r42",
+      "label": "Shifted range bin 42",
+      "formula": "=10*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi42",
+      "label": "Profile bin 42 I",
+      "formula": "=((@i0*COS(2*PI()*10*0/@size)-@q0*SIN(2*PI()*10*0/@size))+(@i1*COS(2*PI()*10*1/@size)-@q1*SIN(2*PI()*10*1/@size))+(@i2*COS(2*PI()*10*2/@size)-@q2*SIN(2*PI()*10*2/@size))+(@i3*COS(2*PI()*10*3/@size)-@q3*SIN(2*PI()*10*3/@size))+(@i4*COS(2*PI()*10*4/@size)-@q4*SIN(2*PI()*10*4/@size))+(@i5*COS(2*PI()*10*5/@size)-@q5*SIN(2*PI()*10*5/@size))+(@i6*COS(2*PI()*10*6/@size)-@q6*SIN(2*PI()*10*6/@size))+(@i7*COS(2*PI()*10*7/@size)-@q7*SIN(2*PI()*10*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq42",
+      "label": "Profile bin 42 Q",
+      "formula": "=((@i0*SIN(2*PI()*10*0/@size)+@q0*COS(2*PI()*10*0/@size))+(@i1*SIN(2*PI()*10*1/@size)+@q1*COS(2*PI()*10*1/@size))+(@i2*SIN(2*PI()*10*2/@size)+@q2*COS(2*PI()*10*2/@size))+(@i3*SIN(2*PI()*10*3/@size)+@q3*COS(2*PI()*10*3/@size))+(@i4*SIN(2*PI()*10*4/@size)+@q4*COS(2*PI()*10*4/@size))+(@i5*SIN(2*PI()*10*5/@size)+@q5*COS(2*PI()*10*5/@size))+(@i6*SIN(2*PI()*10*6/@size)+@q6*COS(2*PI()*10*6/@size))+(@i7*SIN(2*PI()*10*7/@size)+@q7*COS(2*PI()*10*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p42",
+      "label": "Profile bin 42 power",
+      "formula": "=@pi42^2+@pq42^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r43",
+      "label": "Shifted range bin 43",
+      "formula": "=11*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi43",
+      "label": "Profile bin 43 I",
+      "formula": "=((@i0*COS(2*PI()*11*0/@size)-@q0*SIN(2*PI()*11*0/@size))+(@i1*COS(2*PI()*11*1/@size)-@q1*SIN(2*PI()*11*1/@size))+(@i2*COS(2*PI()*11*2/@size)-@q2*SIN(2*PI()*11*2/@size))+(@i3*COS(2*PI()*11*3/@size)-@q3*SIN(2*PI()*11*3/@size))+(@i4*COS(2*PI()*11*4/@size)-@q4*SIN(2*PI()*11*4/@size))+(@i5*COS(2*PI()*11*5/@size)-@q5*SIN(2*PI()*11*5/@size))+(@i6*COS(2*PI()*11*6/@size)-@q6*SIN(2*PI()*11*6/@size))+(@i7*COS(2*PI()*11*7/@size)-@q7*SIN(2*PI()*11*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq43",
+      "label": "Profile bin 43 Q",
+      "formula": "=((@i0*SIN(2*PI()*11*0/@size)+@q0*COS(2*PI()*11*0/@size))+(@i1*SIN(2*PI()*11*1/@size)+@q1*COS(2*PI()*11*1/@size))+(@i2*SIN(2*PI()*11*2/@size)+@q2*COS(2*PI()*11*2/@size))+(@i3*SIN(2*PI()*11*3/@size)+@q3*COS(2*PI()*11*3/@size))+(@i4*SIN(2*PI()*11*4/@size)+@q4*COS(2*PI()*11*4/@size))+(@i5*SIN(2*PI()*11*5/@size)+@q5*COS(2*PI()*11*5/@size))+(@i6*SIN(2*PI()*11*6/@size)+@q6*COS(2*PI()*11*6/@size))+(@i7*SIN(2*PI()*11*7/@size)+@q7*COS(2*PI()*11*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p43",
+      "label": "Profile bin 43 power",
+      "formula": "=@pi43^2+@pq43^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r44",
+      "label": "Shifted range bin 44",
+      "formula": "=12*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi44",
+      "label": "Profile bin 44 I",
+      "formula": "=((@i0*COS(2*PI()*12*0/@size)-@q0*SIN(2*PI()*12*0/@size))+(@i1*COS(2*PI()*12*1/@size)-@q1*SIN(2*PI()*12*1/@size))+(@i2*COS(2*PI()*12*2/@size)-@q2*SIN(2*PI()*12*2/@size))+(@i3*COS(2*PI()*12*3/@size)-@q3*SIN(2*PI()*12*3/@size))+(@i4*COS(2*PI()*12*4/@size)-@q4*SIN(2*PI()*12*4/@size))+(@i5*COS(2*PI()*12*5/@size)-@q5*SIN(2*PI()*12*5/@size))+(@i6*COS(2*PI()*12*6/@size)-@q6*SIN(2*PI()*12*6/@size))+(@i7*COS(2*PI()*12*7/@size)-@q7*SIN(2*PI()*12*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq44",
+      "label": "Profile bin 44 Q",
+      "formula": "=((@i0*SIN(2*PI()*12*0/@size)+@q0*COS(2*PI()*12*0/@size))+(@i1*SIN(2*PI()*12*1/@size)+@q1*COS(2*PI()*12*1/@size))+(@i2*SIN(2*PI()*12*2/@size)+@q2*COS(2*PI()*12*2/@size))+(@i3*SIN(2*PI()*12*3/@size)+@q3*COS(2*PI()*12*3/@size))+(@i4*SIN(2*PI()*12*4/@size)+@q4*COS(2*PI()*12*4/@size))+(@i5*SIN(2*PI()*12*5/@size)+@q5*COS(2*PI()*12*5/@size))+(@i6*SIN(2*PI()*12*6/@size)+@q6*COS(2*PI()*12*6/@size))+(@i7*SIN(2*PI()*12*7/@size)+@q7*COS(2*PI()*12*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p44",
+      "label": "Profile bin 44 power",
+      "formula": "=@pi44^2+@pq44^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r45",
+      "label": "Shifted range bin 45",
+      "formula": "=13*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi45",
+      "label": "Profile bin 45 I",
+      "formula": "=((@i0*COS(2*PI()*13*0/@size)-@q0*SIN(2*PI()*13*0/@size))+(@i1*COS(2*PI()*13*1/@size)-@q1*SIN(2*PI()*13*1/@size))+(@i2*COS(2*PI()*13*2/@size)-@q2*SIN(2*PI()*13*2/@size))+(@i3*COS(2*PI()*13*3/@size)-@q3*SIN(2*PI()*13*3/@size))+(@i4*COS(2*PI()*13*4/@size)-@q4*SIN(2*PI()*13*4/@size))+(@i5*COS(2*PI()*13*5/@size)-@q5*SIN(2*PI()*13*5/@size))+(@i6*COS(2*PI()*13*6/@size)-@q6*SIN(2*PI()*13*6/@size))+(@i7*COS(2*PI()*13*7/@size)-@q7*SIN(2*PI()*13*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq45",
+      "label": "Profile bin 45 Q",
+      "formula": "=((@i0*SIN(2*PI()*13*0/@size)+@q0*COS(2*PI()*13*0/@size))+(@i1*SIN(2*PI()*13*1/@size)+@q1*COS(2*PI()*13*1/@size))+(@i2*SIN(2*PI()*13*2/@size)+@q2*COS(2*PI()*13*2/@size))+(@i3*SIN(2*PI()*13*3/@size)+@q3*COS(2*PI()*13*3/@size))+(@i4*SIN(2*PI()*13*4/@size)+@q4*COS(2*PI()*13*4/@size))+(@i5*SIN(2*PI()*13*5/@size)+@q5*COS(2*PI()*13*5/@size))+(@i6*SIN(2*PI()*13*6/@size)+@q6*COS(2*PI()*13*6/@size))+(@i7*SIN(2*PI()*13*7/@size)+@q7*COS(2*PI()*13*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p45",
+      "label": "Profile bin 45 power",
+      "formula": "=@pi45^2+@pq45^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r46",
+      "label": "Shifted range bin 46",
+      "formula": "=14*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi46",
+      "label": "Profile bin 46 I",
+      "formula": "=((@i0*COS(2*PI()*14*0/@size)-@q0*SIN(2*PI()*14*0/@size))+(@i1*COS(2*PI()*14*1/@size)-@q1*SIN(2*PI()*14*1/@size))+(@i2*COS(2*PI()*14*2/@size)-@q2*SIN(2*PI()*14*2/@size))+(@i3*COS(2*PI()*14*3/@size)-@q3*SIN(2*PI()*14*3/@size))+(@i4*COS(2*PI()*14*4/@size)-@q4*SIN(2*PI()*14*4/@size))+(@i5*COS(2*PI()*14*5/@size)-@q5*SIN(2*PI()*14*5/@size))+(@i6*COS(2*PI()*14*6/@size)-@q6*SIN(2*PI()*14*6/@size))+(@i7*COS(2*PI()*14*7/@size)-@q7*SIN(2*PI()*14*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq46",
+      "label": "Profile bin 46 Q",
+      "formula": "=((@i0*SIN(2*PI()*14*0/@size)+@q0*COS(2*PI()*14*0/@size))+(@i1*SIN(2*PI()*14*1/@size)+@q1*COS(2*PI()*14*1/@size))+(@i2*SIN(2*PI()*14*2/@size)+@q2*COS(2*PI()*14*2/@size))+(@i3*SIN(2*PI()*14*3/@size)+@q3*COS(2*PI()*14*3/@size))+(@i4*SIN(2*PI()*14*4/@size)+@q4*COS(2*PI()*14*4/@size))+(@i5*SIN(2*PI()*14*5/@size)+@q5*COS(2*PI()*14*5/@size))+(@i6*SIN(2*PI()*14*6/@size)+@q6*COS(2*PI()*14*6/@size))+(@i7*SIN(2*PI()*14*7/@size)+@q7*COS(2*PI()*14*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p46",
+      "label": "Profile bin 46 power",
+      "formula": "=@pi46^2+@pq46^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r47",
+      "label": "Shifted range bin 47",
+      "formula": "=15*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi47",
+      "label": "Profile bin 47 I",
+      "formula": "=((@i0*COS(2*PI()*15*0/@size)-@q0*SIN(2*PI()*15*0/@size))+(@i1*COS(2*PI()*15*1/@size)-@q1*SIN(2*PI()*15*1/@size))+(@i2*COS(2*PI()*15*2/@size)-@q2*SIN(2*PI()*15*2/@size))+(@i3*COS(2*PI()*15*3/@size)-@q3*SIN(2*PI()*15*3/@size))+(@i4*COS(2*PI()*15*4/@size)-@q4*SIN(2*PI()*15*4/@size))+(@i5*COS(2*PI()*15*5/@size)-@q5*SIN(2*PI()*15*5/@size))+(@i6*COS(2*PI()*15*6/@size)-@q6*SIN(2*PI()*15*6/@size))+(@i7*COS(2*PI()*15*7/@size)-@q7*SIN(2*PI()*15*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq47",
+      "label": "Profile bin 47 Q",
+      "formula": "=((@i0*SIN(2*PI()*15*0/@size)+@q0*COS(2*PI()*15*0/@size))+(@i1*SIN(2*PI()*15*1/@size)+@q1*COS(2*PI()*15*1/@size))+(@i2*SIN(2*PI()*15*2/@size)+@q2*COS(2*PI()*15*2/@size))+(@i3*SIN(2*PI()*15*3/@size)+@q3*COS(2*PI()*15*3/@size))+(@i4*SIN(2*PI()*15*4/@size)+@q4*COS(2*PI()*15*4/@size))+(@i5*SIN(2*PI()*15*5/@size)+@q5*COS(2*PI()*15*5/@size))+(@i6*SIN(2*PI()*15*6/@size)+@q6*COS(2*PI()*15*6/@size))+(@i7*SIN(2*PI()*15*7/@size)+@q7*COS(2*PI()*15*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p47",
+      "label": "Profile bin 47 power",
+      "formula": "=@pi47^2+@pq47^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r48",
+      "label": "Shifted range bin 48",
+      "formula": "=16*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi48",
+      "label": "Profile bin 48 I",
+      "formula": "=((@i0*COS(2*PI()*16*0/@size)-@q0*SIN(2*PI()*16*0/@size))+(@i1*COS(2*PI()*16*1/@size)-@q1*SIN(2*PI()*16*1/@size))+(@i2*COS(2*PI()*16*2/@size)-@q2*SIN(2*PI()*16*2/@size))+(@i3*COS(2*PI()*16*3/@size)-@q3*SIN(2*PI()*16*3/@size))+(@i4*COS(2*PI()*16*4/@size)-@q4*SIN(2*PI()*16*4/@size))+(@i5*COS(2*PI()*16*5/@size)-@q5*SIN(2*PI()*16*5/@size))+(@i6*COS(2*PI()*16*6/@size)-@q6*SIN(2*PI()*16*6/@size))+(@i7*COS(2*PI()*16*7/@size)-@q7*SIN(2*PI()*16*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq48",
+      "label": "Profile bin 48 Q",
+      "formula": "=((@i0*SIN(2*PI()*16*0/@size)+@q0*COS(2*PI()*16*0/@size))+(@i1*SIN(2*PI()*16*1/@size)+@q1*COS(2*PI()*16*1/@size))+(@i2*SIN(2*PI()*16*2/@size)+@q2*COS(2*PI()*16*2/@size))+(@i3*SIN(2*PI()*16*3/@size)+@q3*COS(2*PI()*16*3/@size))+(@i4*SIN(2*PI()*16*4/@size)+@q4*COS(2*PI()*16*4/@size))+(@i5*SIN(2*PI()*16*5/@size)+@q5*COS(2*PI()*16*5/@size))+(@i6*SIN(2*PI()*16*6/@size)+@q6*COS(2*PI()*16*6/@size))+(@i7*SIN(2*PI()*16*7/@size)+@q7*COS(2*PI()*16*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p48",
+      "label": "Profile bin 48 power",
+      "formula": "=@pi48^2+@pq48^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r49",
+      "label": "Shifted range bin 49",
+      "formula": "=17*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi49",
+      "label": "Profile bin 49 I",
+      "formula": "=((@i0*COS(2*PI()*17*0/@size)-@q0*SIN(2*PI()*17*0/@size))+(@i1*COS(2*PI()*17*1/@size)-@q1*SIN(2*PI()*17*1/@size))+(@i2*COS(2*PI()*17*2/@size)-@q2*SIN(2*PI()*17*2/@size))+(@i3*COS(2*PI()*17*3/@size)-@q3*SIN(2*PI()*17*3/@size))+(@i4*COS(2*PI()*17*4/@size)-@q4*SIN(2*PI()*17*4/@size))+(@i5*COS(2*PI()*17*5/@size)-@q5*SIN(2*PI()*17*5/@size))+(@i6*COS(2*PI()*17*6/@size)-@q6*SIN(2*PI()*17*6/@size))+(@i7*COS(2*PI()*17*7/@size)-@q7*SIN(2*PI()*17*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq49",
+      "label": "Profile bin 49 Q",
+      "formula": "=((@i0*SIN(2*PI()*17*0/@size)+@q0*COS(2*PI()*17*0/@size))+(@i1*SIN(2*PI()*17*1/@size)+@q1*COS(2*PI()*17*1/@size))+(@i2*SIN(2*PI()*17*2/@size)+@q2*COS(2*PI()*17*2/@size))+(@i3*SIN(2*PI()*17*3/@size)+@q3*COS(2*PI()*17*3/@size))+(@i4*SIN(2*PI()*17*4/@size)+@q4*COS(2*PI()*17*4/@size))+(@i5*SIN(2*PI()*17*5/@size)+@q5*COS(2*PI()*17*5/@size))+(@i6*SIN(2*PI()*17*6/@size)+@q6*COS(2*PI()*17*6/@size))+(@i7*SIN(2*PI()*17*7/@size)+@q7*COS(2*PI()*17*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p49",
+      "label": "Profile bin 49 power",
+      "formula": "=@pi49^2+@pq49^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r50",
+      "label": "Shifted range bin 50",
+      "formula": "=18*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi50",
+      "label": "Profile bin 50 I",
+      "formula": "=((@i0*COS(2*PI()*18*0/@size)-@q0*SIN(2*PI()*18*0/@size))+(@i1*COS(2*PI()*18*1/@size)-@q1*SIN(2*PI()*18*1/@size))+(@i2*COS(2*PI()*18*2/@size)-@q2*SIN(2*PI()*18*2/@size))+(@i3*COS(2*PI()*18*3/@size)-@q3*SIN(2*PI()*18*3/@size))+(@i4*COS(2*PI()*18*4/@size)-@q4*SIN(2*PI()*18*4/@size))+(@i5*COS(2*PI()*18*5/@size)-@q5*SIN(2*PI()*18*5/@size))+(@i6*COS(2*PI()*18*6/@size)-@q6*SIN(2*PI()*18*6/@size))+(@i7*COS(2*PI()*18*7/@size)-@q7*SIN(2*PI()*18*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq50",
+      "label": "Profile bin 50 Q",
+      "formula": "=((@i0*SIN(2*PI()*18*0/@size)+@q0*COS(2*PI()*18*0/@size))+(@i1*SIN(2*PI()*18*1/@size)+@q1*COS(2*PI()*18*1/@size))+(@i2*SIN(2*PI()*18*2/@size)+@q2*COS(2*PI()*18*2/@size))+(@i3*SIN(2*PI()*18*3/@size)+@q3*COS(2*PI()*18*3/@size))+(@i4*SIN(2*PI()*18*4/@size)+@q4*COS(2*PI()*18*4/@size))+(@i5*SIN(2*PI()*18*5/@size)+@q5*COS(2*PI()*18*5/@size))+(@i6*SIN(2*PI()*18*6/@size)+@q6*COS(2*PI()*18*6/@size))+(@i7*SIN(2*PI()*18*7/@size)+@q7*COS(2*PI()*18*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p50",
+      "label": "Profile bin 50 power",
+      "formula": "=@pi50^2+@pq50^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r51",
+      "label": "Shifted range bin 51",
+      "formula": "=19*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi51",
+      "label": "Profile bin 51 I",
+      "formula": "=((@i0*COS(2*PI()*19*0/@size)-@q0*SIN(2*PI()*19*0/@size))+(@i1*COS(2*PI()*19*1/@size)-@q1*SIN(2*PI()*19*1/@size))+(@i2*COS(2*PI()*19*2/@size)-@q2*SIN(2*PI()*19*2/@size))+(@i3*COS(2*PI()*19*3/@size)-@q3*SIN(2*PI()*19*3/@size))+(@i4*COS(2*PI()*19*4/@size)-@q4*SIN(2*PI()*19*4/@size))+(@i5*COS(2*PI()*19*5/@size)-@q5*SIN(2*PI()*19*5/@size))+(@i6*COS(2*PI()*19*6/@size)-@q6*SIN(2*PI()*19*6/@size))+(@i7*COS(2*PI()*19*7/@size)-@q7*SIN(2*PI()*19*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq51",
+      "label": "Profile bin 51 Q",
+      "formula": "=((@i0*SIN(2*PI()*19*0/@size)+@q0*COS(2*PI()*19*0/@size))+(@i1*SIN(2*PI()*19*1/@size)+@q1*COS(2*PI()*19*1/@size))+(@i2*SIN(2*PI()*19*2/@size)+@q2*COS(2*PI()*19*2/@size))+(@i3*SIN(2*PI()*19*3/@size)+@q3*COS(2*PI()*19*3/@size))+(@i4*SIN(2*PI()*19*4/@size)+@q4*COS(2*PI()*19*4/@size))+(@i5*SIN(2*PI()*19*5/@size)+@q5*COS(2*PI()*19*5/@size))+(@i6*SIN(2*PI()*19*6/@size)+@q6*COS(2*PI()*19*6/@size))+(@i7*SIN(2*PI()*19*7/@size)+@q7*COS(2*PI()*19*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p51",
+      "label": "Profile bin 51 power",
+      "formula": "=@pi51^2+@pq51^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r52",
+      "label": "Shifted range bin 52",
+      "formula": "=20*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi52",
+      "label": "Profile bin 52 I",
+      "formula": "=((@i0*COS(2*PI()*20*0/@size)-@q0*SIN(2*PI()*20*0/@size))+(@i1*COS(2*PI()*20*1/@size)-@q1*SIN(2*PI()*20*1/@size))+(@i2*COS(2*PI()*20*2/@size)-@q2*SIN(2*PI()*20*2/@size))+(@i3*COS(2*PI()*20*3/@size)-@q3*SIN(2*PI()*20*3/@size))+(@i4*COS(2*PI()*20*4/@size)-@q4*SIN(2*PI()*20*4/@size))+(@i5*COS(2*PI()*20*5/@size)-@q5*SIN(2*PI()*20*5/@size))+(@i6*COS(2*PI()*20*6/@size)-@q6*SIN(2*PI()*20*6/@size))+(@i7*COS(2*PI()*20*7/@size)-@q7*SIN(2*PI()*20*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq52",
+      "label": "Profile bin 52 Q",
+      "formula": "=((@i0*SIN(2*PI()*20*0/@size)+@q0*COS(2*PI()*20*0/@size))+(@i1*SIN(2*PI()*20*1/@size)+@q1*COS(2*PI()*20*1/@size))+(@i2*SIN(2*PI()*20*2/@size)+@q2*COS(2*PI()*20*2/@size))+(@i3*SIN(2*PI()*20*3/@size)+@q3*COS(2*PI()*20*3/@size))+(@i4*SIN(2*PI()*20*4/@size)+@q4*COS(2*PI()*20*4/@size))+(@i5*SIN(2*PI()*20*5/@size)+@q5*COS(2*PI()*20*5/@size))+(@i6*SIN(2*PI()*20*6/@size)+@q6*COS(2*PI()*20*6/@size))+(@i7*SIN(2*PI()*20*7/@size)+@q7*COS(2*PI()*20*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p52",
+      "label": "Profile bin 52 power",
+      "formula": "=@pi52^2+@pq52^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r53",
+      "label": "Shifted range bin 53",
+      "formula": "=21*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi53",
+      "label": "Profile bin 53 I",
+      "formula": "=((@i0*COS(2*PI()*21*0/@size)-@q0*SIN(2*PI()*21*0/@size))+(@i1*COS(2*PI()*21*1/@size)-@q1*SIN(2*PI()*21*1/@size))+(@i2*COS(2*PI()*21*2/@size)-@q2*SIN(2*PI()*21*2/@size))+(@i3*COS(2*PI()*21*3/@size)-@q3*SIN(2*PI()*21*3/@size))+(@i4*COS(2*PI()*21*4/@size)-@q4*SIN(2*PI()*21*4/@size))+(@i5*COS(2*PI()*21*5/@size)-@q5*SIN(2*PI()*21*5/@size))+(@i6*COS(2*PI()*21*6/@size)-@q6*SIN(2*PI()*21*6/@size))+(@i7*COS(2*PI()*21*7/@size)-@q7*SIN(2*PI()*21*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq53",
+      "label": "Profile bin 53 Q",
+      "formula": "=((@i0*SIN(2*PI()*21*0/@size)+@q0*COS(2*PI()*21*0/@size))+(@i1*SIN(2*PI()*21*1/@size)+@q1*COS(2*PI()*21*1/@size))+(@i2*SIN(2*PI()*21*2/@size)+@q2*COS(2*PI()*21*2/@size))+(@i3*SIN(2*PI()*21*3/@size)+@q3*COS(2*PI()*21*3/@size))+(@i4*SIN(2*PI()*21*4/@size)+@q4*COS(2*PI()*21*4/@size))+(@i5*SIN(2*PI()*21*5/@size)+@q5*COS(2*PI()*21*5/@size))+(@i6*SIN(2*PI()*21*6/@size)+@q6*COS(2*PI()*21*6/@size))+(@i7*SIN(2*PI()*21*7/@size)+@q7*COS(2*PI()*21*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p53",
+      "label": "Profile bin 53 power",
+      "formula": "=@pi53^2+@pq53^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r54",
+      "label": "Shifted range bin 54",
+      "formula": "=22*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi54",
+      "label": "Profile bin 54 I",
+      "formula": "=((@i0*COS(2*PI()*22*0/@size)-@q0*SIN(2*PI()*22*0/@size))+(@i1*COS(2*PI()*22*1/@size)-@q1*SIN(2*PI()*22*1/@size))+(@i2*COS(2*PI()*22*2/@size)-@q2*SIN(2*PI()*22*2/@size))+(@i3*COS(2*PI()*22*3/@size)-@q3*SIN(2*PI()*22*3/@size))+(@i4*COS(2*PI()*22*4/@size)-@q4*SIN(2*PI()*22*4/@size))+(@i5*COS(2*PI()*22*5/@size)-@q5*SIN(2*PI()*22*5/@size))+(@i6*COS(2*PI()*22*6/@size)-@q6*SIN(2*PI()*22*6/@size))+(@i7*COS(2*PI()*22*7/@size)-@q7*SIN(2*PI()*22*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq54",
+      "label": "Profile bin 54 Q",
+      "formula": "=((@i0*SIN(2*PI()*22*0/@size)+@q0*COS(2*PI()*22*0/@size))+(@i1*SIN(2*PI()*22*1/@size)+@q1*COS(2*PI()*22*1/@size))+(@i2*SIN(2*PI()*22*2/@size)+@q2*COS(2*PI()*22*2/@size))+(@i3*SIN(2*PI()*22*3/@size)+@q3*COS(2*PI()*22*3/@size))+(@i4*SIN(2*PI()*22*4/@size)+@q4*COS(2*PI()*22*4/@size))+(@i5*SIN(2*PI()*22*5/@size)+@q5*COS(2*PI()*22*5/@size))+(@i6*SIN(2*PI()*22*6/@size)+@q6*COS(2*PI()*22*6/@size))+(@i7*SIN(2*PI()*22*7/@size)+@q7*COS(2*PI()*22*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p54",
+      "label": "Profile bin 54 power",
+      "formula": "=@pi54^2+@pq54^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r55",
+      "label": "Shifted range bin 55",
+      "formula": "=23*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi55",
+      "label": "Profile bin 55 I",
+      "formula": "=((@i0*COS(2*PI()*23*0/@size)-@q0*SIN(2*PI()*23*0/@size))+(@i1*COS(2*PI()*23*1/@size)-@q1*SIN(2*PI()*23*1/@size))+(@i2*COS(2*PI()*23*2/@size)-@q2*SIN(2*PI()*23*2/@size))+(@i3*COS(2*PI()*23*3/@size)-@q3*SIN(2*PI()*23*3/@size))+(@i4*COS(2*PI()*23*4/@size)-@q4*SIN(2*PI()*23*4/@size))+(@i5*COS(2*PI()*23*5/@size)-@q5*SIN(2*PI()*23*5/@size))+(@i6*COS(2*PI()*23*6/@size)-@q6*SIN(2*PI()*23*6/@size))+(@i7*COS(2*PI()*23*7/@size)-@q7*SIN(2*PI()*23*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq55",
+      "label": "Profile bin 55 Q",
+      "formula": "=((@i0*SIN(2*PI()*23*0/@size)+@q0*COS(2*PI()*23*0/@size))+(@i1*SIN(2*PI()*23*1/@size)+@q1*COS(2*PI()*23*1/@size))+(@i2*SIN(2*PI()*23*2/@size)+@q2*COS(2*PI()*23*2/@size))+(@i3*SIN(2*PI()*23*3/@size)+@q3*COS(2*PI()*23*3/@size))+(@i4*SIN(2*PI()*23*4/@size)+@q4*COS(2*PI()*23*4/@size))+(@i5*SIN(2*PI()*23*5/@size)+@q5*COS(2*PI()*23*5/@size))+(@i6*SIN(2*PI()*23*6/@size)+@q6*COS(2*PI()*23*6/@size))+(@i7*SIN(2*PI()*23*7/@size)+@q7*COS(2*PI()*23*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p55",
+      "label": "Profile bin 55 power",
+      "formula": "=@pi55^2+@pq55^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r56",
+      "label": "Shifted range bin 56",
+      "formula": "=24*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi56",
+      "label": "Profile bin 56 I",
+      "formula": "=((@i0*COS(2*PI()*24*0/@size)-@q0*SIN(2*PI()*24*0/@size))+(@i1*COS(2*PI()*24*1/@size)-@q1*SIN(2*PI()*24*1/@size))+(@i2*COS(2*PI()*24*2/@size)-@q2*SIN(2*PI()*24*2/@size))+(@i3*COS(2*PI()*24*3/@size)-@q3*SIN(2*PI()*24*3/@size))+(@i4*COS(2*PI()*24*4/@size)-@q4*SIN(2*PI()*24*4/@size))+(@i5*COS(2*PI()*24*5/@size)-@q5*SIN(2*PI()*24*5/@size))+(@i6*COS(2*PI()*24*6/@size)-@q6*SIN(2*PI()*24*6/@size))+(@i7*COS(2*PI()*24*7/@size)-@q7*SIN(2*PI()*24*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq56",
+      "label": "Profile bin 56 Q",
+      "formula": "=((@i0*SIN(2*PI()*24*0/@size)+@q0*COS(2*PI()*24*0/@size))+(@i1*SIN(2*PI()*24*1/@size)+@q1*COS(2*PI()*24*1/@size))+(@i2*SIN(2*PI()*24*2/@size)+@q2*COS(2*PI()*24*2/@size))+(@i3*SIN(2*PI()*24*3/@size)+@q3*COS(2*PI()*24*3/@size))+(@i4*SIN(2*PI()*24*4/@size)+@q4*COS(2*PI()*24*4/@size))+(@i5*SIN(2*PI()*24*5/@size)+@q5*COS(2*PI()*24*5/@size))+(@i6*SIN(2*PI()*24*6/@size)+@q6*COS(2*PI()*24*6/@size))+(@i7*SIN(2*PI()*24*7/@size)+@q7*COS(2*PI()*24*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p56",
+      "label": "Profile bin 56 power",
+      "formula": "=@pi56^2+@pq56^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r57",
+      "label": "Shifted range bin 57",
+      "formula": "=25*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi57",
+      "label": "Profile bin 57 I",
+      "formula": "=((@i0*COS(2*PI()*25*0/@size)-@q0*SIN(2*PI()*25*0/@size))+(@i1*COS(2*PI()*25*1/@size)-@q1*SIN(2*PI()*25*1/@size))+(@i2*COS(2*PI()*25*2/@size)-@q2*SIN(2*PI()*25*2/@size))+(@i3*COS(2*PI()*25*3/@size)-@q3*SIN(2*PI()*25*3/@size))+(@i4*COS(2*PI()*25*4/@size)-@q4*SIN(2*PI()*25*4/@size))+(@i5*COS(2*PI()*25*5/@size)-@q5*SIN(2*PI()*25*5/@size))+(@i6*COS(2*PI()*25*6/@size)-@q6*SIN(2*PI()*25*6/@size))+(@i7*COS(2*PI()*25*7/@size)-@q7*SIN(2*PI()*25*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq57",
+      "label": "Profile bin 57 Q",
+      "formula": "=((@i0*SIN(2*PI()*25*0/@size)+@q0*COS(2*PI()*25*0/@size))+(@i1*SIN(2*PI()*25*1/@size)+@q1*COS(2*PI()*25*1/@size))+(@i2*SIN(2*PI()*25*2/@size)+@q2*COS(2*PI()*25*2/@size))+(@i3*SIN(2*PI()*25*3/@size)+@q3*COS(2*PI()*25*3/@size))+(@i4*SIN(2*PI()*25*4/@size)+@q4*COS(2*PI()*25*4/@size))+(@i5*SIN(2*PI()*25*5/@size)+@q5*COS(2*PI()*25*5/@size))+(@i6*SIN(2*PI()*25*6/@size)+@q6*COS(2*PI()*25*6/@size))+(@i7*SIN(2*PI()*25*7/@size)+@q7*COS(2*PI()*25*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p57",
+      "label": "Profile bin 57 power",
+      "formula": "=@pi57^2+@pq57^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r58",
+      "label": "Shifted range bin 58",
+      "formula": "=26*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi58",
+      "label": "Profile bin 58 I",
+      "formula": "=((@i0*COS(2*PI()*26*0/@size)-@q0*SIN(2*PI()*26*0/@size))+(@i1*COS(2*PI()*26*1/@size)-@q1*SIN(2*PI()*26*1/@size))+(@i2*COS(2*PI()*26*2/@size)-@q2*SIN(2*PI()*26*2/@size))+(@i3*COS(2*PI()*26*3/@size)-@q3*SIN(2*PI()*26*3/@size))+(@i4*COS(2*PI()*26*4/@size)-@q4*SIN(2*PI()*26*4/@size))+(@i5*COS(2*PI()*26*5/@size)-@q5*SIN(2*PI()*26*5/@size))+(@i6*COS(2*PI()*26*6/@size)-@q6*SIN(2*PI()*26*6/@size))+(@i7*COS(2*PI()*26*7/@size)-@q7*SIN(2*PI()*26*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq58",
+      "label": "Profile bin 58 Q",
+      "formula": "=((@i0*SIN(2*PI()*26*0/@size)+@q0*COS(2*PI()*26*0/@size))+(@i1*SIN(2*PI()*26*1/@size)+@q1*COS(2*PI()*26*1/@size))+(@i2*SIN(2*PI()*26*2/@size)+@q2*COS(2*PI()*26*2/@size))+(@i3*SIN(2*PI()*26*3/@size)+@q3*COS(2*PI()*26*3/@size))+(@i4*SIN(2*PI()*26*4/@size)+@q4*COS(2*PI()*26*4/@size))+(@i5*SIN(2*PI()*26*5/@size)+@q5*COS(2*PI()*26*5/@size))+(@i6*SIN(2*PI()*26*6/@size)+@q6*COS(2*PI()*26*6/@size))+(@i7*SIN(2*PI()*26*7/@size)+@q7*COS(2*PI()*26*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p58",
+      "label": "Profile bin 58 power",
+      "formula": "=@pi58^2+@pq58^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r59",
+      "label": "Shifted range bin 59",
+      "formula": "=27*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi59",
+      "label": "Profile bin 59 I",
+      "formula": "=((@i0*COS(2*PI()*27*0/@size)-@q0*SIN(2*PI()*27*0/@size))+(@i1*COS(2*PI()*27*1/@size)-@q1*SIN(2*PI()*27*1/@size))+(@i2*COS(2*PI()*27*2/@size)-@q2*SIN(2*PI()*27*2/@size))+(@i3*COS(2*PI()*27*3/@size)-@q3*SIN(2*PI()*27*3/@size))+(@i4*COS(2*PI()*27*4/@size)-@q4*SIN(2*PI()*27*4/@size))+(@i5*COS(2*PI()*27*5/@size)-@q5*SIN(2*PI()*27*5/@size))+(@i6*COS(2*PI()*27*6/@size)-@q6*SIN(2*PI()*27*6/@size))+(@i7*COS(2*PI()*27*7/@size)-@q7*SIN(2*PI()*27*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq59",
+      "label": "Profile bin 59 Q",
+      "formula": "=((@i0*SIN(2*PI()*27*0/@size)+@q0*COS(2*PI()*27*0/@size))+(@i1*SIN(2*PI()*27*1/@size)+@q1*COS(2*PI()*27*1/@size))+(@i2*SIN(2*PI()*27*2/@size)+@q2*COS(2*PI()*27*2/@size))+(@i3*SIN(2*PI()*27*3/@size)+@q3*COS(2*PI()*27*3/@size))+(@i4*SIN(2*PI()*27*4/@size)+@q4*COS(2*PI()*27*4/@size))+(@i5*SIN(2*PI()*27*5/@size)+@q5*COS(2*PI()*27*5/@size))+(@i6*SIN(2*PI()*27*6/@size)+@q6*COS(2*PI()*27*6/@size))+(@i7*SIN(2*PI()*27*7/@size)+@q7*COS(2*PI()*27*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p59",
+      "label": "Profile bin 59 power",
+      "formula": "=@pi59^2+@pq59^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r60",
+      "label": "Shifted range bin 60",
+      "formula": "=28*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi60",
+      "label": "Profile bin 60 I",
+      "formula": "=((@i0*COS(2*PI()*28*0/@size)-@q0*SIN(2*PI()*28*0/@size))+(@i1*COS(2*PI()*28*1/@size)-@q1*SIN(2*PI()*28*1/@size))+(@i2*COS(2*PI()*28*2/@size)-@q2*SIN(2*PI()*28*2/@size))+(@i3*COS(2*PI()*28*3/@size)-@q3*SIN(2*PI()*28*3/@size))+(@i4*COS(2*PI()*28*4/@size)-@q4*SIN(2*PI()*28*4/@size))+(@i5*COS(2*PI()*28*5/@size)-@q5*SIN(2*PI()*28*5/@size))+(@i6*COS(2*PI()*28*6/@size)-@q6*SIN(2*PI()*28*6/@size))+(@i7*COS(2*PI()*28*7/@size)-@q7*SIN(2*PI()*28*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq60",
+      "label": "Profile bin 60 Q",
+      "formula": "=((@i0*SIN(2*PI()*28*0/@size)+@q0*COS(2*PI()*28*0/@size))+(@i1*SIN(2*PI()*28*1/@size)+@q1*COS(2*PI()*28*1/@size))+(@i2*SIN(2*PI()*28*2/@size)+@q2*COS(2*PI()*28*2/@size))+(@i3*SIN(2*PI()*28*3/@size)+@q3*COS(2*PI()*28*3/@size))+(@i4*SIN(2*PI()*28*4/@size)+@q4*COS(2*PI()*28*4/@size))+(@i5*SIN(2*PI()*28*5/@size)+@q5*COS(2*PI()*28*5/@size))+(@i6*SIN(2*PI()*28*6/@size)+@q6*COS(2*PI()*28*6/@size))+(@i7*SIN(2*PI()*28*7/@size)+@q7*COS(2*PI()*28*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p60",
+      "label": "Profile bin 60 power",
+      "formula": "=@pi60^2+@pq60^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r61",
+      "label": "Shifted range bin 61",
+      "formula": "=29*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi61",
+      "label": "Profile bin 61 I",
+      "formula": "=((@i0*COS(2*PI()*29*0/@size)-@q0*SIN(2*PI()*29*0/@size))+(@i1*COS(2*PI()*29*1/@size)-@q1*SIN(2*PI()*29*1/@size))+(@i2*COS(2*PI()*29*2/@size)-@q2*SIN(2*PI()*29*2/@size))+(@i3*COS(2*PI()*29*3/@size)-@q3*SIN(2*PI()*29*3/@size))+(@i4*COS(2*PI()*29*4/@size)-@q4*SIN(2*PI()*29*4/@size))+(@i5*COS(2*PI()*29*5/@size)-@q5*SIN(2*PI()*29*5/@size))+(@i6*COS(2*PI()*29*6/@size)-@q6*SIN(2*PI()*29*6/@size))+(@i7*COS(2*PI()*29*7/@size)-@q7*SIN(2*PI()*29*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq61",
+      "label": "Profile bin 61 Q",
+      "formula": "=((@i0*SIN(2*PI()*29*0/@size)+@q0*COS(2*PI()*29*0/@size))+(@i1*SIN(2*PI()*29*1/@size)+@q1*COS(2*PI()*29*1/@size))+(@i2*SIN(2*PI()*29*2/@size)+@q2*COS(2*PI()*29*2/@size))+(@i3*SIN(2*PI()*29*3/@size)+@q3*COS(2*PI()*29*3/@size))+(@i4*SIN(2*PI()*29*4/@size)+@q4*COS(2*PI()*29*4/@size))+(@i5*SIN(2*PI()*29*5/@size)+@q5*COS(2*PI()*29*5/@size))+(@i6*SIN(2*PI()*29*6/@size)+@q6*COS(2*PI()*29*6/@size))+(@i7*SIN(2*PI()*29*7/@size)+@q7*COS(2*PI()*29*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p61",
+      "label": "Profile bin 61 power",
+      "formula": "=@pi61^2+@pq61^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r62",
+      "label": "Shifted range bin 62",
+      "formula": "=30*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi62",
+      "label": "Profile bin 62 I",
+      "formula": "=((@i0*COS(2*PI()*30*0/@size)-@q0*SIN(2*PI()*30*0/@size))+(@i1*COS(2*PI()*30*1/@size)-@q1*SIN(2*PI()*30*1/@size))+(@i2*COS(2*PI()*30*2/@size)-@q2*SIN(2*PI()*30*2/@size))+(@i3*COS(2*PI()*30*3/@size)-@q3*SIN(2*PI()*30*3/@size))+(@i4*COS(2*PI()*30*4/@size)-@q4*SIN(2*PI()*30*4/@size))+(@i5*COS(2*PI()*30*5/@size)-@q5*SIN(2*PI()*30*5/@size))+(@i6*COS(2*PI()*30*6/@size)-@q6*SIN(2*PI()*30*6/@size))+(@i7*COS(2*PI()*30*7/@size)-@q7*SIN(2*PI()*30*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq62",
+      "label": "Profile bin 62 Q",
+      "formula": "=((@i0*SIN(2*PI()*30*0/@size)+@q0*COS(2*PI()*30*0/@size))+(@i1*SIN(2*PI()*30*1/@size)+@q1*COS(2*PI()*30*1/@size))+(@i2*SIN(2*PI()*30*2/@size)+@q2*COS(2*PI()*30*2/@size))+(@i3*SIN(2*PI()*30*3/@size)+@q3*COS(2*PI()*30*3/@size))+(@i4*SIN(2*PI()*30*4/@size)+@q4*COS(2*PI()*30*4/@size))+(@i5*SIN(2*PI()*30*5/@size)+@q5*COS(2*PI()*30*5/@size))+(@i6*SIN(2*PI()*30*6/@size)+@q6*COS(2*PI()*30*6/@size))+(@i7*SIN(2*PI()*30*7/@size)+@q7*COS(2*PI()*30*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p62",
+      "label": "Profile bin 62 power",
+      "formula": "=@pi62^2+@pq62^2",
+      "unit": "m2"
+    },
+    {
+      "id": "r63",
+      "label": "Shifted range bin 63",
+      "formula": "=31*@c/(2*@df*@size)",
+      "unit": "m"
+    },
+    {
+      "id": "pi63",
+      "label": "Profile bin 63 I",
+      "formula": "=((@i0*COS(2*PI()*31*0/@size)-@q0*SIN(2*PI()*31*0/@size))+(@i1*COS(2*PI()*31*1/@size)-@q1*SIN(2*PI()*31*1/@size))+(@i2*COS(2*PI()*31*2/@size)-@q2*SIN(2*PI()*31*2/@size))+(@i3*COS(2*PI()*31*3/@size)-@q3*SIN(2*PI()*31*3/@size))+(@i4*COS(2*PI()*31*4/@size)-@q4*SIN(2*PI()*31*4/@size))+(@i5*COS(2*PI()*31*5/@size)-@q5*SIN(2*PI()*31*5/@size))+(@i6*COS(2*PI()*31*6/@size)-@q6*SIN(2*PI()*31*6/@size))+(@i7*COS(2*PI()*31*7/@size)-@q7*SIN(2*PI()*31*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "pq63",
+      "label": "Profile bin 63 Q",
+      "formula": "=((@i0*SIN(2*PI()*31*0/@size)+@q0*COS(2*PI()*31*0/@size))+(@i1*SIN(2*PI()*31*1/@size)+@q1*COS(2*PI()*31*1/@size))+(@i2*SIN(2*PI()*31*2/@size)+@q2*COS(2*PI()*31*2/@size))+(@i3*SIN(2*PI()*31*3/@size)+@q3*COS(2*PI()*31*3/@size))+(@i4*SIN(2*PI()*31*4/@size)+@q4*COS(2*PI()*31*4/@size))+(@i5*SIN(2*PI()*31*5/@size)+@q5*COS(2*PI()*31*5/@size))+(@i6*SIN(2*PI()*31*6/@size)+@q6*COS(2*PI()*31*6/@size))+(@i7*SIN(2*PI()*31*7/@size)+@q7*COS(2*PI()*31*7/@size)))/@n",
+      "unit": "sqrt(m2)"
+    },
+    {
+      "id": "p63",
+      "label": "Profile bin 63 power",
+      "formula": "=@pi63^2+@pq63^2",
+      "unit": "m2"
+    }
+  ],
+  "checks": [
+    {
+      "case": "negative_range_law bin 0",
+      "metric": "Power",
+      "formula": "=@p0",
+      "actual": 0.056694281448115655,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 2: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 0",
+      "metric": "Range coordinate",
+      "formula": "=@r0",
+      "actual": -0.07494811450000001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 2: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 1",
+      "metric": "Power",
+      "formula": "=@p1",
+      "actual": 0.06497288311853631,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 3: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 1",
+      "metric": "Range coordinate",
+      "formula": "=@r1",
+      "actual": -0.072605985921875,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 3: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 2",
+      "metric": "Power",
+      "formula": "=@p2",
+      "actual": 0.0545209130171251,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 4: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 2",
+      "metric": "Range coordinate",
+      "formula": "=@r2",
+      "actual": -0.07026385734375001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 4: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 3",
+      "metric": "Power",
+      "formula": "=@p3",
+      "actual": 0.03155314239172702,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 5: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 3",
+      "metric": "Range coordinate",
+      "formula": "=@r3",
+      "actual": -0.06792172876562501,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 5: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 4",
+      "metric": "Power",
+      "formula": "=@p4",
+      "actual": 0.009175003161924466,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 6: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 4",
+      "metric": "Range coordinate",
+      "formula": "=@r4",
+      "actual": -0.0655796001875,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 6: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 5",
+      "metric": "Power",
+      "formula": "=@p5",
+      "actual": 1.540743955509789e-32,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 7: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 5",
+      "metric": "Range coordinate",
+      "formula": "=@r5",
+      "actual": -0.063237471609375,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 7: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 6",
+      "metric": "Power",
+      "formula": "=@p6",
+      "actual": 0.00917500316192444,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 8: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 6",
+      "metric": "Range coordinate",
+      "formula": "=@r6",
+      "actual": -0.06089534303125,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 8: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 7",
+      "metric": "Power",
+      "formula": "=@p7",
+      "actual": 0.031553142391726983,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 9: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 7",
+      "metric": "Range coordinate",
+      "formula": "=@r7",
+      "actual": -0.058553214453125,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 9: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 8",
+      "metric": "Power",
+      "formula": "=@p8",
+      "actual": 0.05452091301712506,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 10: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 8",
+      "metric": "Range coordinate",
+      "formula": "=@r8",
+      "actual": -0.056211085875000004,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 10: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 9",
+      "metric": "Power",
+      "formula": "=@p9",
+      "actual": 0.06497288311853626,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 11: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 9",
+      "metric": "Range coordinate",
+      "formula": "=@r9",
+      "actual": -0.053868957296875,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 11: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 10",
+      "metric": "Power",
+      "formula": "=@p10",
+      "actual": 0.05669428144811558,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 12: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 10",
+      "metric": "Range coordinate",
+      "formula": "=@r10",
+      "actual": -0.05152682871875001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 12: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 11",
+      "metric": "Power",
+      "formula": "=@p11",
+      "actual": 0.03412560032673664,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 13: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 11",
+      "metric": "Range coordinate",
+      "formula": "=@r11",
+      "actual": -0.04918470014062501,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 13: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 12",
+      "metric": "Power",
+      "formula": "=@p12",
+      "actual": 0.010324714183789193,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 14: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 12",
+      "metric": "Range coordinate",
+      "formula": "=@r12",
+      "actual": -0.046842571562500004,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 14: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 13",
+      "metric": "Power",
+      "formula": "=@p13",
+      "actual": 2.2265306503841904e-32,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 15: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 13",
+      "metric": "Range coordinate",
+      "formula": "=@r13",
+      "actual": -0.044500442984375006,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 15: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 14",
+      "metric": "Power",
+      "formula": "=@p14",
+      "actual": 0.011200380198091862,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 16: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 14",
+      "metric": "Range coordinate",
+      "formula": "=@r14",
+      "actual": -0.04215831440625001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 16: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 15",
+      "metric": "Power",
+      "formula": "=@p15",
+      "actual": 0.04017819232673145,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 17: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 15",
+      "metric": "Range coordinate",
+      "formula": "=@r15",
+      "actual": -0.039816185828125,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 17: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 16",
+      "metric": "Power",
+      "formula": "=@p16",
+      "actual": 0.07251217238276138,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 18: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 16",
+      "metric": "Range coordinate",
+      "formula": "=@r16",
+      "actual": -0.037474057250000005,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 18: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 17",
+      "metric": "Power",
+      "formula": "=@p17",
+      "actual": 0.09040391826073063,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 19: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 17",
+      "metric": "Range coordinate",
+      "formula": "=@r17",
+      "actual": -0.03513192867187501,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 19: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 18",
+      "metric": "Power",
+      "formula": "=@p18",
+      "actual": 0.08269041375519466,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 20: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 18",
+      "metric": "Range coordinate",
+      "formula": "=@r18",
+      "actual": -0.03278980009375,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 20: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 19",
+      "metric": "Power",
+      "formula": "=@p19",
+      "actual": 0.05229730242862481,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 21: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 19",
+      "metric": "Range coordinate",
+      "formula": "=@r19",
+      "actual": -0.030447671515625,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 21: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 20",
+      "metric": "Power",
+      "formula": "=@p20",
+      "actual": 0.016671712583964257,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 22: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 20",
+      "metric": "Range coordinate",
+      "formula": "=@r20",
+      "actual": -0.028105542937500002,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 22: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 21",
+      "metric": "Power",
+      "formula": "=@p21",
+      "actual": 2.4651903288156624e-32,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 23: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 21",
+      "metric": "Range coordinate",
+      "formula": "=@r21",
+      "actual": -0.025763414359375004,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 23: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 22",
+      "metric": "Power",
+      "formula": "=@p22",
+      "actual": 0.020295093171204186,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 24: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 22",
+      "metric": "Range coordinate",
+      "formula": "=@r22",
+      "actual": -0.023421285781250002,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 24: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 23",
+      "metric": "Power",
+      "formula": "=@p23",
+      "actual": 0.0776484638084477,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 25: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 23",
+      "metric": "Range coordinate",
+      "formula": "=@r23",
+      "actual": -0.021079157203125004,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 25: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 24",
+      "metric": "Power",
+      "formula": "=@p24",
+      "actual": 0.15033376116414143,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 26: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 24",
+      "metric": "Range coordinate",
+      "formula": "=@r24",
+      "actual": -0.018737028625000002,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 26: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 25",
+      "metric": "Power",
+      "formula": "=@p25",
+      "actual": 0.20248930055272182,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 27: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 25",
+      "metric": "Range coordinate",
+      "formula": "=@r25",
+      "actual": -0.016394900046875,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 27: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 26",
+      "metric": "Power",
+      "formula": "=@p26",
+      "actual": 0.20184168592436064,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 28: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 26",
+      "metric": "Range coordinate",
+      "formula": "=@r26",
+      "actual": -0.014052771468750001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 28: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 27",
+      "metric": "Power",
+      "formula": "=@p27",
+      "actual": 0.1406296441947297,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 29: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 27",
+      "metric": "Range coordinate",
+      "formula": "=@r27",
+      "actual": -0.011710642890625001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 29: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 28",
+      "metric": "Power",
+      "formula": "=@p28",
+      "actual": 0.05006972077623008,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 30: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 28",
+      "metric": "Range coordinate",
+      "formula": "=@r28",
+      "actual": -0.009368514312500001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 30: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 29",
+      "metric": "Power",
+      "formula": "=@p29",
+      "actual": 4.172092291716501e-32,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 31: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 29",
+      "metric": "Range coordinate",
+      "formula": "=@r29",
+      "actual": -0.0070263857343750005,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 31: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 30",
+      "metric": "Power",
+      "formula": "=@p30",
+      "actual": 0.08064611981931545,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 32: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 30",
+      "metric": "Range coordinate",
+      "formula": "=@r30",
+      "actual": -0.004684257156250001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 32: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 31",
+      "metric": "Power",
+      "formula": "=@p31",
+      "actual": 0.37085300077870736,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 33: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 31",
+      "metric": "Range coordinate",
+      "formula": "=@r31",
+      "actual": -0.0023421285781250003,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 33: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 32",
+      "metric": "Power",
+      "formula": "=@p32",
+      "actual": 0.9035849955145832,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 34: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 32",
+      "metric": "Range coordinate",
+      "formula": "=@r32",
+      "actual": 0.0,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 34: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 33",
+      "metric": "Power",
+      "formula": "=@p33",
+      "actual": 1.642133898068012,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 35: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 33",
+      "metric": "Range coordinate",
+      "formula": "=@r33",
+      "actual": 0.0023421285781250003,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 35: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 34",
+      "metric": "Power",
+      "formula": "=@p34",
+      "actual": 2.4778217767937183,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 36: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 34",
+      "metric": "Range coordinate",
+      "formula": "=@r34",
+      "actual": 0.004684257156250001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 36: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 35",
+      "metric": "Power",
+      "formula": "=@p35",
+      "actual": 3.2527146537442952,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 37: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 35",
+      "metric": "Range coordinate",
+      "formula": "=@r35",
+      "actual": 0.0070263857343750005,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 37: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 36",
+      "metric": "Power",
+      "formula": "=@p36",
+      "actual": 3.8016172561054806,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 38: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 36",
+      "metric": "Range coordinate",
+      "formula": "=@r36",
+      "actual": 0.009368514312500001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 38: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 37",
+      "metric": "Power",
+      "formula": "=@p37",
+      "actual": 3.999999999999999,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 39: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 37",
+      "metric": "Range coordinate",
+      "formula": "=@r37",
+      "actual": 0.011710642890625001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 39: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 38",
+      "metric": "Power",
+      "formula": "=@p38",
+      "actual": 3.8016172561054806,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 40: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 38",
+      "metric": "Range coordinate",
+      "formula": "=@r38",
+      "actual": 0.014052771468750001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 40: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 39",
+      "metric": "Power",
+      "formula": "=@p39",
+      "actual": 3.2527146537442944,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 41: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 39",
+      "metric": "Range coordinate",
+      "formula": "=@r39",
+      "actual": 0.016394900046875,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 41: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 40",
+      "metric": "Power",
+      "formula": "=@p40",
+      "actual": 2.4778217767937187,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 42: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 40",
+      "metric": "Range coordinate",
+      "formula": "=@r40",
+      "actual": 0.018737028625000002,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 42: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 41",
+      "metric": "Power",
+      "formula": "=@p41",
+      "actual": 1.642133898068011,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 43: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 41",
+      "metric": "Range coordinate",
+      "formula": "=@r41",
+      "actual": 0.021079157203125004,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 43: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 42",
+      "metric": "Power",
+      "formula": "=@p42",
+      "actual": 0.9035849955145825,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 44: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 42",
+      "metric": "Range coordinate",
+      "formula": "=@r42",
+      "actual": 0.023421285781250002,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 44: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 43",
+      "metric": "Power",
+      "formula": "=@p43",
+      "actual": 0.3708530007787068,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 45: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 43",
+      "metric": "Range coordinate",
+      "formula": "=@r43",
+      "actual": 0.025763414359375004,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 45: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 44",
+      "metric": "Power",
+      "formula": "=@p44",
+      "actual": 0.08064611981931523,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 46: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 44",
+      "metric": "Range coordinate",
+      "formula": "=@r44",
+      "actual": 0.028105542937500002,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 46: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 45",
+      "metric": "Power",
+      "formula": "=@p45",
+      "actual": 8.327565444857864e-32,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 47: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 45",
+      "metric": "Range coordinate",
+      "formula": "=@r45",
+      "actual": 0.030447671515625,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 47: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 46",
+      "metric": "Power",
+      "formula": "=@p46",
+      "actual": 0.050069720776230224,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 48: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 46",
+      "metric": "Range coordinate",
+      "formula": "=@r46",
+      "actual": 0.03278980009375,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 48: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 47",
+      "metric": "Power",
+      "formula": "=@p47",
+      "actual": 0.14062964419472995,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 49: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 47",
+      "metric": "Range coordinate",
+      "formula": "=@r47",
+      "actual": 0.03513192867187501,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 49: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 48",
+      "metric": "Power",
+      "formula": "=@p48",
+      "actual": 0.201841685924361,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 50: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 48",
+      "metric": "Range coordinate",
+      "formula": "=@r48",
+      "actual": 0.037474057250000005,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 50: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 49",
+      "metric": "Power",
+      "formula": "=@p49",
+      "actual": 0.20248930055272207,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 51: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 49",
+      "metric": "Range coordinate",
+      "formula": "=@r49",
+      "actual": 0.039816185828125,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 51: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 50",
+      "metric": "Power",
+      "formula": "=@p50",
+      "actual": 0.15033376116414152,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 52: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 50",
+      "metric": "Range coordinate",
+      "formula": "=@r50",
+      "actual": 0.04215831440625001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 52: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 51",
+      "metric": "Power",
+      "formula": "=@p51",
+      "actual": 0.07764846380844782,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 53: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 51",
+      "metric": "Range coordinate",
+      "formula": "=@r51",
+      "actual": 0.044500442984375006,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 53: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 52",
+      "metric": "Power",
+      "formula": "=@p52",
+      "actual": 0.020295093171204225,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 54: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 52",
+      "metric": "Range coordinate",
+      "formula": "=@r52",
+      "actual": 0.046842571562500004,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 54: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 53",
+      "metric": "Power",
+      "formula": "=@p53",
+      "actual": 2.4651903288156624e-32,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 55: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 53",
+      "metric": "Range coordinate",
+      "formula": "=@r53",
+      "actual": 0.04918470014062501,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 55: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 54",
+      "metric": "Power",
+      "formula": "=@p54",
+      "actual": 0.016671712583964257,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 56: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 54",
+      "metric": "Range coordinate",
+      "formula": "=@r54",
+      "actual": 0.05152682871875001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 56: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 55",
+      "metric": "Power",
+      "formula": "=@p55",
+      "actual": 0.052297302428624695,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 57: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 55",
+      "metric": "Range coordinate",
+      "formula": "=@r55",
+      "actual": 0.053868957296875,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 57: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 56",
+      "metric": "Power",
+      "formula": "=@p56",
+      "actual": 0.08269041375519459,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 58: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 56",
+      "metric": "Range coordinate",
+      "formula": "=@r56",
+      "actual": 0.056211085875000004,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 58: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 57",
+      "metric": "Power",
+      "formula": "=@p57",
+      "actual": 0.0904039182607305,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 59: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 57",
+      "metric": "Range coordinate",
+      "formula": "=@r57",
+      "actual": 0.058553214453125,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 59: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 58",
+      "metric": "Power",
+      "formula": "=@p58",
+      "actual": 0.07251217238276123,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 60: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 58",
+      "metric": "Range coordinate",
+      "formula": "=@r58",
+      "actual": 0.06089534303125,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 60: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 59",
+      "metric": "Power",
+      "formula": "=@p59",
+      "actual": 0.04017819232673141,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 61: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 59",
+      "metric": "Range coordinate",
+      "formula": "=@r59",
+      "actual": 0.063237471609375,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 61: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 60",
+      "metric": "Power",
+      "formula": "=@p60",
+      "actual": 0.011200380198091818,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 62: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 60",
+      "metric": "Range coordinate",
+      "formula": "=@r60",
+      "actual": 0.0655796001875,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 62: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 61",
+      "metric": "Power",
+      "formula": "=@p61",
+      "actual": 3.3005158925059755e-32,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 63: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 61",
+      "metric": "Range coordinate",
+      "formula": "=@r61",
+      "actual": 0.06792172876562501,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 63: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 62",
+      "metric": "Power",
+      "formula": "=@p62",
+      "actual": 0.010324714183789224,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 64: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 62",
+      "metric": "Range coordinate",
+      "formula": "=@r62",
+      "actual": 0.07026385734375001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 64: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law bin 63",
+      "metric": "Power",
+      "formula": "=@p63",
+      "actual": 0.03412560032673668,
+      "unit": "m2",
+      "source": "plot_negative_range_law.csv row 65: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Range bin 63",
+      "metric": "Range coordinate",
+      "formula": "=@r63",
+      "actual": 0.072605985921875,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv row 65: range_m",
+      "tolerance": null
+    },
+    {
+      "case": "negative_range_law",
+      "metric": "Peak location",
+      "formula": "=@target",
+      "actual": 0.011710642890625001,
+      "unit": "m",
+      "source": "plot_negative_range_law.csv maximum-power row",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 0",
+      "metric": "Power",
+      "formula": "=@p0",
+      "actual": 0.056694281448115655,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 2: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 1",
+      "metric": "Power",
+      "formula": "=@p1",
+      "actual": 0.06497288311853631,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 3: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 2",
+      "metric": "Power",
+      "formula": "=@p2",
+      "actual": 0.0545209130171251,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 4: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 3",
+      "metric": "Power",
+      "formula": "=@p3",
+      "actual": 0.03155314239172702,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 5: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 4",
+      "metric": "Power",
+      "formula": "=@p4",
+      "actual": 0.009175003161924466,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 6: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 5",
+      "metric": "Power",
+      "formula": "=@p5",
+      "actual": 1.540743955509789e-32,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 7: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 6",
+      "metric": "Power",
+      "formula": "=@p6",
+      "actual": 0.00917500316192444,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 8: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 7",
+      "metric": "Power",
+      "formula": "=@p7",
+      "actual": 0.031553142391726983,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 9: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 8",
+      "metric": "Power",
+      "formula": "=@p8",
+      "actual": 0.05452091301712506,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 10: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 9",
+      "metric": "Power",
+      "formula": "=@p9",
+      "actual": 0.06497288311853626,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 11: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 10",
+      "metric": "Power",
+      "formula": "=@p10",
+      "actual": 0.05669428144811558,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 12: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 11",
+      "metric": "Power",
+      "formula": "=@p11",
+      "actual": 0.03412560032673664,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 13: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 12",
+      "metric": "Power",
+      "formula": "=@p12",
+      "actual": 0.010324714183789193,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 14: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 13",
+      "metric": "Power",
+      "formula": "=@p13",
+      "actual": 2.2265306503841904e-32,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 15: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 14",
+      "metric": "Power",
+      "formula": "=@p14",
+      "actual": 0.011200380198091862,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 16: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 15",
+      "metric": "Power",
+      "formula": "=@p15",
+      "actual": 0.04017819232673145,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 17: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 16",
+      "metric": "Power",
+      "formula": "=@p16",
+      "actual": 0.07251217238276138,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 18: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 17",
+      "metric": "Power",
+      "formula": "=@p17",
+      "actual": 0.09040391826073063,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 19: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 18",
+      "metric": "Power",
+      "formula": "=@p18",
+      "actual": 0.08269041375519466,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 20: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 19",
+      "metric": "Power",
+      "formula": "=@p19",
+      "actual": 0.05229730242862481,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 21: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 20",
+      "metric": "Power",
+      "formula": "=@p20",
+      "actual": 0.016671712583964257,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 22: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 21",
+      "metric": "Power",
+      "formula": "=@p21",
+      "actual": 2.4651903288156624e-32,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 23: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 22",
+      "metric": "Power",
+      "formula": "=@p22",
+      "actual": 0.020295093171204186,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 24: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 23",
+      "metric": "Power",
+      "formula": "=@p23",
+      "actual": 0.0776484638084477,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 25: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 24",
+      "metric": "Power",
+      "formula": "=@p24",
+      "actual": 0.15033376116414143,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 26: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 25",
+      "metric": "Power",
+      "formula": "=@p25",
+      "actual": 0.20248930055272182,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 27: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 26",
+      "metric": "Power",
+      "formula": "=@p26",
+      "actual": 0.20184168592436064,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 28: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 27",
+      "metric": "Power",
+      "formula": "=@p27",
+      "actual": 0.1406296441947297,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 29: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 28",
+      "metric": "Power",
+      "formula": "=@p28",
+      "actual": 0.05006972077623008,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 30: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 29",
+      "metric": "Power",
+      "formula": "=@p29",
+      "actual": 4.172092291716501e-32,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 31: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 30",
+      "metric": "Power",
+      "formula": "=@p30",
+      "actual": 0.08064611981931545,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 32: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 31",
+      "metric": "Power",
+      "formula": "=@p31",
+      "actual": 0.37085300077870736,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 33: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 32",
+      "metric": "Power",
+      "formula": "=@p32",
+      "actual": 0.9035849955145832,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 34: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 33",
+      "metric": "Power",
+      "formula": "=@p33",
+      "actual": 1.642133898068012,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 35: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 34",
+      "metric": "Power",
+      "formula": "=@p34",
+      "actual": 2.4778217767937183,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 36: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 35",
+      "metric": "Power",
+      "formula": "=@p35",
+      "actual": 3.2527146537442952,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 37: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 36",
+      "metric": "Power",
+      "formula": "=@p36",
+      "actual": 3.8016172561054806,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 38: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 37",
+      "metric": "Power",
+      "formula": "=@p37",
+      "actual": 3.999999999999999,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 39: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 38",
+      "metric": "Power",
+      "formula": "=@p38",
+      "actual": 3.8016172561054806,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 40: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 39",
+      "metric": "Power",
+      "formula": "=@p39",
+      "actual": 3.2527146537442944,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 41: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 40",
+      "metric": "Power",
+      "formula": "=@p40",
+      "actual": 2.4778217767937187,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 42: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 41",
+      "metric": "Power",
+      "formula": "=@p41",
+      "actual": 1.642133898068011,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 43: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 42",
+      "metric": "Power",
+      "formula": "=@p42",
+      "actual": 0.9035849955145825,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 44: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 43",
+      "metric": "Power",
+      "formula": "=@p43",
+      "actual": 0.3708530007787068,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 45: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 44",
+      "metric": "Power",
+      "formula": "=@p44",
+      "actual": 0.08064611981931523,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 46: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 45",
+      "metric": "Power",
+      "formula": "=@p45",
+      "actual": 8.327565444857864e-32,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 47: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 46",
+      "metric": "Power",
+      "formula": "=@p46",
+      "actual": 0.050069720776230224,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 48: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 47",
+      "metric": "Power",
+      "formula": "=@p47",
+      "actual": 0.14062964419472995,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 49: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 48",
+      "metric": "Power",
+      "formula": "=@p48",
+      "actual": 0.201841685924361,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 50: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 49",
+      "metric": "Power",
+      "formula": "=@p49",
+      "actual": 0.20248930055272207,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 51: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 50",
+      "metric": "Power",
+      "formula": "=@p50",
+      "actual": 0.15033376116414152,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 52: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 51",
+      "metric": "Power",
+      "formula": "=@p51",
+      "actual": 0.07764846380844782,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 53: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 52",
+      "metric": "Power",
+      "formula": "=@p52",
+      "actual": 0.020295093171204225,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 54: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 53",
+      "metric": "Power",
+      "formula": "=@p53",
+      "actual": 2.4651903288156624e-32,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 55: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 54",
+      "metric": "Power",
+      "formula": "=@p54",
+      "actual": 0.016671712583964257,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 56: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 55",
+      "metric": "Power",
+      "formula": "=@p55",
+      "actual": 0.052297302428624695,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 57: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 56",
+      "metric": "Power",
+      "formula": "=@p56",
+      "actual": 0.08269041375519459,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 58: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 57",
+      "metric": "Power",
+      "formula": "=@p57",
+      "actual": 0.0904039182607305,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 59: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 58",
+      "metric": "Power",
+      "formula": "=@p58",
+      "actual": 0.07251217238276123,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 60: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 59",
+      "metric": "Power",
+      "formula": "=@p59",
+      "actual": 0.04017819232673141,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 61: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 60",
+      "metric": "Power",
+      "formula": "=@p60",
+      "actual": 0.011200380198091818,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 62: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 61",
+      "metric": "Power",
+      "formula": "=@p61",
+      "actual": 3.3005158925059755e-32,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 63: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 62",
+      "metric": "Power",
+      "formula": "=@p62",
+      "actual": 0.010324714183789224,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 64: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law bin 63",
+      "metric": "Power",
+      "formula": "=@p63",
+      "actual": 0.03412560032673668,
+      "unit": "m2",
+      "source": "plot_positive_range_law.csv row 65: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "positive_range_law",
+      "metric": "Peak location",
+      "formula": "=@target",
+      "actual": 0.011710642890625001,
+      "unit": "m",
+      "source": "plot_positive_range_law.csv maximum-power row",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 0",
+      "metric": "Power",
+      "formula": "=@p0",
+      "actual": 0.056694281448115655,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 2: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 1",
+      "metric": "Power",
+      "formula": "=@p1",
+      "actual": 0.06497288311853631,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 3: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 2",
+      "metric": "Power",
+      "formula": "=@p2",
+      "actual": 0.0545209130171251,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 4: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 3",
+      "metric": "Power",
+      "formula": "=@p3",
+      "actual": 0.03155314239172702,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 5: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 4",
+      "metric": "Power",
+      "formula": "=@p4",
+      "actual": 0.009175003161924466,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 6: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 5",
+      "metric": "Power",
+      "formula": "=@p5",
+      "actual": 1.540743955509789e-32,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 7: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 6",
+      "metric": "Power",
+      "formula": "=@p6",
+      "actual": 0.00917500316192444,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 8: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 7",
+      "metric": "Power",
+      "formula": "=@p7",
+      "actual": 0.031553142391726983,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 9: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 8",
+      "metric": "Power",
+      "formula": "=@p8",
+      "actual": 0.05452091301712506,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 10: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 9",
+      "metric": "Power",
+      "formula": "=@p9",
+      "actual": 0.06497288311853626,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 11: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 10",
+      "metric": "Power",
+      "formula": "=@p10",
+      "actual": 0.05669428144811558,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 12: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 11",
+      "metric": "Power",
+      "formula": "=@p11",
+      "actual": 0.03412560032673664,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 13: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 12",
+      "metric": "Power",
+      "formula": "=@p12",
+      "actual": 0.010324714183789193,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 14: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 13",
+      "metric": "Power",
+      "formula": "=@p13",
+      "actual": 2.2265306503841904e-32,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 15: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 14",
+      "metric": "Power",
+      "formula": "=@p14",
+      "actual": 0.011200380198091862,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 16: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 15",
+      "metric": "Power",
+      "formula": "=@p15",
+      "actual": 0.04017819232673145,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 17: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 16",
+      "metric": "Power",
+      "formula": "=@p16",
+      "actual": 0.07251217238276138,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 18: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 17",
+      "metric": "Power",
+      "formula": "=@p17",
+      "actual": 0.09040391826073063,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 19: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 18",
+      "metric": "Power",
+      "formula": "=@p18",
+      "actual": 0.08269041375519466,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 20: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 19",
+      "metric": "Power",
+      "formula": "=@p19",
+      "actual": 0.05229730242862481,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 21: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 20",
+      "metric": "Power",
+      "formula": "=@p20",
+      "actual": 0.016671712583964257,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 22: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 21",
+      "metric": "Power",
+      "formula": "=@p21",
+      "actual": 2.4651903288156624e-32,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 23: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 22",
+      "metric": "Power",
+      "formula": "=@p22",
+      "actual": 0.020295093171204186,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 24: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 23",
+      "metric": "Power",
+      "formula": "=@p23",
+      "actual": 0.0776484638084477,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 25: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 24",
+      "metric": "Power",
+      "formula": "=@p24",
+      "actual": 0.15033376116414143,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 26: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 25",
+      "metric": "Power",
+      "formula": "=@p25",
+      "actual": 0.20248930055272182,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 27: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 26",
+      "metric": "Power",
+      "formula": "=@p26",
+      "actual": 0.20184168592436064,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 28: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 27",
+      "metric": "Power",
+      "formula": "=@p27",
+      "actual": 0.1406296441947297,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 29: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 28",
+      "metric": "Power",
+      "formula": "=@p28",
+      "actual": 0.05006972077623008,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 30: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 29",
+      "metric": "Power",
+      "formula": "=@p29",
+      "actual": 4.172092291716501e-32,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 31: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 30",
+      "metric": "Power",
+      "formula": "=@p30",
+      "actual": 0.08064611981931545,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 32: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 31",
+      "metric": "Power",
+      "formula": "=@p31",
+      "actual": 0.37085300077870736,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 33: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 32",
+      "metric": "Power",
+      "formula": "=@p32",
+      "actual": 0.9035849955145832,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 34: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 33",
+      "metric": "Power",
+      "formula": "=@p33",
+      "actual": 1.642133898068012,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 35: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 34",
+      "metric": "Power",
+      "formula": "=@p34",
+      "actual": 2.4778217767937183,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 36: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 35",
+      "metric": "Power",
+      "formula": "=@p35",
+      "actual": 3.2527146537442952,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 37: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 36",
+      "metric": "Power",
+      "formula": "=@p36",
+      "actual": 3.8016172561054806,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 38: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 37",
+      "metric": "Power",
+      "formula": "=@p37",
+      "actual": 3.999999999999999,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 39: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 38",
+      "metric": "Power",
+      "formula": "=@p38",
+      "actual": 3.8016172561054806,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 40: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 39",
+      "metric": "Power",
+      "formula": "=@p39",
+      "actual": 3.2527146537442944,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 41: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 40",
+      "metric": "Power",
+      "formula": "=@p40",
+      "actual": 2.4778217767937187,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 42: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 41",
+      "metric": "Power",
+      "formula": "=@p41",
+      "actual": 1.642133898068011,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 43: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 42",
+      "metric": "Power",
+      "formula": "=@p42",
+      "actual": 0.9035849955145825,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 44: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 43",
+      "metric": "Power",
+      "formula": "=@p43",
+      "actual": 0.3708530007787068,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 45: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 44",
+      "metric": "Power",
+      "formula": "=@p44",
+      "actual": 0.08064611981931523,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 46: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 45",
+      "metric": "Power",
+      "formula": "=@p45",
+      "actual": 8.327565444857864e-32,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 47: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 46",
+      "metric": "Power",
+      "formula": "=@p46",
+      "actual": 0.050069720776230224,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 48: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 47",
+      "metric": "Power",
+      "formula": "=@p47",
+      "actual": 0.14062964419472995,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 49: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 48",
+      "metric": "Power",
+      "formula": "=@p48",
+      "actual": 0.201841685924361,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 50: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 49",
+      "metric": "Power",
+      "formula": "=@p49",
+      "actual": 0.20248930055272207,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 51: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 50",
+      "metric": "Power",
+      "formula": "=@p50",
+      "actual": 0.15033376116414152,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 52: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 51",
+      "metric": "Power",
+      "formula": "=@p51",
+      "actual": 0.07764846380844782,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 53: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 52",
+      "metric": "Power",
+      "formula": "=@p52",
+      "actual": 0.020295093171204225,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 54: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 53",
+      "metric": "Power",
+      "formula": "=@p53",
+      "actual": 2.4651903288156624e-32,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 55: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 54",
+      "metric": "Power",
+      "formula": "=@p54",
+      "actual": 0.016671712583964257,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 56: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 55",
+      "metric": "Power",
+      "formula": "=@p55",
+      "actual": 0.052297302428624695,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 57: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 56",
+      "metric": "Power",
+      "formula": "=@p56",
+      "actual": 0.08269041375519459,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 58: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 57",
+      "metric": "Power",
+      "formula": "=@p57",
+      "actual": 0.0904039182607305,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 59: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 58",
+      "metric": "Power",
+      "formula": "=@p58",
+      "actual": 0.07251217238276123,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 60: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 59",
+      "metric": "Power",
+      "formula": "=@p59",
+      "actual": 0.04017819232673141,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 61: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 60",
+      "metric": "Power",
+      "formula": "=@p60",
+      "actual": 0.011200380198091818,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 62: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 61",
+      "metric": "Power",
+      "formula": "=@p61",
+      "actual": 3.3005158925059755e-32,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 63: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 62",
+      "metric": "Power",
+      "formula": "=@p62",
+      "actual": 0.010324714183789224,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 64: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared bin 63",
+      "metric": "Power",
+      "formula": "=@p63",
+      "actual": 0.03412560032673668,
+      "unit": "m2",
+      "source": "plot_undeclared.csv row 65: power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "undeclared",
+      "metric": "Peak location",
+      "formula": "=@target",
+      "actual": 0.011710642890625001,
+      "unit": "m",
+      "source": "plot_undeclared.csv maximum-power row",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input_negative_range_law",
+      "native": "datasets/range_frequency/input_negative_range_law.grim",
+      "csv": "datasets/range_frequency/input_negative_range_law.csv",
+      "rows": 8
+    },
+    {
+      "name": "plot_negative_range_law",
+      "native": "",
+      "csv": "datasets/range_frequency/plot_negative_range_law.csv",
+      "rows": 64
+    },
+    {
+      "name": "input_positive_range_law",
+      "native": "datasets/range_frequency/input_positive_range_law.grim",
+      "csv": "datasets/range_frequency/input_positive_range_law.csv",
+      "rows": 8
+    },
+    {
+      "name": "plot_positive_range_law",
+      "native": "",
+      "csv": "datasets/range_frequency/plot_positive_range_law.csv",
+      "rows": 64
+    },
+    {
+      "name": "input_undeclared",
+      "native": "datasets/range_frequency/input_undeclared.grim",
+      "csv": "datasets/range_frequency/input_undeclared.csv",
+      "rows": 8
+    },
+    {
+      "name": "plot_undeclared",
+      "native": "",
+      "csv": "datasets/range_frequency/plot_undeclared.csv",
+      "rows": 64
+    }
+  ],
+  "notes": []
+}

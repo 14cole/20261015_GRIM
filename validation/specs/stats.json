@@ -1,0 +1,2562 @@
+{
+  "slug": "stats",
+  "title": "Stats",
+  "description": "Independent linear-power statistics over azimuth, with frequency, elevation and polarization kept separate.",
+  "settings": "Azimuth reduction; broadcast enabled. Result files name each statistic. A second mean case reduces elevation and frequency without broadcasting.",
+  "scope": "Numerical behavior for the supplied fixtures; not all possible inputs.",
+  "category": "Dataset operation",
+  "atol": 1e-10,
+  "rtol": 1e-09,
+  "inputs": [
+    {
+      "id": "p000_0",
+      "label": "el -5.0, f 8.0, VV, az -10.0",
+      "value": 0.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p000_1",
+      "label": "el -5.0, f 8.0, VV, az 0.0",
+      "value": 1.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p000_2",
+      "label": "el -5.0, f 8.0, VV, az 10.0",
+      "value": 4.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p000_3",
+      "label": "el -5.0, f 8.0, VV, az 20.0",
+      "value": 16.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p000_4",
+      "label": "el -5.0, f 8.0, VV, az 30.0",
+      "value": 100.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p001_0",
+      "label": "el -5.0, f 8.0, HH, az -10.0",
+      "value": 2.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p001_1",
+      "label": "el -5.0, f 8.0, HH, az 0.0",
+      "value": 3.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p001_2",
+      "label": "el -5.0, f 8.0, HH, az 10.0",
+      "value": "missing",
+      "unit": "m2"
+    },
+    {
+      "id": "p001_3",
+      "label": "el -5.0, f 8.0, HH, az 20.0",
+      "value": 18.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p001_4",
+      "label": "el -5.0, f 8.0, HH, az 30.0",
+      "value": 102.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p010_0",
+      "label": "el -5.0, f 12.0, VV, az -10.0",
+      "value": 10.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p010_1",
+      "label": "el -5.0, f 12.0, VV, az 0.0",
+      "value": 11.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p010_2",
+      "label": "el -5.0, f 12.0, VV, az 10.0",
+      "value": 14.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p010_3",
+      "label": "el -5.0, f 12.0, VV, az 20.0",
+      "value": 26.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p010_4",
+      "label": "el -5.0, f 12.0, VV, az 30.0",
+      "value": 110.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p011_0",
+      "label": "el -5.0, f 12.0, HH, az -10.0",
+      "value": 12.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p011_1",
+      "label": "el -5.0, f 12.0, HH, az 0.0",
+      "value": 13.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p011_2",
+      "label": "el -5.0, f 12.0, HH, az 10.0",
+      "value": 16.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p011_3",
+      "label": "el -5.0, f 12.0, HH, az 20.0",
+      "value": 28.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p011_4",
+      "label": "el -5.0, f 12.0, HH, az 30.0",
+      "value": 112.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p100_0",
+      "label": "el 5.0, f 8.0, VV, az -10.0",
+      "value": 3.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p100_1",
+      "label": "el 5.0, f 8.0, VV, az 0.0",
+      "value": 4.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p100_2",
+      "label": "el 5.0, f 8.0, VV, az 10.0",
+      "value": 7.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p100_3",
+      "label": "el 5.0, f 8.0, VV, az 20.0",
+      "value": 19.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p100_4",
+      "label": "el 5.0, f 8.0, VV, az 30.0",
+      "value": 103.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p101_0",
+      "label": "el 5.0, f 8.0, HH, az -10.0",
+      "value": 5.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p101_1",
+      "label": "el 5.0, f 8.0, HH, az 0.0",
+      "value": 6.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p101_2",
+      "label": "el 5.0, f 8.0, HH, az 10.0",
+      "value": 9.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p101_3",
+      "label": "el 5.0, f 8.0, HH, az 20.0",
+      "value": 21.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p101_4",
+      "label": "el 5.0, f 8.0, HH, az 30.0",
+      "value": 105.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p110_0",
+      "label": "el 5.0, f 12.0, VV, az -10.0",
+      "value": 13.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p110_1",
+      "label": "el 5.0, f 12.0, VV, az 0.0",
+      "value": 14.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p110_2",
+      "label": "el 5.0, f 12.0, VV, az 10.0",
+      "value": 17.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p110_3",
+      "label": "el 5.0, f 12.0, VV, az 20.0",
+      "value": 29.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p110_4",
+      "label": "el 5.0, f 12.0, VV, az 30.0",
+      "value": 113.0,
+      "unit": "m2"
+    },
+    {
+      "id": "p111_0",
+      "label": "el 5.0, f 12.0, HH, az -10.0",
+      "value": "missing",
+      "unit": "m2"
+    },
+    {
+      "id": "p111_1",
+      "label": "el 5.0, f 12.0, HH, az 0.0",
+      "value": "missing",
+      "unit": "m2"
+    },
+    {
+      "id": "p111_2",
+      "label": "el 5.0, f 12.0, HH, az 10.0",
+      "value": "missing",
+      "unit": "m2"
+    },
+    {
+      "id": "p111_3",
+      "label": "el 5.0, f 12.0, HH, az 20.0",
+      "value": "missing",
+      "unit": "m2"
+    },
+    {
+      "id": "p111_4",
+      "label": "el 5.0, f 12.0, HH, az 30.0",
+      "value": "missing",
+      "unit": "m2"
+    },
+    {
+      "id": "q",
+      "label": "Percentile setting",
+      "value": 90.0,
+      "unit": "%"
+    }
+  ],
+  "calculations": [],
+  "checks": [
+    {
+      "case": "mean: az -10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",AVERAGE(@p000_0:@p000_4))",
+      "actual": 24.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az -10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",AVERAGE(@p001_0:@p001_4))",
+      "actual": 31.25,
+      "unit": "m2",
+      "source": "result_mean.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az -10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",AVERAGE(@p010_0:@p010_4))",
+      "actual": 34.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az -10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",AVERAGE(@p011_0:@p011_4))",
+      "actual": 36.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az -10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",AVERAGE(@p100_0:@p100_4))",
+      "actual": 27.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az -10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",AVERAGE(@p101_0:@p101_4))",
+      "actual": 29.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az -10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",AVERAGE(@p110_0:@p110_4))",
+      "actual": 37.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 8: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az -10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",AVERAGE(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_mean.csv row 9: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 0, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",AVERAGE(@p000_0:@p000_4))",
+      "actual": 24.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 10: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 0, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",AVERAGE(@p001_0:@p001_4))",
+      "actual": 31.25,
+      "unit": "m2",
+      "source": "result_mean.csv row 11: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 0, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",AVERAGE(@p010_0:@p010_4))",
+      "actual": 34.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 12: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 0, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",AVERAGE(@p011_0:@p011_4))",
+      "actual": 36.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 13: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 0, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",AVERAGE(@p100_0:@p100_4))",
+      "actual": 27.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 14: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 0, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",AVERAGE(@p101_0:@p101_4))",
+      "actual": 29.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 15: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 0, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",AVERAGE(@p110_0:@p110_4))",
+      "actual": 37.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 16: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 0, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",AVERAGE(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_mean.csv row 17: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",AVERAGE(@p000_0:@p000_4))",
+      "actual": 24.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 18: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",AVERAGE(@p001_0:@p001_4))",
+      "actual": 31.25,
+      "unit": "m2",
+      "source": "result_mean.csv row 19: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",AVERAGE(@p010_0:@p010_4))",
+      "actual": 34.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 20: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",AVERAGE(@p011_0:@p011_4))",
+      "actual": 36.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 21: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",AVERAGE(@p100_0:@p100_4))",
+      "actual": 27.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 22: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",AVERAGE(@p101_0:@p101_4))",
+      "actual": 29.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 23: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",AVERAGE(@p110_0:@p110_4))",
+      "actual": 37.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 24: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",AVERAGE(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_mean.csv row 25: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 20, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",AVERAGE(@p000_0:@p000_4))",
+      "actual": 24.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 26: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 20, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",AVERAGE(@p001_0:@p001_4))",
+      "actual": 31.25,
+      "unit": "m2",
+      "source": "result_mean.csv row 27: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 20, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",AVERAGE(@p010_0:@p010_4))",
+      "actual": 34.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 28: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 20, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",AVERAGE(@p011_0:@p011_4))",
+      "actual": 36.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 29: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 20, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",AVERAGE(@p100_0:@p100_4))",
+      "actual": 27.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 30: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 20, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",AVERAGE(@p101_0:@p101_4))",
+      "actual": 29.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 31: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 20, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",AVERAGE(@p110_0:@p110_4))",
+      "actual": 37.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 32: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 20, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",AVERAGE(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_mean.csv row 33: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 30, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",AVERAGE(@p000_0:@p000_4))",
+      "actual": 24.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 34: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 30, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",AVERAGE(@p001_0:@p001_4))",
+      "actual": 31.25,
+      "unit": "m2",
+      "source": "result_mean.csv row 35: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 30, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",AVERAGE(@p010_0:@p010_4))",
+      "actual": 34.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 36: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 30, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",AVERAGE(@p011_0:@p011_4))",
+      "actual": 36.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 37: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 30, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",AVERAGE(@p100_0:@p100_4))",
+      "actual": 27.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 38: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 30, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",AVERAGE(@p101_0:@p101_4))",
+      "actual": 29.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 39: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 30, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",AVERAGE(@p110_0:@p110_4))",
+      "actual": 37.2,
+      "unit": "m2",
+      "source": "result_mean.csv row 40: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "mean: az 30, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",AVERAGE(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_mean.csv row 41: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az -10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MEDIAN(@p000_0:@p000_4))",
+      "actual": 4.0,
+      "unit": "m2",
+      "source": "result_median.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az -10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MEDIAN(@p001_0:@p001_4))",
+      "actual": 10.5,
+      "unit": "m2",
+      "source": "result_median.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az -10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MEDIAN(@p010_0:@p010_4))",
+      "actual": 14.0,
+      "unit": "m2",
+      "source": "result_median.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az -10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MEDIAN(@p011_0:@p011_4))",
+      "actual": 16.0,
+      "unit": "m2",
+      "source": "result_median.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az -10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MEDIAN(@p100_0:@p100_4))",
+      "actual": 7.0,
+      "unit": "m2",
+      "source": "result_median.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az -10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MEDIAN(@p101_0:@p101_4))",
+      "actual": 9.0,
+      "unit": "m2",
+      "source": "result_median.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az -10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MEDIAN(@p110_0:@p110_4))",
+      "actual": 17.0,
+      "unit": "m2",
+      "source": "result_median.csv row 8: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az -10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MEDIAN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_median.csv row 9: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 0, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MEDIAN(@p000_0:@p000_4))",
+      "actual": 4.0,
+      "unit": "m2",
+      "source": "result_median.csv row 10: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 0, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MEDIAN(@p001_0:@p001_4))",
+      "actual": 10.5,
+      "unit": "m2",
+      "source": "result_median.csv row 11: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 0, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MEDIAN(@p010_0:@p010_4))",
+      "actual": 14.0,
+      "unit": "m2",
+      "source": "result_median.csv row 12: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 0, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MEDIAN(@p011_0:@p011_4))",
+      "actual": 16.0,
+      "unit": "m2",
+      "source": "result_median.csv row 13: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 0, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MEDIAN(@p100_0:@p100_4))",
+      "actual": 7.0,
+      "unit": "m2",
+      "source": "result_median.csv row 14: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 0, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MEDIAN(@p101_0:@p101_4))",
+      "actual": 9.0,
+      "unit": "m2",
+      "source": "result_median.csv row 15: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 0, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MEDIAN(@p110_0:@p110_4))",
+      "actual": 17.0,
+      "unit": "m2",
+      "source": "result_median.csv row 16: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 0, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MEDIAN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_median.csv row 17: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MEDIAN(@p000_0:@p000_4))",
+      "actual": 4.0,
+      "unit": "m2",
+      "source": "result_median.csv row 18: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MEDIAN(@p001_0:@p001_4))",
+      "actual": 10.5,
+      "unit": "m2",
+      "source": "result_median.csv row 19: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MEDIAN(@p010_0:@p010_4))",
+      "actual": 14.0,
+      "unit": "m2",
+      "source": "result_median.csv row 20: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MEDIAN(@p011_0:@p011_4))",
+      "actual": 16.0,
+      "unit": "m2",
+      "source": "result_median.csv row 21: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MEDIAN(@p100_0:@p100_4))",
+      "actual": 7.0,
+      "unit": "m2",
+      "source": "result_median.csv row 22: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MEDIAN(@p101_0:@p101_4))",
+      "actual": 9.0,
+      "unit": "m2",
+      "source": "result_median.csv row 23: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MEDIAN(@p110_0:@p110_4))",
+      "actual": 17.0,
+      "unit": "m2",
+      "source": "result_median.csv row 24: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MEDIAN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_median.csv row 25: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 20, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MEDIAN(@p000_0:@p000_4))",
+      "actual": 4.0,
+      "unit": "m2",
+      "source": "result_median.csv row 26: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 20, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MEDIAN(@p001_0:@p001_4))",
+      "actual": 10.5,
+      "unit": "m2",
+      "source": "result_median.csv row 27: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 20, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MEDIAN(@p010_0:@p010_4))",
+      "actual": 14.0,
+      "unit": "m2",
+      "source": "result_median.csv row 28: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 20, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MEDIAN(@p011_0:@p011_4))",
+      "actual": 16.0,
+      "unit": "m2",
+      "source": "result_median.csv row 29: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 20, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MEDIAN(@p100_0:@p100_4))",
+      "actual": 7.0,
+      "unit": "m2",
+      "source": "result_median.csv row 30: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 20, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MEDIAN(@p101_0:@p101_4))",
+      "actual": 9.0,
+      "unit": "m2",
+      "source": "result_median.csv row 31: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 20, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MEDIAN(@p110_0:@p110_4))",
+      "actual": 17.0,
+      "unit": "m2",
+      "source": "result_median.csv row 32: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 20, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MEDIAN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_median.csv row 33: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 30, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MEDIAN(@p000_0:@p000_4))",
+      "actual": 4.0,
+      "unit": "m2",
+      "source": "result_median.csv row 34: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 30, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MEDIAN(@p001_0:@p001_4))",
+      "actual": 10.5,
+      "unit": "m2",
+      "source": "result_median.csv row 35: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 30, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MEDIAN(@p010_0:@p010_4))",
+      "actual": 14.0,
+      "unit": "m2",
+      "source": "result_median.csv row 36: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 30, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MEDIAN(@p011_0:@p011_4))",
+      "actual": 16.0,
+      "unit": "m2",
+      "source": "result_median.csv row 37: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 30, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MEDIAN(@p100_0:@p100_4))",
+      "actual": 7.0,
+      "unit": "m2",
+      "source": "result_median.csv row 38: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 30, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MEDIAN(@p101_0:@p101_4))",
+      "actual": 9.0,
+      "unit": "m2",
+      "source": "result_median.csv row 39: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 30, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MEDIAN(@p110_0:@p110_4))",
+      "actual": 17.0,
+      "unit": "m2",
+      "source": "result_median.csv row 40: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "median: az 30, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MEDIAN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_median.csv row 41: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az -10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MIN(@p000_0:@p000_4))",
+      "actual": 0.0,
+      "unit": "m2",
+      "source": "result_min.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az -10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MIN(@p001_0:@p001_4))",
+      "actual": 2.0,
+      "unit": "m2",
+      "source": "result_min.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az -10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MIN(@p010_0:@p010_4))",
+      "actual": 10.0,
+      "unit": "m2",
+      "source": "result_min.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az -10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MIN(@p011_0:@p011_4))",
+      "actual": 12.0,
+      "unit": "m2",
+      "source": "result_min.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az -10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MIN(@p100_0:@p100_4))",
+      "actual": 3.0,
+      "unit": "m2",
+      "source": "result_min.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az -10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MIN(@p101_0:@p101_4))",
+      "actual": 5.0,
+      "unit": "m2",
+      "source": "result_min.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az -10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MIN(@p110_0:@p110_4))",
+      "actual": 13.0,
+      "unit": "m2",
+      "source": "result_min.csv row 8: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az -10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MIN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_min.csv row 9: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 0, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MIN(@p000_0:@p000_4))",
+      "actual": 0.0,
+      "unit": "m2",
+      "source": "result_min.csv row 10: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 0, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MIN(@p001_0:@p001_4))",
+      "actual": 2.0,
+      "unit": "m2",
+      "source": "result_min.csv row 11: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 0, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MIN(@p010_0:@p010_4))",
+      "actual": 10.0,
+      "unit": "m2",
+      "source": "result_min.csv row 12: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 0, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MIN(@p011_0:@p011_4))",
+      "actual": 12.0,
+      "unit": "m2",
+      "source": "result_min.csv row 13: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 0, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MIN(@p100_0:@p100_4))",
+      "actual": 3.0,
+      "unit": "m2",
+      "source": "result_min.csv row 14: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 0, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MIN(@p101_0:@p101_4))",
+      "actual": 5.0,
+      "unit": "m2",
+      "source": "result_min.csv row 15: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 0, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MIN(@p110_0:@p110_4))",
+      "actual": 13.0,
+      "unit": "m2",
+      "source": "result_min.csv row 16: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 0, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MIN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_min.csv row 17: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MIN(@p000_0:@p000_4))",
+      "actual": 0.0,
+      "unit": "m2",
+      "source": "result_min.csv row 18: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MIN(@p001_0:@p001_4))",
+      "actual": 2.0,
+      "unit": "m2",
+      "source": "result_min.csv row 19: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MIN(@p010_0:@p010_4))",
+      "actual": 10.0,
+      "unit": "m2",
+      "source": "result_min.csv row 20: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MIN(@p011_0:@p011_4))",
+      "actual": 12.0,
+      "unit": "m2",
+      "source": "result_min.csv row 21: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MIN(@p100_0:@p100_4))",
+      "actual": 3.0,
+      "unit": "m2",
+      "source": "result_min.csv row 22: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MIN(@p101_0:@p101_4))",
+      "actual": 5.0,
+      "unit": "m2",
+      "source": "result_min.csv row 23: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MIN(@p110_0:@p110_4))",
+      "actual": 13.0,
+      "unit": "m2",
+      "source": "result_min.csv row 24: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MIN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_min.csv row 25: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 20, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MIN(@p000_0:@p000_4))",
+      "actual": 0.0,
+      "unit": "m2",
+      "source": "result_min.csv row 26: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 20, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MIN(@p001_0:@p001_4))",
+      "actual": 2.0,
+      "unit": "m2",
+      "source": "result_min.csv row 27: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 20, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MIN(@p010_0:@p010_4))",
+      "actual": 10.0,
+      "unit": "m2",
+      "source": "result_min.csv row 28: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 20, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MIN(@p011_0:@p011_4))",
+      "actual": 12.0,
+      "unit": "m2",
+      "source": "result_min.csv row 29: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 20, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MIN(@p100_0:@p100_4))",
+      "actual": 3.0,
+      "unit": "m2",
+      "source": "result_min.csv row 30: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 20, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MIN(@p101_0:@p101_4))",
+      "actual": 5.0,
+      "unit": "m2",
+      "source": "result_min.csv row 31: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 20, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MIN(@p110_0:@p110_4))",
+      "actual": 13.0,
+      "unit": "m2",
+      "source": "result_min.csv row 32: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 20, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MIN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_min.csv row 33: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 30, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MIN(@p000_0:@p000_4))",
+      "actual": 0.0,
+      "unit": "m2",
+      "source": "result_min.csv row 34: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 30, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MIN(@p001_0:@p001_4))",
+      "actual": 2.0,
+      "unit": "m2",
+      "source": "result_min.csv row 35: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 30, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MIN(@p010_0:@p010_4))",
+      "actual": 10.0,
+      "unit": "m2",
+      "source": "result_min.csv row 36: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 30, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MIN(@p011_0:@p011_4))",
+      "actual": 12.0,
+      "unit": "m2",
+      "source": "result_min.csv row 37: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 30, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MIN(@p100_0:@p100_4))",
+      "actual": 3.0,
+      "unit": "m2",
+      "source": "result_min.csv row 38: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 30, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MIN(@p101_0:@p101_4))",
+      "actual": 5.0,
+      "unit": "m2",
+      "source": "result_min.csv row 39: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 30, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MIN(@p110_0:@p110_4))",
+      "actual": 13.0,
+      "unit": "m2",
+      "source": "result_min.csv row 40: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "min: az 30, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MIN(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_min.csv row 41: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az -10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MAX(@p000_0:@p000_4))",
+      "actual": 100.0,
+      "unit": "m2",
+      "source": "result_max.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az -10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MAX(@p001_0:@p001_4))",
+      "actual": 102.0,
+      "unit": "m2",
+      "source": "result_max.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az -10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MAX(@p010_0:@p010_4))",
+      "actual": 110.0,
+      "unit": "m2",
+      "source": "result_max.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az -10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MAX(@p011_0:@p011_4))",
+      "actual": 112.0,
+      "unit": "m2",
+      "source": "result_max.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az -10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MAX(@p100_0:@p100_4))",
+      "actual": 103.0,
+      "unit": "m2",
+      "source": "result_max.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az -10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MAX(@p101_0:@p101_4))",
+      "actual": 105.0,
+      "unit": "m2",
+      "source": "result_max.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az -10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MAX(@p110_0:@p110_4))",
+      "actual": 113.0,
+      "unit": "m2",
+      "source": "result_max.csv row 8: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az -10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MAX(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_max.csv row 9: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 0, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MAX(@p000_0:@p000_4))",
+      "actual": 100.0,
+      "unit": "m2",
+      "source": "result_max.csv row 10: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 0, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MAX(@p001_0:@p001_4))",
+      "actual": 102.0,
+      "unit": "m2",
+      "source": "result_max.csv row 11: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 0, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MAX(@p010_0:@p010_4))",
+      "actual": 110.0,
+      "unit": "m2",
+      "source": "result_max.csv row 12: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 0, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MAX(@p011_0:@p011_4))",
+      "actual": 112.0,
+      "unit": "m2",
+      "source": "result_max.csv row 13: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 0, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MAX(@p100_0:@p100_4))",
+      "actual": 103.0,
+      "unit": "m2",
+      "source": "result_max.csv row 14: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 0, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MAX(@p101_0:@p101_4))",
+      "actual": 105.0,
+      "unit": "m2",
+      "source": "result_max.csv row 15: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 0, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MAX(@p110_0:@p110_4))",
+      "actual": 113.0,
+      "unit": "m2",
+      "source": "result_max.csv row 16: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 0, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MAX(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_max.csv row 17: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MAX(@p000_0:@p000_4))",
+      "actual": 100.0,
+      "unit": "m2",
+      "source": "result_max.csv row 18: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MAX(@p001_0:@p001_4))",
+      "actual": 102.0,
+      "unit": "m2",
+      "source": "result_max.csv row 19: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MAX(@p010_0:@p010_4))",
+      "actual": 110.0,
+      "unit": "m2",
+      "source": "result_max.csv row 20: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MAX(@p011_0:@p011_4))",
+      "actual": 112.0,
+      "unit": "m2",
+      "source": "result_max.csv row 21: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MAX(@p100_0:@p100_4))",
+      "actual": 103.0,
+      "unit": "m2",
+      "source": "result_max.csv row 22: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MAX(@p101_0:@p101_4))",
+      "actual": 105.0,
+      "unit": "m2",
+      "source": "result_max.csv row 23: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MAX(@p110_0:@p110_4))",
+      "actual": 113.0,
+      "unit": "m2",
+      "source": "result_max.csv row 24: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MAX(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_max.csv row 25: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 20, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MAX(@p000_0:@p000_4))",
+      "actual": 100.0,
+      "unit": "m2",
+      "source": "result_max.csv row 26: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 20, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MAX(@p001_0:@p001_4))",
+      "actual": 102.0,
+      "unit": "m2",
+      "source": "result_max.csv row 27: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 20, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MAX(@p010_0:@p010_4))",
+      "actual": 110.0,
+      "unit": "m2",
+      "source": "result_max.csv row 28: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 20, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MAX(@p011_0:@p011_4))",
+      "actual": 112.0,
+      "unit": "m2",
+      "source": "result_max.csv row 29: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 20, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MAX(@p100_0:@p100_4))",
+      "actual": 103.0,
+      "unit": "m2",
+      "source": "result_max.csv row 30: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 20, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MAX(@p101_0:@p101_4))",
+      "actual": 105.0,
+      "unit": "m2",
+      "source": "result_max.csv row 31: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 20, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MAX(@p110_0:@p110_4))",
+      "actual": 113.0,
+      "unit": "m2",
+      "source": "result_max.csv row 32: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 20, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MAX(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_max.csv row 33: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 30, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",MAX(@p000_0:@p000_4))",
+      "actual": 100.0,
+      "unit": "m2",
+      "source": "result_max.csv row 34: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 30, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",MAX(@p001_0:@p001_4))",
+      "actual": 102.0,
+      "unit": "m2",
+      "source": "result_max.csv row 35: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 30, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",MAX(@p010_0:@p010_4))",
+      "actual": 110.0,
+      "unit": "m2",
+      "source": "result_max.csv row 36: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 30, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",MAX(@p011_0:@p011_4))",
+      "actual": 112.0,
+      "unit": "m2",
+      "source": "result_max.csv row 37: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 30, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",MAX(@p100_0:@p100_4))",
+      "actual": 103.0,
+      "unit": "m2",
+      "source": "result_max.csv row 38: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 30, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",MAX(@p101_0:@p101_4))",
+      "actual": 105.0,
+      "unit": "m2",
+      "source": "result_max.csv row 39: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 30, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",MAX(@p110_0:@p110_4))",
+      "actual": 113.0,
+      "unit": "m2",
+      "source": "result_max.csv row 40: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "max: az 30, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",MAX(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_max.csv row 41: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az -10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",STDEV.P(@p000_0:@p000_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az -10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",STDEV.P(@p001_0:@p001_4))",
+      "actual": 41.336273416939754,
+      "unit": "m2",
+      "source": "result_std.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az -10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",STDEV.P(@p010_0:@p010_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az -10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",STDEV.P(@p011_0:@p011_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az -10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",STDEV.P(@p100_0:@p100_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az -10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",STDEV.P(@p101_0:@p101_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az -10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",STDEV.P(@p110_0:@p110_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 8: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az -10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",STDEV.P(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_std.csv row 9: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 0, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",STDEV.P(@p000_0:@p000_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 10: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 0, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",STDEV.P(@p001_0:@p001_4))",
+      "actual": 41.336273416939754,
+      "unit": "m2",
+      "source": "result_std.csv row 11: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 0, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",STDEV.P(@p010_0:@p010_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 12: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 0, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",STDEV.P(@p011_0:@p011_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 13: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 0, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",STDEV.P(@p100_0:@p100_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 14: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 0, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",STDEV.P(@p101_0:@p101_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 15: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 0, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",STDEV.P(@p110_0:@p110_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 16: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 0, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",STDEV.P(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_std.csv row 17: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",STDEV.P(@p000_0:@p000_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 18: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",STDEV.P(@p001_0:@p001_4))",
+      "actual": 41.336273416939754,
+      "unit": "m2",
+      "source": "result_std.csv row 19: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",STDEV.P(@p010_0:@p010_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 20: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",STDEV.P(@p011_0:@p011_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 21: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",STDEV.P(@p100_0:@p100_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 22: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",STDEV.P(@p101_0:@p101_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 23: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",STDEV.P(@p110_0:@p110_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 24: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",STDEV.P(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_std.csv row 25: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 20, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",STDEV.P(@p000_0:@p000_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 26: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 20, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",STDEV.P(@p001_0:@p001_4))",
+      "actual": 41.336273416939754,
+      "unit": "m2",
+      "source": "result_std.csv row 27: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 20, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",STDEV.P(@p010_0:@p010_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 28: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 20, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",STDEV.P(@p011_0:@p011_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 29: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 20, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",STDEV.P(@p100_0:@p100_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 30: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 20, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",STDEV.P(@p101_0:@p101_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 31: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 20, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",STDEV.P(@p110_0:@p110_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 32: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 20, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",STDEV.P(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_std.csv row 33: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 30, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",STDEV.P(@p000_0:@p000_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 34: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 30, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",STDEV.P(@p001_0:@p001_4))",
+      "actual": 41.336273416939754,
+      "unit": "m2",
+      "source": "result_std.csv row 35: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 30, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",STDEV.P(@p010_0:@p010_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 36: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 30, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",STDEV.P(@p011_0:@p011_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 37: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 30, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",STDEV.P(@p100_0:@p100_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 38: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 30, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",STDEV.P(@p101_0:@p101_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 39: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 30, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",STDEV.P(@p110_0:@p110_4))",
+      "actual": 38.32701397187107,
+      "unit": "m2",
+      "source": "result_std.csv row 40: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "std: az 30, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",STDEV.P(@p111_0:@p111_4))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_std.csv row 41: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az -10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",PERCENTILE.INC(@p000_0:@p000_4,@q/100))",
+      "actual": 66.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az -10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",PERCENTILE.INC(@p001_0:@p001_4,@q/100))",
+      "actual": 76.80000000000001,
+      "unit": "m2",
+      "source": "result_percentile.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az -10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",PERCENTILE.INC(@p010_0:@p010_4,@q/100))",
+      "actual": 76.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az -10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",PERCENTILE.INC(@p011_0:@p011_4,@q/100))",
+      "actual": 78.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az -10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",PERCENTILE.INC(@p100_0:@p100_4,@q/100))",
+      "actual": 69.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az -10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",PERCENTILE.INC(@p101_0:@p101_4,@q/100))",
+      "actual": 71.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az -10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",PERCENTILE.INC(@p110_0:@p110_4,@q/100))",
+      "actual": 79.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 8: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az -10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",PERCENTILE.INC(@p111_0:@p111_4,@q/100))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_percentile.csv row 9: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 0, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",PERCENTILE.INC(@p000_0:@p000_4,@q/100))",
+      "actual": 66.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 10: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 0, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",PERCENTILE.INC(@p001_0:@p001_4,@q/100))",
+      "actual": 76.80000000000001,
+      "unit": "m2",
+      "source": "result_percentile.csv row 11: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 0, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",PERCENTILE.INC(@p010_0:@p010_4,@q/100))",
+      "actual": 76.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 12: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 0, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",PERCENTILE.INC(@p011_0:@p011_4,@q/100))",
+      "actual": 78.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 13: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 0, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",PERCENTILE.INC(@p100_0:@p100_4,@q/100))",
+      "actual": 69.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 14: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 0, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",PERCENTILE.INC(@p101_0:@p101_4,@q/100))",
+      "actual": 71.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 15: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 0, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",PERCENTILE.INC(@p110_0:@p110_4,@q/100))",
+      "actual": 79.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 16: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 0, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",PERCENTILE.INC(@p111_0:@p111_4,@q/100))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_percentile.csv row 17: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 10, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",PERCENTILE.INC(@p000_0:@p000_4,@q/100))",
+      "actual": 66.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 18: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 10, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",PERCENTILE.INC(@p001_0:@p001_4,@q/100))",
+      "actual": 76.80000000000001,
+      "unit": "m2",
+      "source": "result_percentile.csv row 19: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 10, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",PERCENTILE.INC(@p010_0:@p010_4,@q/100))",
+      "actual": 76.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 20: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 10, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",PERCENTILE.INC(@p011_0:@p011_4,@q/100))",
+      "actual": 78.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 21: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 10, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",PERCENTILE.INC(@p100_0:@p100_4,@q/100))",
+      "actual": 69.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 22: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 10, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",PERCENTILE.INC(@p101_0:@p101_4,@q/100))",
+      "actual": 71.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 23: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 10, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",PERCENTILE.INC(@p110_0:@p110_4,@q/100))",
+      "actual": 79.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 24: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 10, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",PERCENTILE.INC(@p111_0:@p111_4,@q/100))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_percentile.csv row 25: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 20, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",PERCENTILE.INC(@p000_0:@p000_4,@q/100))",
+      "actual": 66.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 26: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 20, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",PERCENTILE.INC(@p001_0:@p001_4,@q/100))",
+      "actual": 76.80000000000001,
+      "unit": "m2",
+      "source": "result_percentile.csv row 27: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 20, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",PERCENTILE.INC(@p010_0:@p010_4,@q/100))",
+      "actual": 76.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 28: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 20, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",PERCENTILE.INC(@p011_0:@p011_4,@q/100))",
+      "actual": 78.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 29: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 20, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",PERCENTILE.INC(@p100_0:@p100_4,@q/100))",
+      "actual": 69.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 30: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 20, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",PERCENTILE.INC(@p101_0:@p101_4,@q/100))",
+      "actual": 71.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 31: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 20, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",PERCENTILE.INC(@p110_0:@p110_4,@q/100))",
+      "actual": 79.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 32: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 20, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",PERCENTILE.INC(@p111_0:@p111_4,@q/100))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_percentile.csv row 33: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 30, el -5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p000_0:@p000_4)=0,\"missing\",PERCENTILE.INC(@p000_0:@p000_4,@q/100))",
+      "actual": 66.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 34: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 30, el -5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p001_0:@p001_4)=0,\"missing\",PERCENTILE.INC(@p001_0:@p001_4,@q/100))",
+      "actual": 76.80000000000001,
+      "unit": "m2",
+      "source": "result_percentile.csv row 35: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 30, el -5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p010_0:@p010_4)=0,\"missing\",PERCENTILE.INC(@p010_0:@p010_4,@q/100))",
+      "actual": 76.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 36: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 30, el -5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p011_0:@p011_4)=0,\"missing\",PERCENTILE.INC(@p011_0:@p011_4,@q/100))",
+      "actual": 78.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 37: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 30, el 5, f 8, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p100_0:@p100_4)=0,\"missing\",PERCENTILE.INC(@p100_0:@p100_4,@q/100))",
+      "actual": 69.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 38: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 30, el 5, f 8, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p101_0:@p101_4)=0,\"missing\",PERCENTILE.INC(@p101_0:@p101_4,@q/100))",
+      "actual": 71.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 39: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 30, el 5, f 12, VV",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p110_0:@p110_4)=0,\"missing\",PERCENTILE.INC(@p110_0:@p110_4,@q/100))",
+      "actual": 79.4,
+      "unit": "m2",
+      "source": "result_percentile.csv row 40: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "percentile: az 30, el 5, f 12, HH",
+      "metric": "Reduced linear power",
+      "formula": "=IF(COUNT(@p111_0:@p111_4)=0,\"missing\",PERCENTILE.INC(@p111_0:@p111_4,@q/100))",
+      "actual": "missing",
+      "unit": "m2",
+      "source": "result_percentile.csv row 41: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az -10.0, VV",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p000_0,@p010_0,@p100_0,@p110_0)",
+      "actual": 6.5,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 2: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az -10.0, HH",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p001_0,@p011_0,@p101_0,@p111_0)",
+      "actual": 6.333333333333333,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 3: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az 0.0, VV",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p000_1,@p010_1,@p100_1,@p110_1)",
+      "actual": 7.5,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 4: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az 0.0, HH",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p001_1,@p011_1,@p101_1,@p111_1)",
+      "actual": 7.333333333333333,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 5: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az 10.0, VV",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p000_2,@p010_2,@p100_2,@p110_2)",
+      "actual": 10.5,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 6: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az 10.0, HH",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p001_2,@p011_2,@p101_2,@p111_2)",
+      "actual": 12.5,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 7: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az 20.0, VV",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p000_3,@p010_3,@p100_3,@p110_3)",
+      "actual": 22.5,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 8: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az 20.0, HH",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p001_3,@p011_3,@p101_3,@p111_3)",
+      "actual": 22.333333333333332,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 9: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az 30.0, VV",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p000_4,@p010_4,@p100_4,@p110_4)",
+      "actual": 106.5,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 10: magnitude_power_linear",
+      "tolerance": null
+    },
+    {
+      "case": "Compact az 30.0, HH",
+      "metric": "Mean over elevation and frequency",
+      "formula": "=AVERAGE(@p001_4,@p011_4,@p101_4,@p111_4)",
+      "actual": 106.33333333333333,
+      "unit": "m2",
+      "source": "result_mean_el_freq_compact.csv row 11: magnitude_power_linear",
+      "tolerance": null
+    }
+  ],
+  "files": [
+    {
+      "name": "input",
+      "native": "datasets/stats/input.grim",
+      "csv": "datasets/stats/input.csv",
+      "rows": 40
+    },
+    {
+      "name": "result_mean",
+      "native": "datasets/stats/result_mean.grim",
+      "csv": "datasets/stats/result_mean.csv",
+      "rows": 40
+    },
+    {
+      "name": "result_median",
+      "native": "datasets/stats/result_median.grim",
+      "csv": "datasets/stats/result_median.csv",
+      "rows": 40
+    },
+    {
+      "name": "result_min",
+      "native": "datasets/stats/result_min.grim",
+      "csv": "datasets/stats/result_min.csv",
+      "rows": 40
+    },
+    {
+      "name": "result_max",
+      "native": "datasets/stats/result_max.grim",
+      "csv": "datasets/stats/result_max.csv",
+      "rows": 40
+    },
+    {
+      "name": "result_std",
+      "native": "datasets/stats/result_std.grim",
+      "csv": "datasets/stats/result_std.csv",
+      "rows": 40
+    },
+    {
+      "name": "result_percentile",
+      "native": "datasets/stats/result_percentile.grim",
+      "csv": "datasets/stats/result_percentile.csv",
+      "rows": 40
+    },
+    {
+      "name": "result_mean_el_freq_compact",
+      "native": "datasets/stats/result_mean_el_freq_compact.grim",
+      "csv": "datasets/stats/result_mean_el_freq_compact.csv",
+      "rows": 10
+    }
+  ],
+  "notes": []
+}

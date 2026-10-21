@@ -1,0 +1,35 @@
+Delta Map
+---------
+
+WORKBOOK EXAMPLE
+A minus B in dB; elevation 0°, VV. Zero or missing power has no finite dB difference.
+The worksheet shows 6 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Azimuth/frequency plane; elevation 0; VV.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/delta_map.json.
+Az 0°, 8 GHz (dB): Excel G8; GRIM H8; percent error I8; original check 0; source delta_values.csv row 2: delta_db
+Az 0°, 9 GHz (dB): Excel G9; GRIM H9; percent error I9; original check 1; source delta_values.csv row 3: delta_db
+Az 0°, 10 GHz (dB): Excel G10; GRIM H10; percent error I10; original check 2; source delta_values.csv row 4: delta_db
+Az 90°, 8 GHz (dB): Excel G11; GRIM H11; percent error I11; original check 3; source delta_values.csv row 5: delta_db
+Az 90°, 9 GHz (dB): Excel G12; GRIM H12; percent error I12; original check 4; source delta_values.csv row 6: delta_db
+Az 90°, 10 GHz (dB): Excel G13; GRIM H13; percent error I13; original check 5; source delta_values.csv row 7: delta_db
+
+FILES
+input_a: datasets/delta_map/input_a.grim; datasets/delta_map/input_a.csv
+input_b: datasets/delta_map/input_b.grim; datasets/delta_map/input_b.csv
+delta_values: datasets/delta_map/delta_values.csv
+
+SCOPE
+Numerical behavior for the supplied fixtures; not all possible inputs.
+The full specification retains 6 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+None.

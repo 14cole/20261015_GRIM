@@ -1,0 +1,4 @@
+grim_csv_schema,azimuth,azimuth_unit,elevation,elevation_unit,frequency,frequency_unit,polarization,rcs_linear_quantity,rcs_log_unit,angular_coordinate_system,great_circle_coordinate_convention,angular_roll_deg,angular_tilt_deg,polarization_basis,time_convention,phase_reference,phase_wrap,magnitude_power_linear,magnitude_dbsm,phase_deg
+grim.flat-rcs.v1,10,deg,0,deg,10,GHz,VV,sigma_3d,dBsm,conic,,0,0,conic local V/H,exp(+jwt),synthetic common origin,-180_180,16,12.041199826559248,-180
+grim.flat-rcs.v1,20,deg,0,deg,10,GHz,VV,sigma_3d,dBsm,conic,,0,0,conic local V/H,exp(+jwt),synthetic common origin,-180_180,,,
+grim.flat-rcs.v1,30,deg,0,deg,10,GHz,VV,sigma_3d,dBsm,conic,,0,0,conic local V/H,exp(+jwt),synthetic common origin,-180_180,9,9.5424250943932485,90

@@ -1,0 +1,190 @@
+{
+  "slug": "time_gate",
+  "title": "Time Gate",
+  "description": "A compensated point at the gate center retains its known complex field.",
+  "settings": "Keep gate -0.03 to +0.04 m; taper 0.4; compensation on; point range 0.005 m.",
+  "scope": "This sheet checks the analytic compensated center-point control. Full gated-DFT cases remain in the dataset folder and original specification.",
+  "rawHeaders": [
+    "Input",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (Hz)",
+    "Pol",
+    "RCS (m2)",
+    "Phase (deg)"
+  ],
+  "rawRows": [
+    [
+      "Center point",
+      0,
+      0,
+      {
+        "id": "compact_f0",
+        "value": 1000000000.0
+      },
+      "VV",
+      {
+        "id": "compact_p0",
+        "value": 1.0
+      },
+      -12.008307427133474
+    ],
+    [
+      "Center point",
+      0,
+      0,
+      {
+        "id": "compact_f1",
+        "value": 2000000000.0
+      },
+      "VV",
+      {
+        "id": "compact_p1",
+        "value": 1.0
+      },
+      -24.016614854266948
+    ],
+    [
+      "Center point",
+      0,
+      0,
+      {
+        "id": "compact_f2",
+        "value": 3000000000.0
+      },
+      "VV",
+      {
+        "id": "compact_p2",
+        "value": 1.0
+      },
+      -36.02492228140042
+    ],
+    [
+      "Center point",
+      0,
+      0,
+      {
+        "id": "compact_f3",
+        "value": 4000000000.0
+      },
+      "VV",
+      {
+        "id": "compact_p3",
+        "value": 1.0
+      },
+      -48.033229708533895
+    ]
+  ],
+  "selectedCheckIndices": [
+    32,
+    33,
+    34,
+    35,
+    36,
+    37,
+    38,
+    39
+  ],
+  "labelOverrides": {
+    "32": "1 GHz: Field I (m)",
+    "33": "1 GHz: Field Q (m)",
+    "34": "2 GHz: Field I (m)",
+    "35": "2 GHz: Field Q (m)",
+    "36": "3 GHz: Field I (m)",
+    "37": "3 GHz: Field Q (m)",
+    "38": "4 GHz: Field I (m)",
+    "39": "4 GHz: Field Q (m)"
+  },
+  "formulaOverrides": {
+    "32": "=SQRT(@compact_p0)*COS(@compact_angle0)",
+    "33": "=SQRT(@compact_p0)*SIN(@compact_angle0)",
+    "34": "=SQRT(@compact_p1)*COS(@compact_angle1)",
+    "35": "=SQRT(@compact_p1)*SIN(@compact_angle1)",
+    "36": "=SQRT(@compact_p2)*COS(@compact_angle2)",
+    "37": "=SQRT(@compact_p2)*SIN(@compact_angle2)",
+    "38": "=SQRT(@compact_p3)*COS(@compact_angle3)",
+    "39": "=SQRT(@compact_p3)*SIN(@compact_angle3)"
+  },
+  "extraCalculations": [
+    {
+      "id": "compact_center",
+      "label": "Gate center",
+      "formula": "=(@start+@stop)/2",
+      "unit": "m"
+    },
+    {
+      "id": "compact_angle0",
+      "label": "Phase at 1 GHz",
+      "formula": "=-4*PI()*@compact_f0*@compact_center/@c",
+      "unit": "rad"
+    },
+    {
+      "id": "compact_angle1",
+      "label": "Phase at 2 GHz",
+      "formula": "=-4*PI()*@compact_f1*@compact_center/@c",
+      "unit": "rad"
+    },
+    {
+      "id": "compact_angle2",
+      "label": "Phase at 3 GHz",
+      "formula": "=-4*PI()*@compact_f2*@compact_center/@c",
+      "unit": "rad"
+    },
+    {
+      "id": "compact_angle3",
+      "label": "Phase at 4 GHz",
+      "formula": "=-4*PI()*@compact_f3*@compact_center/@c",
+      "unit": "rad"
+    }
+  ],
+  "extraInputs": [
+    {
+      "id": "compact_f0",
+      "label": "Frequency 1",
+      "value": 1000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "compact_p0",
+      "label": "Input RCS at 1 GHz",
+      "value": 1.0,
+      "unit": "m2"
+    },
+    {
+      "id": "compact_f1",
+      "label": "Frequency 2",
+      "value": 2000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "compact_p1",
+      "label": "Input RCS at 2 GHz",
+      "value": 1.0,
+      "unit": "m2"
+    },
+    {
+      "id": "compact_f2",
+      "label": "Frequency 3",
+      "value": 3000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "compact_p2",
+      "label": "Input RCS at 3 GHz",
+      "value": 1.0,
+      "unit": "m2"
+    },
+    {
+      "id": "compact_f3",
+      "label": "Frequency 4",
+      "value": 4000000000.0,
+      "unit": "Hz"
+    },
+    {
+      "id": "compact_p3",
+      "label": "Input RCS at 4 GHz",
+      "value": 1.0,
+      "unit": "m2"
+    }
+  ]
+}

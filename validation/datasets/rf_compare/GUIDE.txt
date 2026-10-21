@@ -1,0 +1,46 @@
+RF Compare
+----------
+
+WORKBOOK EXAMPLE
+Magnitude comparison using gain_x4_left and gain_x4_right; 10 GHz, elevation 0°, VV.
+The worksheet shows 6 selected comparisons.
+Yellow cells contain raw inputs. Blue cells calculate the Excel result beside the saved GRIM result.
+Changing the inputs recalculates Excel only; rerun GRIM to create new outputs.
+
+REPEAT IN GRIM
+Load the .grim input files, not their CSV copies. Native files retain conventions that CSV may omit.
+Magnitude mode; six matched azimuths per case, yielding two contiguous three-sample sectors.
+Result files are reference outputs, not additional operands. Match coordinates and polarization when comparing exports.
+Plot CSV files record the numerical plot values.
+
+WORKSHEET EVIDENCE
+Original check indices are zero-based positions in specs/rf_compare.json.
+Linear CCC: Excel J8; GRIM K8; percent error L8; original check 16; source metrics.csv row 18: linear_ccc
+Normalized RMS error: Excel J9; GRIM K9; percent error L9; original check 18; source metrics.csv row 20: linear_nrmse
+Median A − B (dB): Excel J10; GRIM K10; percent error L10; original check 19; source metrics.csv row 21: median_db_delta
+Mean absolute difference (dB): Excel J11; GRIM K11; percent error L11; original check 20; source metrics.csv row 22: mae_db
+P95 absolute difference (dB): Excel J12; GRIM K12; percent error L12; original check 21; source metrics.csv row 23: p95_db
+Peak azimuth offset (deg): Excel J13; GRIM K13; percent error L13; original check 22; source metrics.csv row 24: peak_offset
+
+FILES
+identical_left: datasets/rf_compare/identical_left.grim; datasets/rf_compare/identical_left.csv
+identical_right: datasets/rf_compare/identical_right.grim; datasets/rf_compare/identical_right.csv
+gain_x4_left: datasets/rf_compare/gain_x4_left.grim; datasets/rf_compare/gain_x4_left.csv
+gain_x4_right: datasets/rf_compare/gain_x4_right.grim; datasets/rf_compare/gain_x4_right.csv
+shape_change_left: datasets/rf_compare/shape_change_left.grim; datasets/rf_compare/shape_change_left.csv
+shape_change_right: datasets/rf_compare/shape_change_right.grim; datasets/rf_compare/shape_change_right.csv
+equal_constant_left: datasets/rf_compare/equal_constant_left.grim; datasets/rf_compare/equal_constant_left.csv
+equal_constant_right: datasets/rf_compare/equal_constant_right.grim; datasets/rf_compare/equal_constant_right.csv
+unequal_constant_left: datasets/rf_compare/unequal_constant_left.grim; datasets/rf_compare/unequal_constant_left.csv
+unequal_constant_right: datasets/rf_compare/unequal_constant_right.grim; datasets/rf_compare/unequal_constant_right.csv
+input_insufficient_positive: datasets/rf_compare/input_insufficient_positive.grim; datasets/rf_compare/input_insufficient_positive.csv
+metrics: datasets/rf_compare/metrics.csv
+
+SCOPE
+Validates the defined metric arithmetic on positive synthetic powers. The RF index is a chosen scoring policy, not a universal physical-quality certificate.
+The full specification retains 81 recorded checks. Only the selected comparisons are recalculated in this workbook.
+
+RECORDED NOTES
+metrics.csv contains the direct numerical output of GRIM RF Compare; worksheet actuals are read back from that file.
+The six-point sectors are [0,10,20] and [30,40,50] deg. Equal constant traces have CCC=1; unequal constants have CCC=0.
+Insufficient positive pairs: RF agreement requires at least two positive finite matched samples

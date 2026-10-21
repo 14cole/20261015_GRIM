@@ -1,0 +1,302 @@
+{
+  "slug": "coherent_divide",
+  "title": "Coherent divide",
+  "description": "Independent Cartesian I/Q arithmetic, including cancellation, zero and missing samples.",
+  "settings": "Load input_a and input_b. Operand order is A then B. The workbook shows the two-operand result.",
+  "scope": "Common synthetic phase reference and exact matching grids; no claim that unrelated acquisitions are coherent.",
+  "rawHeaders": [
+    "Dataset",
+    "Azimuth (deg)",
+    "Elevation (deg)",
+    "Frequency (GHz)",
+    "Pol",
+    "I (sqrt m²)",
+    "Q (sqrt m²)",
+    "RCS (m², calc.)"
+  ],
+  "rawRows": [
+    [
+      "A",
+      0.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "a_i0",
+        "value": 1.0
+      },
+      {
+        "id": "a_q0",
+        "value": 2.0
+      },
+      {
+        "formula": "=IF(OR(@a_i0=\"missing\",@a_q0=\"missing\"),\"missing\",@a_i0^2+@a_q0^2)"
+      }
+    ],
+    [
+      "A",
+      1.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "a_i1",
+        "value": 1.0
+      },
+      {
+        "id": "a_q1",
+        "value": 0.0
+      },
+      {
+        "formula": "=IF(OR(@a_i1=\"missing\",@a_q1=\"missing\"),\"missing\",@a_i1^2+@a_q1^2)"
+      }
+    ],
+    [
+      "A",
+      2.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "a_i2",
+        "value": 0.0
+      },
+      {
+        "id": "a_q2",
+        "value": 0.0
+      },
+      {
+        "formula": "=IF(OR(@a_i2=\"missing\",@a_q2=\"missing\"),\"missing\",@a_i2^2+@a_q2^2)"
+      }
+    ],
+    [
+      "A",
+      3.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "a_i3",
+        "value": 3.0
+      },
+      {
+        "id": "a_q3",
+        "value": -4.0
+      },
+      {
+        "formula": "=IF(OR(@a_i3=\"missing\",@a_q3=\"missing\"),\"missing\",@a_i3^2+@a_q3^2)"
+      }
+    ],
+    [
+      "A",
+      4.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "a_i4",
+        "value": "missing"
+      },
+      {
+        "id": "a_q4",
+        "value": "missing"
+      },
+      {
+        "formula": "=IF(OR(@a_i4=\"missing\",@a_q4=\"missing\"),\"missing\",@a_i4^2+@a_q4^2)"
+      }
+    ],
+    [
+      "A",
+      5.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "a_i5",
+        "value": -2.0
+      },
+      {
+        "id": "a_q5",
+        "value": 2.0
+      },
+      {
+        "formula": "=IF(OR(@a_i5=\"missing\",@a_q5=\"missing\"),\"missing\",@a_i5^2+@a_q5^2)"
+      }
+    ],
+    [
+      "A",
+      6.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "a_i6",
+        "value": 1e-05
+      },
+      {
+        "id": "a_q6",
+        "value": 2e-05
+      },
+      {
+        "formula": "=IF(OR(@a_i6=\"missing\",@a_q6=\"missing\"),\"missing\",@a_i6^2+@a_q6^2)"
+      }
+    ],
+    [
+      "B",
+      0.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "b_i0",
+        "value": 3.0
+      },
+      {
+        "id": "b_q0",
+        "value": -1.0
+      },
+      {
+        "formula": "=IF(OR(@b_i0=\"missing\",@b_q0=\"missing\"),\"missing\",@b_i0^2+@b_q0^2)"
+      }
+    ],
+    [
+      "B",
+      1.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "b_i1",
+        "value": -1.0
+      },
+      {
+        "id": "b_q1",
+        "value": 0.0
+      },
+      {
+        "formula": "=IF(OR(@b_i1=\"missing\",@b_q1=\"missing\"),\"missing\",@b_i1^2+@b_q1^2)"
+      }
+    ],
+    [
+      "B",
+      2.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "b_i2",
+        "value": 0.0
+      },
+      {
+        "id": "b_q2",
+        "value": 2.0
+      },
+      {
+        "formula": "=IF(OR(@b_i2=\"missing\",@b_q2=\"missing\"),\"missing\",@b_i2^2+@b_q2^2)"
+      }
+    ],
+    [
+      "B",
+      3.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "b_i3",
+        "value": 0.0
+      },
+      {
+        "id": "b_q3",
+        "value": 0.0
+      },
+      {
+        "formula": "=IF(OR(@b_i3=\"missing\",@b_q3=\"missing\"),\"missing\",@b_i3^2+@b_q3^2)"
+      }
+    ],
+    [
+      "B",
+      4.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "b_i4",
+        "value": 1.0
+      },
+      {
+        "id": "b_q4",
+        "value": 1.0
+      },
+      {
+        "formula": "=IF(OR(@b_i4=\"missing\",@b_q4=\"missing\"),\"missing\",@b_i4^2+@b_q4^2)"
+      }
+    ],
+    [
+      "B",
+      5.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "b_i5",
+        "value": 2.0
+      },
+      {
+        "id": "b_q5",
+        "value": -2.0
+      },
+      {
+        "formula": "=IF(OR(@b_i5=\"missing\",@b_q5=\"missing\"),\"missing\",@b_i5^2+@b_q5^2)"
+      }
+    ],
+    [
+      "B",
+      6.0,
+      0.0,
+      10.0,
+      "VV",
+      {
+        "id": "b_i6",
+        "value": 1e-05
+      },
+      {
+        "id": "b_q6",
+        "value": -2e-05
+      },
+      {
+        "formula": "=IF(OR(@b_i6=\"missing\",@b_q6=\"missing\"),\"missing\",@b_i6^2+@b_q6^2)"
+      }
+    ]
+  ],
+  "selectedCheckIndices": [
+    0,
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    1,
+    2
+  ],
+  "labelOverrides": {
+    "0": "Az 0: output power ratio",
+    "3": "Az 1: output power ratio",
+    "6": "Az 2: output power ratio",
+    "9": "Az 3: output power ratio",
+    "12": "Az 4: output power ratio",
+    "15": "Az 5: output power ratio",
+    "18": "Az 6: output power ratio",
+    "1": "Az 0: output I",
+    "2": "Az 0: output Q"
+  },
+  "formulaOverrides": {
+    "0": "=IF(OR(@a_i0=\"missing\",@a_q0=\"missing\",@b_i0=\"missing\",@b_q0=\"missing\"),\"missing\",IF(@b_i0^2+@b_q0^2=0,\"missing\",(@a_i0^2+@a_q0^2)/(@b_i0^2+@b_q0^2)))",
+    "3": "=IF(OR(@a_i1=\"missing\",@a_q1=\"missing\",@b_i1=\"missing\",@b_q1=\"missing\"),\"missing\",IF(@b_i1^2+@b_q1^2=0,\"missing\",(@a_i1^2+@a_q1^2)/(@b_i1^2+@b_q1^2)))",
+    "6": "=IF(OR(@a_i2=\"missing\",@a_q2=\"missing\",@b_i2=\"missing\",@b_q2=\"missing\"),\"missing\",IF(@b_i2^2+@b_q2^2=0,\"missing\",(@a_i2^2+@a_q2^2)/(@b_i2^2+@b_q2^2)))",
+    "9": "=IF(OR(@a_i3=\"missing\",@a_q3=\"missing\",@b_i3=\"missing\",@b_q3=\"missing\"),\"missing\",IF(@b_i3^2+@b_q3^2=0,\"missing\",(@a_i3^2+@a_q3^2)/(@b_i3^2+@b_q3^2)))",
+    "12": "=IF(OR(@a_i4=\"missing\",@a_q4=\"missing\",@b_i4=\"missing\",@b_q4=\"missing\"),\"missing\",IF(@b_i4^2+@b_q4^2=0,\"missing\",(@a_i4^2+@a_q4^2)/(@b_i4^2+@b_q4^2)))",
+    "15": "=IF(OR(@a_i5=\"missing\",@a_q5=\"missing\",@b_i5=\"missing\",@b_q5=\"missing\"),\"missing\",IF(@b_i5^2+@b_q5^2=0,\"missing\",(@a_i5^2+@a_q5^2)/(@b_i5^2+@b_q5^2)))",
+    "18": "=IF(OR(@a_i6=\"missing\",@a_q6=\"missing\",@b_i6=\"missing\",@b_q6=\"missing\"),\"missing\",IF(@b_i6^2+@b_q6^2=0,\"missing\",(@a_i6^2+@a_q6^2)/(@b_i6^2+@b_q6^2)))"
+  }
+}
