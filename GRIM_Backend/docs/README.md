@@ -561,7 +561,7 @@ default and applies to slider arrows, dragging, playback, and sweep exports.
 **Seconds / frame** sets GUI playback pacing. Playback waits for each completed
 plot, then waits the chosen interval before advancing; expensive reconstruction
 can therefore make GUI playback slower. **Export sweep…** offers a numbered PNG
-image sequence or MP4 video, a separate **Seconds per frame**, and a **Position
+image sequence, MP4 video, or animated GIF, a separate **Seconds per frame**, and a **Position
 step** to export every Nth position (including the final one). Video timing is
 independent of computation speed. Export uses the current plotting settings and
 requires Hold to be off. Set fixed axis/color limits in Plot Settings if needed
@@ -570,7 +570,9 @@ for comparisons across frames.
 Each export creates a new folder under the chosen destination, containing
 captioned frames and `manifest.json` with the values, sample rows, and timing.
 PNG files themselves have no playback duration; their manifest records it.
-MP4 export also retains its PNG frames and encoder log. It uses a system FFmpeg
+GIFs loop continuously and use a 256-color palette per frame. GIF timing is rounded
+to hundredths of a second, with a maximum of 655.35 seconds per frame.
+MP4 and GIF export also retain their PNG frames and encoder log. They use a system FFmpeg
 or the `imageio-ffmpeg` package included in the setup requirements. Progress is
 cancelable; completed frames remain available after cancellation or failure,
 and the manifest records that the sweep is incomplete. Original selections and

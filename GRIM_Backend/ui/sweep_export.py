@@ -37,6 +37,16 @@ def video_command(executable, folder, seconds, output):
             "-video_track_timescale", "1000000", "-movflags", "+faststart", str(output)]
 
 
+def gif_command(executable, folder, seconds, output):
+    """Per-frame palettes keep encoding bounded; GIF timing is in centiseconds."""
+    delay = round(float(seconds) * 100)
+    return [str(executable), "-nostdin", "-hide_banner", "-loglevel", "error", "-n",
+            "-framerate", f"{100/delay:.12g}", "-start_number", "1",
+            "-i", str(Path(folder) / "frame_%06d.png"),
+            "-filter_complex", "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1",
+            "-loop", "0", "-final_delay", str(delay), str(output)]
+
+
 class SweepExportDialog(QDialog):
     def __init__(self, bar, parent):
         super().__init__(parent)
@@ -52,12 +62,15 @@ class SweepExportDialog(QDialog):
         self.format = NoWheelComboBox()
         self.format.addItem("PNG image sequence", "images")
         self.format.addItem("MP4 video", "video")
+        self.format.addItem("Animated GIF", "gif")
         form.addRow("Format", self.format)
         self.seconds = NoWheelDoubleSpinBox()
         self.seconds.setRange(.05, 3600.)
         self.seconds.setDecimals(2)
         self.seconds.setSuffix(" s")
         self.seconds.setValue(bar.seconds.value())
+        self.format.currentIndexChanged.connect(
+            lambda: self.seconds.setMaximum(655.35 if self.format.currentData() == "gif" else 3600.))
         form.addRow("Seconds per frame", self.seconds)
         self.stride = NoWheelSpinBox()
         self.stride.setRange(1, max(1, len(bar._frames)))
@@ -110,10 +123,10 @@ def start_sweep_export(window):
     if dialog.exec() != QDialog.Accepted:
         return
     kind = dialog.format.currentData()
-    executable = ffmpeg_executable() if kind == "video" else None
-    if kind == "video" and executable is None:
-        QMessageBox.information(window, "Video encoder unavailable",
-            "MP4 export requires FFmpeg or the imageio-ffmpeg package included in the GRIM setup requirements. "
+    executable = ffmpeg_executable() if kind in ("video", "gif") else None
+    if kind in ("video", "gif") and executable is None:
+        QMessageBox.information(window, "Animation encoder unavailable",
+            "MP4 and GIF export require FFmpeg or the imageio-ffmpeg package included in the GRIM setup requirements. "
             "PNG image export is available without a video encoder.")
         return
     parent = QFileDialog.getExistingDirectory(window, "Choose sweep export folder")
@@ -131,11 +144,13 @@ def start_sweep_export(window):
 class SweepExporter(QObject):
     def __init__(self, window, folder, *, kind="images", seconds=.35, stride=1, executable=None, notify=False):
         super().__init__(window)
-        if kind not in ("images", "video") or not .05 <= seconds <= 3600 or stride < 1:
+        if kind not in ("images", "video", "gif") or not .05 <= seconds <= (655.35 if kind == "gif" else 3600) or stride < 1:
             raise ValueError("Invalid sweep export settings.")
         self.window, self.bar = window, window.plot_slider
         self.folder = Path(folder)
         self.kind, self.seconds, self.executable = kind, float(seconds), executable
+        if kind == "gif":
+            self.seconds = round(self.seconds * 100) / 100
         self.notify = notify
         self.frames = self.bar._frames
         self.positions = export_positions(len(self.frames), stride)
@@ -166,7 +181,7 @@ class SweepExporter(QObject):
     def start(self):
         self.folder.mkdir(parents=False, exist_ok=False)
         self.frame_folder = self.folder if self.kind == "images" else self.folder / "frames"
-        if self.kind == "video":
+        if self.kind in ("video", "gif"):
             self.frame_folder.mkdir()
         self._write_manifest("running")
         self.window._sweep_export = self
@@ -185,7 +200,7 @@ class SweepExporter(QObject):
             self._finish("failed", "The active plot changed during export.")
             return
         if self.index >= len(self.positions):
-            if self.kind == "video":
+            if self.kind in ("video", "gif"):
                 self._encode()
             else:
                 self._finish("complete")
@@ -232,11 +247,13 @@ class SweepExporter(QObject):
         try:
             if not self.executable:
                 raise ValueError("No FFmpeg encoder is available.")
-            self.progress.setLabelText("Encoding MP4 video…")
+            self.progress.setLabelText("Encoding animated GIF…" if self.kind == "gif" else "Encoding MP4 video…")
             self.progress.setRange(0, 0)
             self.error_file = open(self.folder / "encoder.log", "wb")
-            self.process = subprocess.Popen(video_command(self.executable, self.frame_folder,
-                self.seconds, self.folder / "sweep.mp4"), stdin=subprocess.DEVNULL,
+            command = gif_command if self.kind == "gif" else video_command
+            output = "sweep.gif" if self.kind == "gif" else "sweep.mp4"
+            self.process = subprocess.Popen(command(self.executable, self.frame_folder,
+                self.seconds, self.folder / output), stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=self.error_file,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             self.timer.start()
@@ -247,7 +264,7 @@ class SweepExporter(QObject):
         code = self.process.poll()
         if code is not None:
             self._finish("complete" if code == 0 else "failed",
-                         "" if code == 0 else "Video encoding failed; see encoder.log. PNG frames are retained.")
+                         "" if code == 0 else "Animation encoding failed; see encoder.log. PNG frames are retained.")
 
     def _write_manifest(self, status, detail=""):
         manifest = {"format": "grim-plot-sweep", "version": 1, "status": status, "detail": detail,
@@ -257,7 +274,8 @@ class SweepExporter(QObject):
             "band_width": self.bar.band_width.value() if self.frames.band else None,
             "band_step": ("bandwidth" if self.frames.step_by_width else "acquired") if self.frames.band else None,
             "seconds_per_frame": self.seconds, "requested_positions": self.positions,
-            "frames": self.records, "video": "sweep.mp4" if self.kind == "video" and status == "complete" else None}
+            "frames": self.records, "video": "sweep.mp4" if self.kind == "video" and status == "complete" else None,
+            "gif": "sweep.gif" if self.kind == "gif" and status == "complete" else None}
         (self.folder / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     def cancel(self):
