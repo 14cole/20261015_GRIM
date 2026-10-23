@@ -272,6 +272,8 @@ def render(self, *, composite=False) -> None:
         recon = "fft"
     # Byte-based worker preflight. Display-cell caps alone do not account for
     # the complex source slice or FFT temporaries.
+    preview_only = bool(getattr(self, "_slider_dispatching", False) or getattr(self, "_sweep_export", None))
+    retain_complex = not composite and not preview_only
     estimated_resident = 0
     estimated_peak = 0
     for band in bands:
@@ -303,7 +305,7 @@ def render(self, *, composite=False) -> None:
                 az_count,
                 len(freq_indices_sorted),
                 reconstruction="accurate" if recon == "auto" else recon,
-                retain_complex=True,
+                retain_complex=retain_complex,
             )
             n_az_fft = computation._next_fast_len(max(az_count, 256))
             n_freq_fft = computation._next_fast_len(max(len(freq_indices_sorted), 256))
@@ -312,7 +314,8 @@ def render(self, *, composite=False) -> None:
                 common.MAX_IMAGE_SIDE, int(np.sqrt(common.MAX_IMAGE_CELLS)))
             # Reduced overviews keep two native peak-index grids as well as
             # magnitude; these remain bounded by the display cell budget.
-            retained = 12 * n_az_fft * n_freq_fft + len(band) * len(freq_indices_sorted)
+            retained = ((12 if retain_complex else 4) * n_az_fft * n_freq_fft
+                        + (len(band) * len(freq_indices_sorted) if retain_complex else 0))
             if reduced:
                 retained += 12 * common.bounded_image_cell_count(n_az_fft, n_freq_fft)
         estimated_peak = max(estimated_peak, estimated_resident + working)
@@ -331,8 +334,8 @@ def render(self, *, composite=False) -> None:
     params = {
         **options,
         "dataset": self.active_dataset,
-        "retain_complex": not composite,
-        "retain_mask_source": True,
+        "retain_complex": retain_complex,
+        "retain_mask_source": not preview_only,
         "plot_mode": self.last_plot_mode,
         # Identity token: if the active figure changed while computing (user
         # switched tabs), the finished result is dropped instead of being
@@ -444,7 +447,7 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
     overall_x_max = float("-inf")
     overall_y_min = float("inf")
     overall_y_max = float("-inf")
-    for ax, br in zip(active_axes, band_results):
+    for band_index, (ax, br) in enumerate(zip(active_axes, band_results)):
         x_min, x_max, y_min, y_max = image_extent(br)
         # imshow on a uniform grid is several times faster than pcolormesh
         # for big arrays (1601-frequency datasets feel laggy with pcolormesh).
@@ -459,8 +462,16 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
                 br["x_range"], br["y_range"], br["display_peak_x_indices"], br["display_peak_y_indices"])
         from GRIM_Backend.plotting.image_analysis import attach_isar_record
         attach_isar_record(self, mesh, br, params)
-        from GRIM_Backend.isar.masking import image_from_band
-        mesh._grim_mask_source = image_from_band(br, params)
+        from GRIM_Backend.isar.masking import image_from_band, MaskImageRequest
+        if params.get("retain_mask_source", True):
+            mesh._grim_mask_source = image_from_band(br, params)
+        else:
+            # Keep a numerical recipe, not the native images or Qt callbacks.
+            captured = {key: value for key, value in params.items()
+                        if not key.startswith('_') and key not in ('figure_token', 'cancel_check', 'progress')}
+            captured['bands'] = [list(params['bands'][band_index])]
+            name = f"{'Composite' if br.get('composite') else 'ISAR'} {br['az_values'][0]:g}°–{br['az_values'][-1]:g}°"
+            mesh._grim_mask_source = MaskImageRequest(name, captured, source_digest=br.get('source_selection_digest'))
         if square_aspect:
             # Preserve the selected coordinate limits on every redraw. With
             # constrained layout and a colorbar, adjustable="datalim" can
@@ -590,6 +601,16 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
             self._apply_colorbar_ticks(colorbar)
 
     self._apply_plot_limits()
+
+    # The cut preview inherits the final visible normalization and palette.
+    for mesh in self._isar_meshes:
+        source = mesh._grim_mask_source
+        display = dict(linear=self._plot_scale_is_linear(), cmap=mesh.get_cmap().name,
+                       limits=list(mesh.get_clim()))
+        if isinstance(source, MaskImageRequest):
+            source.display = display
+        else:
+            source.metadata['display'] = display
 
     # Surface any resampling that happened so the user knows their input
     # wasn't on a uniform grid. The number is the relative spread of native

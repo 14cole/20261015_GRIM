@@ -11,7 +11,7 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer
 import numpy as np
 
-from .sweep_frames import make_sweep_frames
+from .sweep_frames import make_sweep_frames, FrameLabels
 
 RANGE_MODES = {"isar_image", "isar_composite", "az_vs_range"}
 
@@ -24,6 +24,14 @@ SWEEP_AXIS = {
     "elevation_sweep": "elevation",
     "range_freq": "frequency",
 }
+
+
+def slider_axis_error(mode, axis):
+    if mode == "sector_stats" and axis == "frequency":
+        return "Box statistics use each box's frequency band. Choose Elevation to play or export these statistics."
+    if SWEEP_AXIS.get(mode) == axis:
+        return f"This plot sweeps {axis}; choose another slider axis to scrub."
+    return None
 
 
 class PlotSliderMixin:
@@ -67,6 +75,16 @@ class PlotSliderMixin:
         widget = self._slider_list(axis)
         dataset = getattr(self, "active_dataset", None)
         mode = getattr(self, "last_plot_mode", None)
+        reason = slider_axis_error(mode, axis)
+        if reason:
+            bar._frames = None
+            bar._plan_key = None
+            for control in (bar.band_label, bar.band_width, bar.step_mode, bar.advance):
+                control.hide()
+            bar.stop_interaction()
+            bar.set_positions([], 0)
+            bar.sequence_note.setText(reason)
+            return
         band = mode in RANGE_MODES and axis in ("frequency", "azimuth")
         bar.band_label.setVisible(band)
         bar.band_width.setVisible(band)
@@ -77,13 +95,20 @@ class PlotSliderMixin:
             bar._frames = None
             bar.set_positions([], 0)
             return
-        values = np.asarray(getattr(dataset, {"frequency": "frequencies", "azimuth": "azimuths", "elevation": "elevations"}[axis]), dtype=float)
+        native_values = getattr(dataset, {"frequency": "frequencies", "azimuth": "azimuths", "elevation": "elevations"}[axis])
+        key = (id(dataset), id(native_values), axis, mode, widget.count(), str((dataset.units or {}).get(axis, "")))
+        plan_key = (key, bar.band_width.value() if band else None,
+                    bar.step_mode.currentData() if band else None,
+                    bar.advance.value() if band and bar.step_mode.currentData() == "custom" else None)
+        if plan_key == getattr(bar, "_plan_key", None) and bar._frames is not None:
+            self._sync_slider_position(bar, widget, band)
+            return
+        values = np.asarray(native_values, dtype=float)
         unit = str((dataset.units or {}).get(axis, ""))
         if axis == "azimuth" and band:
             from .modes.isar_mode import _angle_values_to_degrees
             values = _angle_values_to_degrees(dataset, axis, values)
             unit = "deg"
-        key = (id(dataset), axis, mode, widget.count())
         changed = getattr(bar, "_source_key", None) != key
         if changed:
             bar.stop_interaction()
@@ -121,6 +146,10 @@ class PlotSliderMixin:
             bar.stop_play()
             return
         bar._frames = frames
+        bar._plan_key = (key, bar.band_width.value() if band else None,
+                        bar.step_mode.currentData() if band else None,
+                        bar.advance.value() if band and bar.step_mode.currentData() == "custom" else None)
+        bar._labels = FrameLabels(frames)
         if band:
             preview = "; ".join(frames.label(i) for i in range(min(3, len(frames))))
             if len(frames) > 3:
@@ -130,12 +159,16 @@ class PlotSliderMixin:
                 "Endpoints are inclusive. Final windows may be shorter; duplicate sample sets and windows with fewer than two samples are omitted.")
         else:
             bar.sequence_note.setText(f"All dataset {axis} samples · {len(frames)} positions.")
-        rows = [widget.row(item) for item in widget.selectedItems()]
+        self._sync_slider_position(bar, widget, band)
+
+    def _sync_slider_position(self, bar, widget, band):
+        frames = bar._frames
+        rows = [widget.row(item) for item in widget.selectedItems()] if not band else []
         current = bar.slider.value()
         if not band and rows:
             matches = np.flatnonzero(frames.rows == min(rows))
             current = int(matches[0]) if len(matches) else 0
-        bar.set_positions([frames.label(i) for i in range(len(frames))], current)
+        bar.set_positions(bar._labels, current)
 
     def _on_plot_slider_moved(self, row: int) -> None:
         bar = getattr(self, "plot_slider", None)
@@ -145,10 +178,11 @@ class PlotSliderMixin:
         axis = bar.axis()
         widget = self._slider_list(axis)
         mode = getattr(self, "last_plot_mode", None)
-        if SWEEP_AXIS.get(mode) == axis:
+        reason = slider_axis_error(mode, axis)
+        if reason:
             bar.stop_play()
             self.status.showMessage(
-                f"This plot sweeps {axis}; choose another slider axis to scrub."
+                reason
             )
             self._slider_frame_finished(False)
             return

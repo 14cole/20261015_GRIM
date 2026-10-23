@@ -408,12 +408,15 @@ class PlotSliderBar(QFrame):
 
     def set_positions(self, labels: list[str], current: int) -> None:
         """Replace the slider positions without emitting a move."""
-        self._labels = list(labels)
+        self._labels = labels
         blocked = self.slider.blockSignals(True)
         self.slider.setMaximum(max(0, len(self._labels) - 1))
         self.slider.setValue(max(0, min(int(current), len(self._labels) - 1)))
         self.slider.blockSignals(blocked)
         self.slider.setEnabled(len(self._labels) > 1)
+        for button in (self.btn_prev, self.btn_next, self.btn_play):
+            button.setEnabled(len(self._labels) > 1)
+        self.btn_export.setEnabled(bool(len(self._labels)))
         self._show_label(self.slider.value())
 
     def step(self, delta: int, *, wrap: bool = False) -> None:

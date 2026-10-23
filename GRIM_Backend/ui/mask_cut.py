@@ -11,7 +11,8 @@ from matplotlib.widgets import RectangleSelector, PolygonSelector
 
 from GRIM_Backend.ui.no_wheel import NoWheelComboBox
 from GRIM_Backend.execution.plot_jobs import PlotJobRunner
-from GRIM_Backend.isar.masking import finish_cut, save_image, load_image
+from GRIM_Backend.isar.masking import (finish_cut, save_image, load_image, comparison_cuts,
+                                     MaskImageRequest, prepare_mask_source, mask_preview)
 
 
 class MaskCutDialog(QDialog):
@@ -24,6 +25,7 @@ class MaskCutDialog(QDialog):
         self.sources = []
         self.vertices = None
         self.selector = None
+        self._shapes = {}
         self.runner = PlotJobRunner(self)
         self.runner.publication_failed.connect(self._publication_error)
         if not hasattr(owner, "_mask_image_datasets"):
@@ -72,14 +74,19 @@ class MaskCutDialog(QDialog):
         row.addStretch(1)
         self.finish = QPushButton("Finish Cut")
         self.finish.setEnabled(False)
+        self.comparison = QPushButton("Create comparison set")
+        self.comparison.setToolTip("Create Baseline, Include, and Exclude from this source using exactly the same boundary. Baseline retains any earlier cuts on this source.")
+        self.comparison.setEnabled(False)
         self.close_button = QPushButton("Close")
         row.addWidget(self.finish)
+        row.addWidget(self.comparison)
         row.addWidget(self.close_button)
         layout.addLayout(row)
         self.source.currentIndexChanged.connect(self._show_source)
         self.shape.currentIndexChanged.connect(self._set_selector)
         self.refresh.clicked.connect(self._refresh_sources)
         self.finish.clicked.connect(self._finish)
+        self.comparison.clicked.connect(self._finish_comparison)
         self.save.clicked.connect(self._save)
         self.load.clicked.connect(self._load)
         self.remove.clicked.connect(self._remove)
@@ -100,6 +107,8 @@ class MaskCutDialog(QDialog):
                 for artist in (*axes.images, *axes.collections):
                     image = getattr(artist, "_grim_mask_source", None)
                     if image is not None:
+                        display = image.display if isinstance(image, MaskImageRequest) else image.metadata.setdefault('display', {})
+                        display.update(cmap=artist.get_cmap().name, limits=list(artist.get_clim()))
                         self._append(image)
         for image in self.owner._mask_image_datasets:
             self._append(image)
@@ -123,16 +132,32 @@ class MaskCutDialog(QDialog):
             self.details.setText("Plot ISAR or Composite, then Refresh plot sources; or open a saved Mask Cut image dataset.")
             self.vertices = None
             self.finish.setEnabled(False)
+            self.comparison.setEnabled(False)
             self.canvas.draw_idle()
             return
-        # The preview is bounded; the cut itself always uses native pixel centers.
-        sx, sy = max(1, int(np.ceil(len(image.x)/1200))), max(1, int(np.ceil(len(image.y)/1200)))
-        values = np.asarray(image.magnitude[::sx, ::sy], dtype=float)
-        level = 20 * np.log10(np.maximum(values, 1e-12))
-        x, y = image.x[::sx], image.y[::sy]
-        # pcolormesh uses actual sample centers, avoiding half-pixel mask offsets.
-        mesh = self.ax.pcolormesh(x, y, level.T, shading="nearest", cmap="viridis")
-        self.figure.colorbar(mesh, ax=self.ax, label="Level (dB)")
+        self._busy(True)
+        self.details.setText("Preparing full-resolution cut source…" if isinstance(image, MaskImageRequest)
+                             else "Preparing peak-preserving preview…")
+        def prepare(cancel):
+            resolved = prepare_mask_source(image, cancel) if isinstance(image, MaskImageRequest) else image
+            return resolved, mask_preview(resolved, cancel)
+        self.runner.submit(prepare, self._preview_ready)
+
+    def _preview_ready(self, result, error):
+        self._busy(False)
+        if error is not None:
+            self.vertices = None
+            self.finish.setEnabled(False)
+            self.comparison.setEnabled(False)
+            self.save.setEnabled(False)
+            self.details.setText(f"Could not prepare image: {error}")
+            return
+        image, preview = result
+        self.sources[self.source.currentIndex()] = image
+        limits = preview['limits'] or (None, None)
+        mesh = self.ax.pcolormesh(preview['x'], preview['y'], preview['values'].T, shading="flat",
+                                  cmap=preview['cmap'], vmin=limits[0], vmax=limits[1])
+        self.figure.colorbar(mesh, ax=self.ax, label="Image intensity (linear)" if preview['linear'] else "Level (dB)")
         unit = image.metadata.get("unit", "m")
         self.ax.set(xlabel=f"Cross-range ({unit})", ylabel=f"Down-range ({unit})", title=image.name)
         self.ax.set_aspect("equal", adjustable="box")
@@ -148,18 +173,31 @@ class MaskCutDialog(QDialog):
         self.selector = None
         self.vertices = None
         self.finish.setEnabled(False)
-        if self._current() is None:
+        self.comparison.setEnabled(False)
+        if self._current() is None or isinstance(self._current(), MaskImageRequest) or self.runner.busy:
             return
         if self.shape.currentText() == "Polygon":
             self.selector = PolygonSelector(self.ax, self._polygon, useblit=True)
         else:
             self.selector = RectangleSelector(self.ax, self._rectangle, useblit=True,
                                                button=[1], interactive=True)
+        saved = self._shapes.get((id(self._current()), self.shape.currentText()))
+        if saved is not None:
+            self.vertices = list(saved)
+            if self.shape.currentText() == 'Polygon':
+                self.selector.verts = self.vertices
+            else:
+                points = np.asarray(self.vertices)
+                self.selector.extents = (points[:,0].min(), points[:,0].max(), points[:,1].min(), points[:,1].max())
+            self.finish.setEnabled(True)
+            self.comparison.setEnabled(True)
         self.canvas.draw_idle()
 
     def _polygon(self, vertices):
         self.vertices = list(vertices)
+        self._shapes[(id(self._current()), self.shape.currentText())] = list(vertices)
         self.finish.setEnabled(len(vertices) >= 3 and not self.runner.busy)
+        self.comparison.setEnabled(len(vertices) >= 3 and not self.runner.busy)
 
     def _rectangle(self, first, last):
         if None in (first.xdata, first.ydata, last.xdata, last.ydata):
@@ -172,6 +210,7 @@ class MaskCutDialog(QDialog):
                        self.save, self.load, self.remove):
             widget.setEnabled(not busy)
         self.finish.setEnabled(not busy and self.vertices is not None)
+        self.comparison.setEnabled(not busy and self.vertices is not None)
         if self.selector is not None:
             self.selector.set_active(not busy)
 
@@ -201,9 +240,28 @@ class MaskCutDialog(QDialog):
             self.owner._add_dataset_row(radar, image.name, "Mask Cut: reconstructed radar data")
         self.owner._mask_image_datasets.append(image)
         self._append(image)
-        self.source.setCurrentIndex(len(self.sources)-1)
         self.message.setText("Created reconstructed radar dataset in the main dataset table and an edited image here."
                              if radar is not None else "Created an image dataset here. Save Image keeps its pixels and coordinates for reopening.")
+        self.message.setText(self.message.text() + " Source and boundary remain selected; choose the new image from the list to save it.")
+
+    def _finish_comparison(self):
+        source = self._current()
+        if source is None or self.vertices is None:
+            return
+        vertices = np.array(self.vertices, copy=True)
+        name = self.name.text().strip() or source.name
+        self._busy(True)
+        self.message.setText("Creating Baseline, Include, and Exclude from the same source…")
+        self.runner.submit(lambda cancel: comparison_cuts(source, vertices, name=name, cancel=cancel),
+                           self._publish_comparison)
+
+    def _publish_comparison(self, results, error):
+        if error is not None:
+            self._publish_cut(None, error)
+            return
+        for result in results:
+            self._publish_cut(result, None)
+        self.message.setText("Created Baseline, Include, and Exclude. The original source and boundary remain selected.")
 
     def _save(self):
         image = self._current()
@@ -228,7 +286,7 @@ class MaskCutDialog(QDialog):
         if not path:
             return
         self._busy(True)
-        self.runner.submit(lambda cancel: load_image(path), self._loaded)
+        self.runner.submit(lambda cancel: load_image(path, cancel), self._loaded)
 
     def _loaded(self, image, error):
         self._busy(False)
@@ -260,6 +318,9 @@ class MaskCutDialog(QDialog):
 
 
 def open_mask_cut(owner):
+    bar = getattr(owner, 'plot_slider', None)
+    if bar is not None:
+        bar.stop_interaction()
     previous = getattr(owner, "_mask_cut_dialog", None)
     if previous is not None:
         try:

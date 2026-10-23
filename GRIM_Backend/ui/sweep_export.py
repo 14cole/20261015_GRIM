@@ -104,12 +104,13 @@ def start_sweep_export(window):
     bar = window.plot_slider
     bar.stop_interaction()
     window._refresh_plot_slider()
-    from GRIM_Backend.plotting.slider import SWEEP_AXIS
+    from GRIM_Backend.plotting.slider import slider_axis_error
+    reason = slider_axis_error(window.last_plot_mode, bar.axis())
+    if reason:
+        window.status.showMessage(reason)
+        return
     if window.last_plot_mode is None or not getattr(bar, "_frames", None):
         window.status.showMessage("Plot a dataset and choose valid slider positions before exporting.")
-        return
-    if SWEEP_AXIS.get(window.last_plot_mode) == bar.axis():
-        window.status.showMessage("Choose a slider axis different from the plotted sweep axis.")
         return
     context = window._plot_contexts[window._active_plot_tab]
     if (getattr(window, "_slider_request", None) or getattr(window, "_isar_busy", False)
@@ -144,6 +145,10 @@ def start_sweep_export(window):
 class SweepExporter(QObject):
     def __init__(self, window, folder, *, kind="images", seconds=.35, stride=1, executable=None, notify=False):
         super().__init__(window)
+        from GRIM_Backend.plotting.slider import slider_axis_error
+        reason = slider_axis_error(window.last_plot_mode, window.plot_slider.axis())
+        if reason:
+            raise ValueError(reason)
         if kind not in ("images", "video", "gif") or not .05 <= seconds <= (655.35 if kind == "gif" else 3600) or stride < 1:
             raise ValueError("Invalid sweep export settings.")
         self.window, self.bar = window, window.plot_slider

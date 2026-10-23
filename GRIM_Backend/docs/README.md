@@ -45,6 +45,18 @@ area; **Cut Exclude** removes it. **Finish Cut** creates an independent dataset.
 Cuts use native pixel centers and preserve image coordinates: discarded pixels
 become zero, and existing unknown pixels remain unknown. A reduced preview does
 not reduce the cut's numerical resolution. The source dataset is unchanged.
+The preview preserves the strongest pixel in each display block and uses the
+source plot's color limits and palette. Preview preparation runs in the background.
+The source and drawn boundary stay selected after finishing a cut; choose the
+new result in the image list to inspect or save it. Boundaries are remembered per
+image and shape while the dialog remains open.
+
+**Create comparison set** creates **Baseline**, **Include**, and **Exclude** from
+the same source and exact boundary. For Fourier ISAR these also appear as three
+radar datasets in the main table. Baseline goes through the same reconstruction
+without a new cut; it retains any cuts already present on the chosen source.
+Compare it with Exclude to assess the mask's effect, or plot Include to inspect
+the retained region. Their complex fields add; powers and dB values do not.
 
 For Fourier ISAR (Fast/Accurate, including the Recommended choice), Mask Cut adds
 reconstructed complex radar data to the main dataset table, using the selected
@@ -64,6 +76,9 @@ complex pixels and inverse context, so reopened cuts can reconstruct radar data
 again. Image datasets remain in the dialog's list for the current GRIM session;
 save them before closing GRIM. They are not frequency/azimuth rows or screenshots.
 Closing Mask Cut without finishing a cut creates no dataset.
+Opening a saved image preflights its array headers and streams numerical data
+into managed RAM or temporary disk storage. Scene cropping also uses managed
+storage, so both operations respect the automatic result-storage allowance.
 
 Buttons wrap to fit the available width. Legend, Auto Plot, Auto Scale, Hold,
 and Clear share the **Plot Tools** row with Dataset Operations, Export Plot,
@@ -565,6 +580,16 @@ The slider replaces its axis selection and disables the corresponding Plot
 Settings band/aperture filter. Other axis selections remain unchanged. It does
 not interpolate missing measurements. A narrower frequency band gives coarser
 range resolution.
+Sequence plans are cached until the dataset axes or sweep settings change;
+position labels are formatted only when needed. Box statistics disable frequency
+playback/export because each box owns its frequency band; use Elevation for that
+plot's playback.
+
+ISAR and Composite slider/export frames retain lightweight display results and
+their formation recipes. Opening Mask Cut stops playback and rebuilds the selected
+frame's native cut source in the background, including complex pixels for Fourier
+ISAR. This preserves cut accuracy without retaining those extra arrays for every
+playback frame. If the underlying source changed, replot before cutting.
 
 **Seconds / frame** sets GUI playback pacing. Playback waits for each completed
 plot, then waits the chosen interval before advancing; expensive reconstruction

@@ -3,6 +3,20 @@ from dataclasses import dataclass
 import numpy as np
 
 
+class FrameLabels:
+    """Format only the position being displayed, not every planned window."""
+    def __init__(self, frames):
+        self.frames = frames
+
+    def __len__(self):
+        return len(self.frames)
+
+    def __getitem__(self, index):
+        if not 0 <= index < len(self):
+            raise IndexError(index)
+        return self.frames.label(index)
+
+
 @dataclass
 class SweepFrames:
     rows: np.ndarray

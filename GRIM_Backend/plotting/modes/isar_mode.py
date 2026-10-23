@@ -2505,9 +2505,16 @@ def _compute_bands(params: dict):
             if len(ix) < 2 or len(iy) < 2:
                 return "Requested scene contains fewer than two image pixels on an axis; enlarge the scene extent."
             crop = (slice(ix[0], ix[-1] + 1), slice(iy[0], iy[-1] + 1))
-            result["magnitude"] = np.ascontiguousarray(result["magnitude"][crop])
-            if "complex_image" in result:
-                result["complex_image"] = np.ascontiguousarray(result["complex_image"][crop])
+            for key in ("magnitude", "complex_image"):
+                if key in result:
+                    source_crop = result[key][crop]
+                    cropped = allocate_result(source_crop.shape, source_crop.dtype)
+                    for block in result_blocks(cropped.shape):
+                        if _cancel_requested(cancel_check):
+                            return "ISAR computation superseded."
+                        cropped[block] = source_crop[block]
+                    result[key] = cropped
+            del source_crop
             result["x_range"] = result["x_range"][ix].copy()
             result["y_range"] = result["y_range"][iy].copy()
             result["scene_cropped"] = True

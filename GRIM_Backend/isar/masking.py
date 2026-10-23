@@ -45,6 +45,31 @@ class MaskImage:
         return "Image dataset only: radar reconstruction requires Fourier ISAR (Fast/Accurate)."
 
 
+@dataclass
+class MaskImageRequest:
+    """Captured formation recipe for a lightweight playback frame."""
+    name: str
+    params: dict
+    display: dict = field(default_factory=dict)
+    source_digest: str | None = None
+
+
+def prepare_mask_source(request, cancel=None):
+    from GRIM_Backend.plotting.modes.isar_mode import compute_bands
+    options = dict(request.params, retain_complex=request.params.get('aperture_mode') != 'composite',
+                   retain_mask_source=True, decimate_display=False, cancel_check=cancel)
+    result = compute_bands(options)
+    _check(cancel)
+    if isinstance(result, str):
+        raise ValueError(result)
+    bands, _elapsed = result
+    if request.source_digest is not None and bands[0].get('source_selection_digest') != request.source_digest:
+        raise ValueError("The source data changed after this frame was plotted. Replot before making a cut.")
+    image = image_from_band(bands[0], options)
+    image.metadata['display'] = dict(request.display)
+    return image
+
+
 def reconstruction_extra(dataset):
     """Retain coordinate/field lineage without claiming solver certification."""
     extra = dataset._safe_derived_scalar_extra(include_field_conventions=True)
@@ -83,6 +108,26 @@ def image_from_band(band, params):
 def _check(cancel):
     if cancel is not None and cancel():
         raise PlotCancelled()
+
+
+def mask_preview(image, cancel=None, max_side=1200):
+    """Bounded display with exact block peaks; cuts still use native centers."""
+    from .geometry import pool_image_peaks, reduced_axis_edges
+    sx, sy = (max(1, int(np.ceil(size / max_side))) for size in image.magnitude.shape)
+    if sx == sy == 1:
+        values = np.asarray(image.magnitude, dtype=np.float32)
+    else:
+        blocks = [(start, min(start + sx, len(image.x))) for start in range(0, len(image.x), sx)]
+        values = pool_image_peaks(image.magnitude.T, sy, blocks, cancel=lambda: _check(cancel))[0].T
+    display = image.metadata.get('display', {})
+    level = np.square(values, dtype=np.float32)
+    linear = display.get('linear', False)
+    if not linear:
+        np.maximum(level, np.float32(1e-12), out=level)
+        np.log10(level, out=level)
+        level *= 10
+    return dict(values=level, x=reduced_axis_edges(image.x, max_side), y=reduced_axis_edges(image.y, max_side),
+                linear=linear, cmap=display.get('cmap', 'viridis'), limits=display.get('limits'))
 
 
 def cut_image(source, vertices, *, include, name, cancel=None):
@@ -223,6 +268,20 @@ def finish_cut(source, vertices, *, include, name, cancel=None):
     return result, radar
 
 
+def comparison_cuts(source, vertices, *, name, cancel=None):
+    """Build a complementary pair and the identically processed baseline."""
+    results = []
+    for include, suffix in ((True, 'Include'), (False, 'Exclude')):
+        _check(cancel)
+        results.append(finish_cut(source, vertices, include=include, name=f'{name} — {suffix}', cancel=cancel))
+    _check(cancel)
+    baseline = MaskImage(f'{name} — Baseline', source.x.copy(), source.y.copy(),
+                         source.magnitude, source.complex_image, source.inverse, deepcopy(source.metadata))
+    baseline.metadata['comparison_baseline'] = source.name
+    results.insert(0, (baseline, reconstruct_radar(baseline, cancel) if baseline.inverse is not None else None))
+    return results
+
+
 def _json_value(value):
     if isinstance(value, np.ndarray):
         return value.tolist()
@@ -257,21 +316,24 @@ def save_image(path, image):
             os.unlink(temporary)
 
 
-def load_image(path):
-    with np.load(path, allow_pickle=False) as archive:
-        manifest = json.loads(str(archive["manifest"]))
-        if manifest.get("format") != "GRIM-mask-image" or manifest.get("version") != 1:
-            raise ValueError("This is not a supported GRIM Mask Cut image dataset.")
-        x, y, magnitude = (archive[key] for key in ("x", "y", "magnitude"))
+def load_image(path, cancel=None, *, maximum_bytes=16 * 1024**3):
+    from .mask_storage import read_mask_archive
+    manifest, arrays = read_mask_archive(path, cancel=cancel, maximum_bytes=maximum_bytes)
+    with operation_result_storage('auto'):
+        x, y, magnitude = (arrays[key] for key in ("x", "y", "magnitude"))
         if (x.ndim != 1 or y.ndim != 1 or min(len(x), len(y)) < 2
                 or not np.isfinite(x).all() or not np.isfinite(y).all()
                 or not np.all(np.diff(x) > 0) or not np.all(np.diff(y) > 0)
                 or magnitude.shape != (len(x), len(y)) or np.iscomplexobj(magnitude)):
             raise ValueError("Invalid image axes or magnitude shape.")
-        complex_image = archive["complex_image"] if "complex_image" in archive else None
+        for block in result_blocks(magnitude.shape):
+            _check(cancel)
+            if np.isinf(magnitude[block]).any() or np.any(magnitude[block] < 0):
+                raise ValueError("Image magnitude must be nonnegative and cannot contain infinity.")
+        complex_image = arrays.get("complex_image")
         if complex_image is not None and (complex_image.shape != magnitude.shape or not np.iscomplexobj(complex_image)):
             raise ValueError("Invalid complex image shape or type.")
         inverse = manifest["inverse"]
         if inverse is not None:
-            inverse.update({key[len("inverse_"):]: archive[key] for key in archive.files if key.startswith("inverse_")})
+            inverse.update({key[len("inverse_"):]: value for key, value in arrays.items() if key.startswith("inverse_")})
         return MaskImage(manifest["name"], x, y, magnitude, complex_image, inverse, manifest["metadata"])
