@@ -7,9 +7,12 @@ import math
 from PySide6.QtCore import Qt, QSize, Signal, QEvent, QTimer
 from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (
-    QFrame, QLabel, QDoubleSpinBox, QAbstractSpinBox, QComboBox, QAbstractSlider, QTabBar,
+    QFrame, QLabel, QAbstractSpinBox, QComboBox, QAbstractSlider, QTabBar,
     QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
+
+
+from GRIM_Backend.ui.no_wheel import NoWheelDoubleSpinBox
 
 
 def initial_window_size(available: QSize, preferred: QSize = QSize(1550, 900)) -> QSize:
@@ -24,7 +27,7 @@ def initial_window_size(available: QSize, preferred: QSize = QSize(1550, 900)) -
     )
 
 
-class PlotNumberSpin(QDoubleSpinBox):
+class PlotNumberSpin(NoWheelDoubleSpinBox):
     """Compact display without reducing the precision of stored plot limits."""
 
     def __init__(self, parent=None):

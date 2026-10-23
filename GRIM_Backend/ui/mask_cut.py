@@ -270,5 +270,9 @@ def open_mask_cut(owner):
         except RuntimeError:  # Qt already deleted a closed dialog.
             pass
     dialog = MaskCutDialog(owner)
+    def forget_closed_dialog():
+        if getattr(owner, "_mask_cut_dialog", None) is dialog:
+            owner._mask_cut_dialog = None
+    dialog.destroyed.connect(forget_closed_dialog)
     dialog.show()
     return dialog

@@ -13,13 +13,13 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QSlider,
     QToolButton,
     QApplication, QCheckBox, QDialog, QDialogButtonBox, QFormLayout,
     QPlainTextEdit, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from GRIM_Backend.plotting.modes import common
+from GRIM_Backend.ui.no_wheel import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSlider
 from GRIM_Backend.ui.widgets import PlotNumberSpin
 
 
@@ -366,12 +366,12 @@ class PlotSliderBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("plotSliderBar")
-        self.combo_axis = QComboBox()
+        self.combo_axis = NoWheelComboBox()
         for label, axis in (("Frequency", "frequency"), ("Elevation", "elevation"),
                             ("Azimuth", "azimuth")):
             self.combo_axis.addItem(label, axis)
         self.combo_axis.setToolTip("Parameter list the slider steps through.")
-        self.slider = QSlider(Qt.Horizontal)
+        self.slider = NoWheelSlider(Qt.Horizontal)
         self.slider.setMinimum(0)
         self.slider.setPageStep(1)
         self.btn_prev = QToolButton()
@@ -396,7 +396,7 @@ class PlotSliderBar(QFrame):
             "Start each frequency band where the previous band ends: 1–3, 3–5, 5–7. "
             "Shared endpoints belong to both bands. The final band may be shorter; "
             "bands with fewer than two acquired samples are omitted.")
-        self.seconds = QDoubleSpinBox()
+        self.seconds = NoWheelDoubleSpinBox()
         self.seconds.setRange(.05, 3600.)
         self.seconds.setDecimals(2)
         self.seconds.setValue(.35)

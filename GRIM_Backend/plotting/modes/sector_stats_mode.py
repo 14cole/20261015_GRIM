@@ -188,8 +188,14 @@ def render(self) -> None:
                 if not len(offsets):
                     skipped.append(f"{name} | frequency band {bounds[0]:g}–{bounds[1]:g} Hz (no selected samples)")
                     continue
-                populated.append((np.asarray(freq_indices)[offsets], bounds, group_sectors, box_name))
-                cells = len(az_indices) * len(offsets)
+                group_az_indices = np.asarray(az_indices)
+                if boxes is not None:
+                    # A box is bounded in both axes. Budget and read only its
+                    # population, not every azimuth in the source dataset.
+                    group_az_indices = group_az_indices[group_sectors[0].contains(azimuths)]
+                populated.append((group_az_indices, np.asarray(freq_indices)[offsets],
+                                  bounds, group_sectors, box_name))
+                cells = len(group_az_indices) * len(offsets)
                 peak_cells = max(peak_cells, cells)
                 total_cells += cells * len(elev_indices) * len(group_sectors)
                 series_count += len(elev_indices)
@@ -227,9 +233,9 @@ def render(self) -> None:
     for name, dataset, selection, groups in band_plans:
         native_unit = self._display_unit([(name, dataset)])
         az_indices, elev_indices, freq_indices, pol_indices = selection
-        azimuths = self._plot_axis_values(reference, dataset, "azimuth", dataset.azimuths[az_indices])
         pol_value = dataset.polarizations[pol_indices[0]]
-        for group_indices, bounds, group_sectors, box_name in groups:
+        for az_indices, group_indices, bounds, group_sectors, box_name in groups:
+            azimuths = self._plot_axis_values(reference, dataset, "azimuth", dataset.azimuths[az_indices])
             memberships = [sector.contains(azimuths) for sector in group_sectors]
             # dBke needs a reference frequency even after reducing frequency.
             # Use the mean of the acquired frequencies and retain it in tables.

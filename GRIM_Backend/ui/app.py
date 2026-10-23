@@ -2757,7 +2757,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         super().closeEvent(event)
         if event.isAccepted():
             self._dispose_native_plot_snapshots()
-            for name in ("_engineering_analysis_dialog", "_image_comparison_dialog"):
+            for name in ("_engineering_analysis_dialog", "_image_comparison_dialog", "_mask_cut_dialog"):
                 dialog = getattr(self, name, None)
                 if dialog is not None:
                     dialog.close()

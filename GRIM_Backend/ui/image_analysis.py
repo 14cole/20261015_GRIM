@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal, Qt
-from PySide6.QtWidgets import QComboBox, QCheckBox, QLabel, QDoubleSpinBox, QFrame, QHBoxLayout, QVBoxLayout, QSizePolicy, QToolButton, QAbstractSpinBox
+from PySide6.QtWidgets import QComboBox, QCheckBox, QLabel, QFrame, QHBoxLayout, QVBoxLayout, QSizePolicy, QToolButton, QAbstractSpinBox
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 
@@ -11,7 +11,10 @@ from GRIM_Backend.plotting.modes.common import decimate_line
 from GRIM_Backend.plotting.image_grid import line_with_gaps
 
 
-class SampleCoordinateSpinBox(QDoubleSpinBox):
+from GRIM_Backend.ui.no_wheel import NoWheelDoubleSpinBox
+
+
+class SampleCoordinateSpinBox(NoWheelDoubleSpinBox):
     """Type physical coordinates; arrow keys step through available samples."""
     samples = None
     sampleStepped = Signal(float)

@@ -10,8 +10,11 @@ import uuid
 
 from PIL import Image, ImageDraw
 from PySide6.QtCore import QObject, Qt, QTimer
-from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-    QFileDialog, QFormLayout, QLabel, QMessageBox, QProgressDialog, QSpinBox, QVBoxLayout)
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox,
+    QFileDialog, QFormLayout, QLabel, QMessageBox, QProgressDialog, QVBoxLayout)
+
+
+from GRIM_Backend.ui.no_wheel import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSpinBox
 
 
 def ffmpeg_executable():
@@ -46,17 +49,17 @@ class SweepExportDialog(QDialog):
         layout.addWidget(note)
         form = QFormLayout()
         layout.addLayout(form)
-        self.format = QComboBox()
+        self.format = NoWheelComboBox()
         self.format.addItem("PNG image sequence", "images")
         self.format.addItem("MP4 video", "video")
         form.addRow("Format", self.format)
-        self.seconds = QDoubleSpinBox()
+        self.seconds = NoWheelDoubleSpinBox()
         self.seconds.setRange(.05, 3600.)
         self.seconds.setDecimals(2)
         self.seconds.setSuffix(" s")
         self.seconds.setValue(bar.seconds.value())
         form.addRow("Seconds per frame", self.seconds)
-        self.stride = QSpinBox()
+        self.stride = NoWheelSpinBox()
         self.stride.setRange(1, max(1, len(bar._frames)))
         self.stride.setToolTip("Export every Nth slider position; always include the final position.")
         form.addRow("Position step", self.stride)
