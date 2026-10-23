@@ -1,4 +1,4 @@
-"""Numeric band tables for the percentile dataset dialog."""
+"""Numeric band tables for statistics dialogs."""
 import numpy as np
 from PySide6.QtWidgets import (
     QAbstractItemView, QGroupBox, QHeaderView, QHBoxLayout, QLabel,
@@ -28,7 +28,7 @@ class StatisticsBandTable(QGroupBox):
         bar.addWidget(add)
         bar.addWidget(remove)
         layout.addLayout(bar)
-        note = QLabel('No bands listed: use the entire axis.' +
+        self.note = note = QLabel('No bands listed: use the entire axis.' +
                       (' Stop below start wraps through 360°.' if wrap else ''))
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -50,7 +50,7 @@ class StatisticsBandTable(QGroupBox):
             self.table.removeRow(row)
 
     def bounds(self):
-        if not self.isChecked():
+        if self.isCheckable() and not self.isChecked():
             return []
         bands = []
         for row in range(self.table.rowCount()):

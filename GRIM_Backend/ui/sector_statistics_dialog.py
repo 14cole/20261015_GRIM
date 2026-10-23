@@ -1,4 +1,4 @@
-"""Edit uniform or individually defined azimuth sectors without live changes."""
+"""Edit azimuth sectors and frequency bands without live changes."""
 
 from __future__ import annotations
 
@@ -24,13 +24,16 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
+    QWidget,
 )
 
 from GRIM_Backend.plotting.modes import common
 from GRIM_Backend.plotting.modes.sector_stats_mode import STATISTICS
+from GRIM_Backend.ui.statistics_bands import StatisticsBandTable
 
 
 def _number_text(value: float) -> str:
@@ -40,15 +43,26 @@ def _number_text(value: float) -> str:
 class SectorStatisticsDialog(QDialog):
     """Keep edits local until Apply or OK, then update all settings together."""
 
-    def __init__(self, controls, azimuths, *, unit="deg", parent=None):
+    def __init__(self, controls, azimuths, *, selected_azimuths=None,
+                 unit="deg", frequency_unit="GHz", parent=None):
         super().__init__(parent)
         self.controls = controls
         self.unit = unit
+        self.frequency_unit = frequency_unit
         self.azimuths = np.asarray(azimuths, dtype=float)
+        self.selected_azimuths = np.asarray(
+            azimuths if selected_azimuths is None else selected_azimuths, dtype=float
+        )
         self.period = float(common.convert_axis_values([360], "azimuth", "deg", unit)[0])
         self.setWindowTitle("Sector Statistics")
-        self.resize(590, 600)
-        layout = QVBoxLayout(self)
+        self.resize(650, 680)
+        outer_layout = QVBoxLayout(self)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        scroll.setWidget(content)
+        outer_layout.addWidget(scroll, 1)
 
         self.combo_mode = QComboBox()
         self.combo_mode.addItem("Uniform sectors", "uniform")
@@ -56,6 +70,42 @@ class SectorStatisticsDialog(QDialog):
         mode_row = QFormLayout()
         mode_row.addRow("Sector layout", self.combo_mode)
         layout.addLayout(mode_row)
+
+        self.check_selected_range = QCheckBox("Use the selected azimuth range")
+        self.check_selected_range.setChecked(controls.sector_use_selected_azimuths())
+        self.check_selected_range.setToolTip(
+            "Unchecked: use all available azimuths. Checked: use only the azimuths "
+            "selected in Plot Settings. Applies to plots and created datasets."
+        )
+        layout.addWidget(self.check_selected_range)
+
+        self.combo_frequency_mode = QComboBox()
+        self.combo_frequency_mode.addItem("Separate selected frequencies", "individual")
+        self.combo_frequency_mode.addItem("Combine selected frequencies into one band", "selected")
+        self.combo_frequency_mode.addItem("Custom frequency bands", "custom")
+        self.combo_frequency_mode.setCurrentIndex(
+            max(0, self.combo_frequency_mode.findData(controls.sector_frequency_mode()))
+        )
+        frequency_row = QFormLayout()
+        frequency_row.addRow("Frequency selection", self.combo_frequency_mode)
+        layout.addLayout(frequency_row)
+        self.frequency_bands = StatisticsBandTable(f"Frequency bands ({frequency_unit})", checked=True)
+        self.frequency_bands.setCheckable(False)
+        self.frequency_bands.table.setHorizontalHeaderLabels(
+            [f"Start ({frequency_unit})", f"Stop ({frequency_unit})"]
+        )
+        for start, stop in controls.sector_frequency_bands(unit=frequency_unit):
+            self.frequency_bands.add_band(_number_text(start), _number_text(stop))
+        self.frequency_bands.note.setText(
+            "Add at least one band. Bands include both boundaries and may overlap."
+        )
+        layout.addWidget(self.frequency_bands)
+        frequency_help = QLabel(
+            "Bands use only frequencies selected in Plot Settings. Each band combines its "
+            "frequency and sector samples into one linear-power population per elevation and polarization."
+        )
+        frequency_help.setWordWrap(True)
+        layout.addWidget(frequency_help)
 
         file_row = QHBoxLayout()
         self.btn_load = QPushButton("Load sectors…")
@@ -79,14 +129,13 @@ class SectorStatisticsDialog(QDialog):
         self.uniform_group = QGroupBox("Uniform sectors")
         uniform_layout = QFormLayout(self.uniform_group)
         self.edit_width = QLineEdit(_number_text(self.period / 12))
-        self.check_selected_range = QCheckBox("Use the selected azimuth range")
-        self.check_selected_range.setChecked(True)
+        self.check_custom_range = QCheckBox("Set explicit uniform start/stop bounds")
         finite = self.azimuths[np.isfinite(self.azimuths)]
         start, stop = (float(finite.min()), float(finite.max())) if finite.size else (-self.period / 2, self.period / 2)
         self.edit_start = QLineEdit(_number_text(start))
         self.edit_stop = QLineEdit(_number_text(stop))
         uniform_layout.addRow(f"Width ({unit})", self.edit_width)
-        uniform_layout.addRow(self.check_selected_range)
+        uniform_layout.addRow(self.check_custom_range)
         bounds = QHBoxLayout()
         bounds.addWidget(QLabel(f"Start ({unit})"))
         bounds.addWidget(self.edit_start)
@@ -155,13 +204,13 @@ class SectorStatisticsDialog(QDialog):
         self.error_label.setWordWrap(True)
         self.error_label.setStyleSheet("color: #c75050;")
         self.error_label.hide()
-        layout.addWidget(self.error_label)
+        outer_layout.addWidget(self.error_label)
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Apply | QDialogButtonBox.Cancel
         )
-        layout.addWidget(self.button_box)
+        outer_layout.addWidget(self.button_box)
         self.btn_create_datasets = self.button_box.addButton('Create datasets', QDialogButtonBox.ActionRole)
-        self.btn_create_datasets.setToolTip('Apply these settings and create one bounded dataset per sector and selected input.')
+        self.btn_create_datasets.setToolTip('Apply these settings and create one bounded dataset per sector, frequency band and selected input.')
         self.btn_create_datasets.clicked.connect(self.create_datasets)
         # Enter in a cell should finish that edit, never apply the whole dialog.
         for button in self.findChildren(QPushButton):
@@ -174,6 +223,7 @@ class SectorStatisticsDialog(QDialog):
         self.combo_mode.currentIndexChanged.connect(self._update_mode)
         self.btn_uniform_setup.toggled.connect(self._update_uniform_visibility)
         self.check_selected_range.toggled.connect(self._update_range)
+        self.check_custom_range.toggled.connect(self._update_range)
         self.btn_add.clicked.connect(self._add_row)
         self.btn_remove.clicked.connect(self._remove_rows)
         self.btn_fill.clicked.connect(self._fill_table)
@@ -183,10 +233,17 @@ class SectorStatisticsDialog(QDialog):
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         self.table.itemChanged.connect(self._clear_error)
+        self.frequency_bands.table.itemChanged.connect(self._clear_error)
+        self.combo_frequency_mode.currentIndexChanged.connect(self._update_frequency_mode)
         for edit in (self.edit_width, self.edit_start, self.edit_stop):
             edit.textChanged.connect(self._clear_error)
         self._update_mode()
         self._update_range()
+        self._update_frequency_mode()
+
+    def _update_frequency_mode(self, *_args):
+        self.frequency_bands.setVisible(self.combo_frequency_mode.currentData() == "custom")
+        self._clear_error()
 
     def _load_sectors(self, text):
         parts = [part.strip() for part in str(text).replace(";", ",").split(",") if part.strip()]
@@ -197,7 +254,7 @@ class SectorStatisticsDialog(QDialog):
             self.edit_start.setText(start.strip())
             self.edit_width.setText(width.strip())
             self.edit_stop.setText(stop.strip())
-            self.check_selected_range.setChecked(False)
+            self.check_custom_range.setChecked(True)
         else:
             self.combo_mode.setCurrentIndex(self.combo_mode.findData("custom"))
             for part in parts:
@@ -223,10 +280,20 @@ class SectorStatisticsDialog(QDialog):
         )
 
     def _update_range(self, *_args):
-        enabled = not self.check_selected_range.isChecked()
+        enabled = self.check_custom_range.isChecked()
         self.edit_start.setEnabled(enabled)
         self.edit_stop.setEnabled(enabled)
+        if not enabled:
+            values = self._population_azimuths()
+            finite = values[np.isfinite(values)]
+            start, stop = ((float(finite.min()), float(finite.max())) if finite.size
+                           else (-self.period / 2, self.period / 2))
+            self.edit_start.setText(_number_text(start))
+            self.edit_stop.setText(_number_text(stop))
         self._clear_error()
+
+    def _population_azimuths(self):
+        return self.selected_azimuths if self.check_selected_range.isChecked() else self.azimuths
 
     def _append_row(self, start, stop):
         row = self.table.rowCount()
@@ -258,9 +325,10 @@ class SectorStatisticsDialog(QDialog):
 
     def _finish_editing(self):
         editor = QApplication.focusWidget()
-        if isinstance(editor, QLineEdit) and self.table.isAncestorOf(editor):
-            self.table.commitData(editor)
-            self.table.closeEditor(editor, QAbstractItemDelegate.NoHint)
+        for table in (self.table, self.frequency_bands.table):
+            if isinstance(editor, QLineEdit) and table.isAncestorOf(editor):
+                table.commitData(editor)
+                table.closeEditor(editor, QAbstractItemDelegate.NoHint)
         self.spin_percentile.interpretText()
 
     @staticmethod
@@ -277,7 +345,7 @@ class SectorStatisticsDialog(QDialog):
         width = self.edit_width.text().strip()
         if self._finite_number(width, "Width") <= 0:
             raise ValueError("Width must be greater than zero.")
-        if self.check_selected_range.isChecked():
+        if not self.check_custom_range.isChecked():
             return width
         start, stop = self.edit_start.text().strip(), self.edit_stop.text().strip()
         self._finite_number(start, "Start")
@@ -291,8 +359,8 @@ class SectorStatisticsDialog(QDialog):
     def _sector_signature(self):
         if self.combo_mode.currentData() == "custom":
             return "custom", self._rows()
-        selected = self.check_selected_range.isChecked()
-        return "uniform", self.edit_width.text(), selected, (() if selected else (self.edit_start.text(), self.edit_stop.text()))
+        explicit = self.check_custom_range.isChecked()
+        return "uniform", self.edit_width.text(), explicit, ((self.edit_start.text(), self.edit_stop.text()) if explicit else ())
 
     def _custom_text(self):
         sectors = []
@@ -311,7 +379,7 @@ class SectorStatisticsDialog(QDialog):
     def _fill_table(self):
         self._finish_editing()
         try:
-            sectors = common.parse_sectors(self._uniform_text(), self.azimuths, period=self.period)
+            sectors = common.parse_sectors(self._uniform_text(), self._population_azimuths(), period=self.period)
         except (ValueError, OverflowError) as exc:
             self._show_error(str(exc))
             return
@@ -382,7 +450,7 @@ class SectorStatisticsDialog(QDialog):
             if self.combo_mode.currentData() == "custom":
                 rows = [tuple(map(float, bounds.split(":"))) for bounds in self._custom_text().split(",")]
             else:
-                sectors = common.parse_sectors(self._uniform_text(), self.azimuths, period=self.period)
+                sectors = common.parse_sectors(self._uniform_text(), self._population_azimuths(), period=self.period)
                 rows = [(sector.start, sector.start + sector.width) for sector in sectors]
                 if not rows:
                     raise ValueError("Add at least one sector.")
@@ -412,24 +480,37 @@ class SectorStatisticsDialog(QDialog):
             text = self._custom_text() if self.combo_mode.currentData() == "custom" else self._uniform_text()
             if self._sector_signature() == self._loaded_signature:
                 text = self._loaded_text
-            selected = self.azimuths
+            selected = self._population_azimuths()
             if (
                 self.combo_mode.currentData() == "uniform"
-                and self.check_selected_range.isChecked()
+                and not self.check_custom_range.isChecked()
                 and not np.isfinite(selected).any()
             ):
                 # A width can be configured before loading/selecting data.
-                # Its range will come from the selection when plotting.
+                # Its range will come from all or selected azimuths when plotting.
                 selected = [0.0]
             sectors = common.parse_sectors(text, selected, period=self.period)
             if not sectors:
                 raise ValueError("Add at least one sector.")
+            frequency_mode = self.combo_frequency_mode.currentData()
+            frequency_bands = None
+            if frequency_mode == "custom":
+                bounds = self.frequency_bands.bounds()
+                if not bounds:
+                    raise ValueError("Add at least one frequency band with Start and Stop values.")
+                frequency_bands = common.convert_axis_values(
+                    bounds, "frequency", self.frequency_unit, "Hz"
+                )
+                if not np.isfinite(frequency_bands).all():
+                    raise ValueError("Frequency band bounds must remain finite in Hz.")
         except (ValueError, OverflowError) as exc:
             self._show_error(str(exc))
             return False
         self.controls.set_sector_settings(
             text, str(self.combo_statistic.currentData()), float(self.spin_percentile.value()),
             unit=self.unit, interpolate=self.chk_interpolate.isChecked(),
+            frequency_mode=frequency_mode, frequency_bands=frequency_bands,
+            use_selected_azimuths=self.check_selected_range.isChecked(),
         )
         self._loaded_text = text
         self._loaded_signature = self._sector_signature()

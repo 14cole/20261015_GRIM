@@ -1335,7 +1335,10 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         reference = self.active_dataset
         unit = self._plot_axis_unit(reference, "azimuth") if reference is not None else "deg"
         dialog = SectorStatisticsDialog(
-            controls, self._selected_values(self.list_az), unit=unit, parent=self
+            controls, reference.azimuths if reference is not None else [],
+            selected_azimuths=self._selected_values(self.list_az), unit=unit,
+            frequency_unit=self._plot_axis_unit(reference, "frequency") if reference is not None else "GHz",
+            parent=self,
         )
         try:
             dialog.exec()
@@ -1934,7 +1937,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
                 "sector_stats": (
                     "Mean, median, max, min, or a percentile of linear power inside "
                     "each azimuth sector, drawn over the sector. Right-click this "
-                    "button to edit sectors and percentiles, or save/load sector CSV files. Right-click the plot "
+                    "button to edit azimuth sectors, frequency bands and percentiles, or save/load sector CSV files. Right-click the plot "
                     "to copy the results table."
                 ),
                 "range_freq": (

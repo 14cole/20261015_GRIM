@@ -84,6 +84,9 @@ class PlotAnalysisControls(QObject):
         self._sector_percentile = 90.0
         self._sector_interpolate = False
         self._sector_unit = "deg"
+        self._sector_use_selected_azimuths = False
+        self._sector_frequency_mode = "individual"
+        self._sector_frequency_bands = ()  # Physical bounds in Hz.
 
         self.spin_range_subband = QDoubleSpinBox()
         self.spin_range_subband.setRange(5.0, 100.0)
@@ -293,22 +296,43 @@ class PlotAnalysisControls(QObject):
     def sector_interpolate(self) -> bool:
         return self._sector_interpolate
 
+    def sector_frequency_mode(self) -> str:
+        return self._sector_frequency_mode
+
+    def sector_use_selected_azimuths(self) -> bool:
+        return self._sector_use_selected_azimuths
+
+    def sector_frequency_bands(self, unit="Hz"):
+        return common.convert_axis_values(
+            self._sector_frequency_bands, "frequency", "Hz", unit
+        ).reshape(-1, 2).tolist()
+
     def set_sector_settings(
         self, text: str, statistic: str, percentile: float, *, unit: str | None = None,
         interpolate: bool | None = None,
+        frequency_mode: str | None = None, frequency_bands=None,
+        use_selected_azimuths: bool | None = None,
     ) -> None:
         """Commit the editor's settings together, with a single plot refresh."""
         values = (
             str(text).strip(), str(statistic), float(percentile), unit or self._sector_unit,
             self._sector_interpolate if interpolate is None else bool(interpolate),
+            self._sector_frequency_mode if frequency_mode is None else frequency_mode,
+            self._sector_frequency_bands if frequency_bands is None else
+            tuple(tuple(float(v) for v in band) for band in frequency_bands),
+            self._sector_use_selected_azimuths if use_selected_azimuths is None else bool(use_selected_azimuths),
         )
         current = (
             self._sector_text, self._sector_statistic, self._sector_percentile,
             self._sector_unit, self._sector_interpolate,
+            self._sector_frequency_mode, self._sector_frequency_bands,
+            self._sector_use_selected_azimuths,
         )
         if values != current:
             (self._sector_text, self._sector_statistic,
-             self._sector_percentile, self._sector_unit, self._sector_interpolate) = values
+             self._sector_percentile, self._sector_unit, self._sector_interpolate,
+             self._sector_frequency_mode, self._sector_frequency_bands,
+             self._sector_use_selected_azimuths) = values
             self.changed.emit("sector")
 
     def range_subband_percent(self) -> float:

@@ -3188,13 +3188,15 @@ class DatasetOpsMixin:
             return
         values = {axis: self._selected_values(widget) for axis, widget in (
             ('azimuth', self.list_az), ('elevation', self.list_elev), ('frequency', self.list_freq))}
+        controls = self._plot_contexts['plotting'].analysis_controls
+        if not controls.sector_use_selected_azimuths():
+            values['azimuth'] = np.asarray(reference.azimuths).tolist()
         polarizations = self._overlay_polarizations()
         if not all(values.values()) or polarizations is None:
             self.status.showMessage('Select azimuths, frequencies, elevations and polarizations for sector statistics.')
             return
         if isinstance(polarizations, str):
             polarizations = [polarizations]
-        controls = self._plot_contexts['plotting'].analysis_controls
         try:
             azimuths = common.convert_axis_values(values['azimuth'], 'azimuth',
                                                   self._plot_axis_unit(reference, 'azimuth'), 'deg')
@@ -3212,12 +3214,16 @@ class DatasetOpsMixin:
             selection['polarizations'] = [pol for pol in polarizations
                                           if self._indices_for_values(dataset.polarizations, [pol], tol=0.0)]
             selections.append(selection)
+        frequency_mode = controls.sector_frequency_mode()
+        frequency_bands = controls.sector_frequency_bands() if frequency_mode == 'custom' else [None]
         specs = [dict(azimuth_band=[sector.start, sector.stop_value if sector.stop_value is not None
                                     else sector.start + sector.width],
-                      azimuth_closed=sector.closed, azimuth_modular=sector.modular) for sector in sectors]
+                      azimuth_closed=sector.closed, azimuth_modular=sector.modular,
+                      frequency_band=band) for sector in sectors for band in frequency_bands]
         self._create_banded_statistics_datasets(
             datasets, specs, statistic=controls.sector_statistic(), percentile=controls.sector_percentile(),
-            axes=['azimuth'], interpolate=controls.sector_interpolate(),
+            axes=['azimuth'] if frequency_mode == 'individual' else ['azimuth', 'frequency'],
+            interpolate=controls.sector_interpolate(),
             operation_title='Sector statistics', selections=selections)
 
     def _create_banded_statistics_datasets(self, datasets, specs, *, statistic, percentile,
