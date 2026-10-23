@@ -215,6 +215,8 @@ def _selected_polarization_axis_availability(
 
 class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
     def _cancel_plot_preparations(self):
+        if not getattr(self, "_slider_dispatching", False):
+            self._slider_frame_finished(False)
         from GRIM_Backend.plotting.modes.cdf_mode import clear_state
         canceled = False
         for context in getattr(self, "_plot_contexts", {}).values():
@@ -257,6 +259,10 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         recipe = self.last_python_plot_spec
         self.last_python_plot_spec = old_recipe
         self._ordinary_plot_pending = True
+        slider_request = getattr(self, "_slider_request", None)
+        slider_token = slider_request[0] if slider_request else None
+        if slider_token is not None:
+            self._slider_async_token = slider_token
         self._ordinary_plot_emit = False
         self._ordinary_plot_fit = None
         self._ordinary_plot_slider_before = None
@@ -278,13 +284,19 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
                     or context.plot_figure is not self.plot_figure
                     or generation != int(getattr(self, "_plot_render_generation", 0))):
                 dispose_result(result)
+                if slider_token is not None:
+                    self._slider_frame_finished(False, slider_token)
                 return
             self._ordinary_plot_pending = False
             if error is not None:
                 self.status.showMessage(f"Plot preparation failed: {error}")
                 range_play_complete(False)
+                if slider_token is not None:
+                    self._slider_frame_finished(False, slider_token)
                 return
             if result is None:
+                if slider_token is not None:
+                    self._slider_frame_finished(False, slider_token)
                 return
             try:
                 publish(result)
@@ -292,6 +304,8 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
                 dispose_result(result)
                 self.status.showMessage(f"Plot display failed: {exc}")
                 range_play_complete(False)
+                if slider_token is not None:
+                    self._slider_frame_finished(False, slider_token)
                 return
             if "updated" in str(self.status.currentMessage()).lower():
                 self.last_python_plot_spec = recipe
@@ -309,6 +323,8 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
                 range_play_complete(True)
             else:
                 range_play_complete(False)
+            if slider_token is not None:
+                self._slider_frame_finished("updated" in str(self.status.currentMessage()).lower(), slider_token)
         session.runner.submit(compute, completed)
         return True
 
@@ -1223,6 +1239,9 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
     # --- renderer preflight, unit conversion, and display bounding ----------
 
     def _start_plot_render(self) -> None:
+        if not getattr(self, "_slider_dispatching", False):
+            self._slider_frame_finished(False)
+        self._schedule_plot_slider_refresh()
         from GRIM_Backend.plotting.modes.cdf_mode import clear_state
         if self.last_plot_mode != 'cdf':
             clear_state(self.plot_figure)
@@ -2217,6 +2236,9 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         )
 
     def _isar_submit(self, params: dict) -> None:
+        slider_request = getattr(self, "_slider_request", None)
+        if slider_request is not None and getattr(self, "_slider_dispatching", False):
+            params["_slider_token"] = slider_request[0]
         # Do not let a prior canvas/result masquerade as the settings that are
         # now pending in the worker.
         queued = "isar_input_revision" in params
@@ -2253,6 +2275,8 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             "_record_python_request",
             bool(getattr(self, "_python_record_next_isar", False)),
         )
+        if params.get("_slider_token") is not None:
+            self._slider_async_token = params["_slider_token"]
         cancel_event = threading.Event()
         params["cancel_check"] = cancel_event.is_set
         if getattr(self, "_isar_busy", False):
@@ -2311,26 +2335,31 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             self.status.showMessage("ISAR result discarded (view changed while computing).")
             ok = False
         else:
-            band_results, elapsed = result
-            isar_mode.display_results(self, params, band_results, elapsed)
-            overlays = getattr(self, "spatial_overlays", None)
-            if overlays is not None:
-                overlays.refresh()
-            self._last_isar_figure_generation = params.get("render_generation")
-            self._last_isar_completed_view_revision = params.get(
-                "isar_view_revision"
-            )
-            self._last_isar_figure_token = params.get("figure_token")
-            # Freeze the exact worker-captured recipe after every successful
-            # async render, but emit it only for an explicit user request;
-            # automatic refreshes stay out of the script.
-            self._record_python_plot(
-                "isar_image",
-                resolved=self._resolved_isar_python_plot(params),
-                datasets_override=[("ISAR Dataset", params["dataset"])],
-                emit=bool(params.get("_record_python_request", False)),
-            )
+            try:
+                band_results, elapsed = result
+                isar_mode.display_results(self, params, band_results, elapsed)
+                overlays = getattr(self, "spatial_overlays", None)
+                if overlays is not None:
+                    overlays.refresh()
+                self._last_isar_figure_generation = params.get("render_generation")
+                self._last_isar_completed_view_revision = params.get(
+                    "isar_view_revision"
+                )
+                self._last_isar_figure_token = params.get("figure_token")
+                # Freeze the worker-captured recipe after successful publication.
+                self._record_python_plot(
+                    "isar_image",
+                    resolved=self._resolved_isar_python_plot(params),
+                    datasets_override=[("ISAR Dataset", params["dataset"])],
+                    emit=bool(params.get("_record_python_request", False)),
+                )
+            except Exception as exc:
+                ok = False
+                self._invalidate_isar_figure()
+                self.status.showMessage(f"ISAR display failed: {exc}")
         drain_import = getattr(self, "_start_next_pending_import_batch", None)
+        if params.get("_slider_token") is not None:
+            self._slider_frame_finished(ok, params["_slider_token"])
         if callable(drain_import) and drain_import():
             if pending is not None:
                 # Dataset imports take priority once the current reconstruction
@@ -2499,8 +2528,9 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
 
     def _current_isar_image_meshes(self) -> list:
         if self.last_plot_mode == "az_vs_range":
-            mesh = getattr(self, "_az_vs_range_mesh", None)
-            candidates = [mesh] if mesh is not None else []
+            candidates = [mesh for ax in (self.plot_axes or [self.plot_ax])
+                          for mesh in [*ax.images, *ax.collections]
+                          if getattr(getattr(mesh, "_grim_image_record", None), "metadata", {}).get("kind") == "az_vs_range"]
         else:
             candidates = getattr(self, "_isar_meshes", None) or []
         axes = self.plot_figure.axes

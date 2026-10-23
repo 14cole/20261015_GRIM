@@ -188,6 +188,7 @@ try:
     from GRIM_Backend.datasets.api import RcsGrid
     from GRIM_Backend.scripting.api import load_dataset, operation_result_storage
     from GRIM_Backend.scripting.workspace import (
+        band_statistics_dataset,
         crop_dataset,
         coherent_divide,
         convert_extrusion,
@@ -219,6 +220,7 @@ except ModuleNotFoundError as exc:
 
     def __init__(self, on_change: Callable[[str], None] | None = None) -> None:
         self._on_change = on_change
+        self.action_listener = None
         self._lines: list[str] = []
         self._dataset_vars: dict[str, str] = {}
         self._result_storage: dict[str, dict] = {}
@@ -330,6 +332,9 @@ except ModuleNotFoundError as exc:
         kwargs=None,
         comment: str = "",
     ) -> str | None:
+        self._record_action([output], [source], [dict(
+            kind='method', name=method, args=args, kwargs=kwargs or {},
+        )], comment or method)
         source_var = self._ensure(source)
         if source_var is None:
             self._skip_unbound(comment or method, [source])
@@ -352,6 +357,9 @@ except ModuleNotFoundError as exc:
         kwargs=None,
         comment: str = "",
     ) -> str | None:
+        self._record_action([output], sources, [dict(
+            kind='function', name=function, args=args, kwargs=kwargs or {},
+        )], comment or function)
         variables = [self._ensure(reference) for reference in sources]
         if any(variable is None for variable in variables):
             self._skip_unbound(comment or function, sources)
@@ -375,6 +383,7 @@ except ModuleNotFoundError as exc:
         kwargs=None,
         comment: str = "",
     ) -> tuple[str, ...]:
+        self._record_action(outputs, sources, None, comment or function)
         variables = [self._ensure(reference) for reference in sources]
         if any(variable is None for variable in variables):
             self._skip_unbound(comment or function, sources)
@@ -395,7 +404,9 @@ except ModuleNotFoundError as exc:
         expression: Callable[[tuple[str, ...]], str],
         *,
         comment: str,
+        action_steps=None,
     ) -> str | None:
+        self._record_action([output], sources, action_steps, comment)
         variables = tuple(self._ensure(reference) for reference in sources)
         if any(variable is None for variable in variables):
             self._skip_unbound(comment, sources)
@@ -405,6 +416,12 @@ except ModuleNotFoundError as exc:
         self._append_result_statement([output], f"{output_var} = {expression(tuple(str(v) for v in variables))}")
         self._notify()
         return output_var
+
+    def _record_action(self, outputs, sources, steps, label):
+        # Notify even for unsaved inputs: action recipes substitute a selected
+        # dataset and have no dependency on the Python recorder's file bindings.
+        if self.action_listener is not None:
+            self.action_listener(outputs, sources, steps, label)
 
     def record_save(self, reference: DatasetReference, path: str) -> bool:
         variable = self._ensure(reference)

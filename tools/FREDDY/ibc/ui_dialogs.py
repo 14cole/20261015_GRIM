@@ -139,7 +139,7 @@ class LayerDialog(QDialog):
 
         grid.addWidget(QLabel("File (0 deg / isotropic)"), 3, 0, Qt.AlignLeft)
         file0_edit = QLineEdit()
-        file0_edit.setToolTip("Comma-separated .csv with required header: frequency_hz,eps_real,eps_imag,mu_real,mu_imag. Frequency in Hz; relative epsilon and mu.")
+        file0_edit.setToolTip("CSV columns identify frequency (Hz/kHz/MHz/GHz), relative epsilon and mu real/imaginary parts. Column order, case and spacing may vary. Example: frequency_hz,eps_real,eps_imag,mu_real,mu_imag.")
         bind_line_edit(self.file_0deg_var, file0_edit)
         grid.addWidget(file0_edit, 3, 1)
         browse0 = QPushButton("Browse")
@@ -149,7 +149,7 @@ class LayerDialog(QDialog):
         self.lbl_90 = QLabel("File (90 deg)")
         grid.addWidget(self.lbl_90, 4, 0, Qt.AlignLeft)
         self.ent_90 = QLineEdit()
-        self.ent_90.setToolTip("Comma-separated .csv with required header: frequency_hz,eps_real,eps_imag,mu_real,mu_imag. Frequency in Hz; relative epsilon and mu.")
+        self.ent_90.setToolTip("CSV columns identify frequency (Hz/kHz/MHz/GHz), relative epsilon and mu real/imaginary parts. Column order, case and spacing may vary. Example: frequency_hz,eps_real,eps_imag,mu_real,mu_imag.")
         bind_line_edit(self.file_90deg_var, self.ent_90)
         grid.addWidget(self.ent_90, 4, 1)
         self.btn_90 = QPushButton("Browse")
@@ -498,7 +498,7 @@ class MixComponentDialog(QDialog):
 
         grid.addWidget(QLabel("Property file"), 1, 0, Qt.AlignLeft)
         file_edit = QLineEdit()
-        file_edit.setToolTip("Comma-separated .csv with required header: frequency_hz,eps_real,eps_imag,mu_real,mu_imag. Frequency in Hz; relative epsilon and mu.")
+        file_edit.setToolTip("CSV columns identify frequency (Hz/kHz/MHz/GHz), relative epsilon and mu real/imaginary parts. Column order, case and spacing may vary. Example: frequency_hz,eps_real,eps_imag,mu_real,mu_imag.")
         bind_line_edit(self.file_var, file_edit)
         grid.addWidget(file_edit, 1, 1)
         browse = QPushButton("Browse")

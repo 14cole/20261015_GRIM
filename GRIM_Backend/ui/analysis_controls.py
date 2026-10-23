@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from GRIM_Backend.plotting.modes import common
+from GRIM_Backend.ui.widgets import PlotNumberSpin
 
 
 def _percent_spin(value: float, tooltip: str) -> QDoubleSpinBox:
@@ -326,6 +327,7 @@ class PlotSliderBar(QFrame):
     moved = Signal(int)
     axis_changed = Signal(str)
     shown = Signal()
+    export_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -338,16 +340,36 @@ class PlotSliderBar(QFrame):
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setMinimum(0)
         self.slider.setPageStep(1)
-        self.btn_prev = QToolButton(text="◀")
+        self.btn_prev = QToolButton()
+        self.btn_prev.setArrowType(Qt.LeftArrow)
         self.btn_prev.setToolTip("Previous value")
-        self.btn_next = QToolButton(text="▶")
+        self.btn_next = QToolButton()
+        self.btn_next.setArrowType(Qt.RightArrow)
         self.btn_next.setToolTip("Next value")
         self.value_label = QLabel("--")
         self.value_label.setMinimumWidth(90)
         self.btn_play = QToolButton(text="Play")
         self.btn_play.setCheckable(True)
         self.btn_play.setToolTip("Step through every value, wrapping at the end.")
-        layout = QHBoxLayout(self)
+        self.band_label = QLabel("Bandwidth")
+        self.band_width = PlotNumberSpin()
+        self.band_width.setDecimals(9)
+        self.band_width.setRange(0.000000001, 1.e15)
+        self.band_width.setKeyboardTracking(False)
+        self.band_width.setToolTip("Width of the moving band in the displayed axis units. Uses acquired samples only; windows with fewer than two samples are omitted. The slider replaces the matching Plot Settings filter.")
+        self.seconds = QDoubleSpinBox()
+        self.seconds.setRange(.05, 3600.)
+        self.seconds.setDecimals(2)
+        self.seconds.setValue(.35)
+        self.seconds.setSuffix(" s")
+        self.seconds.setKeyboardTracking(False)
+        self.seconds.setToolTip("Minimum seconds between GUI frames. Slow calculations finish before advancing. Export timing is chosen separately.")
+        self.btn_export = QPushButton("Export sweep…")
+        self.btn_export.clicked.connect(self.export_requested)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        layout = QHBoxLayout()
+        outer.addLayout(layout)
         layout.setContentsMargins(8, 3, 8, 3)
         layout.setSpacing(6)
         layout.addWidget(QLabel("Slider"))
@@ -357,6 +379,17 @@ class PlotSliderBar(QFrame):
         layout.addWidget(self.btn_next)
         layout.addWidget(self.value_label)
         layout.addWidget(self.btn_play)
+        options = QHBoxLayout()
+        outer.addLayout(options)
+        options.addWidget(self.band_label)
+        options.addWidget(self.band_width)
+        options.addStretch(1)
+        options.addWidget(QLabel("Seconds / frame"))
+        options.addWidget(self.seconds)
+        options.addWidget(self.btn_export)
+        self.band_label.hide()
+        self.band_width.hide()
+        self._busy = False
 
         self._labels: list[str] = []
         # Coalesce drags and key repeats into one render per settled value.
@@ -366,7 +399,9 @@ class PlotSliderBar(QFrame):
         self._debounce.timeout.connect(lambda: self.moved.emit(self.slider.value()))
         self._play_timer = QTimer(self)
         self._play_timer.setInterval(350)
-        self._play_timer.timeout.connect(lambda: self.step(1, wrap=True))
+        self._play_timer.timeout.connect(self._play_step)
+        self.seconds.valueChanged.connect(lambda value: self._play_timer.setInterval(round(value * 1000)))
+        self.band_width.valueChanged.connect(self._band_changed)
         self.slider.valueChanged.connect(self._value_changed)
         self.btn_prev.clicked.connect(lambda: self.step(-1))
         self.btn_next.clicked.connect(lambda: self.step(1))
@@ -404,6 +439,25 @@ class PlotSliderBar(QFrame):
         """End playback and any delayed scrub when its canvas is hidden."""
         self.stop_play()
         self._debounce.stop()
+
+    def _play_step(self):
+        if not self._busy and not self._debounce.isActive():
+            self.step(1, wrap=True)
+
+    def _band_changed(self):
+        self.stop_play()
+        self.axis_changed.emit(self.axis())
+        self._debounce.start()
+
+    def render_started(self):
+        self._busy = True
+
+    def render_finished(self, ok=True):
+        self._busy = False
+        if not ok:
+            self.stop_play()
+        elif self.btn_play.isChecked():
+            self._play_timer.start()
 
     def _value_changed(self, value: int) -> None:
         self._show_label(value)

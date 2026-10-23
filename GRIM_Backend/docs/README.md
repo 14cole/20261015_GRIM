@@ -19,8 +19,19 @@ The Plotting workspace contains **Plots | ISAR | Plot Manipulation**. ISAR Image
 and Az. vs D.R. live on the ISAR page. Fit, zoom, pan, overlays, measurement,
 phase/polarization analysis and image comparison are shared on Plot Manipulation;
 they act on the last selected Plots or ISAR view. The two views retain their own
-results and settings. The upper-right button shows **Plot Settings** or **ISAR
-Settings** for the active view, including while using Plot Manipulation.
+results and settings. The upper-right button is always **Plot Settings**, including
+while using Plot Manipulation. It follows the plot currently displayed: **Axes &
+color** contains limits and scales, **Plot** contains that plot's processing
+controls, **Advanced** contains ISAR reconstruction options, and **Appearance**
+contains grid and theme controls. Pages and options unrelated to the current
+plot are hidden. Create a plot first to reveal its settings.
+
+The mouse wheel scrolls the settings window without changing field values or
+dropdown selections. Numeric limits use compact notation while retaining their
+stored precision. Focus a limit field to replace its contents; press Enter or
+leave the field to apply the edit. Scientific notation is supported. Axis and
+color limits update the display directly; **Apply plot settings** recomputes
+ISAR or Azimuth–Downrange processing changes.
 
 Buttons wrap to fit the available width. Legend, Auto Plot, Auto Scale, Hold,
 and Clear share the **Plot Tools** row with Dataset Operations, Export Plot,
@@ -205,7 +216,7 @@ and plots, and the Assembly 3-D preview. Changing appearance never changes a
 dataset, solver input, FREDDY project, or assembly geometry. PowerPoint's white
 slide preview remains output-faithful rather than following application chrome.
 
-The **Plot Colormap** control under Plot/ISAR Settings is independent and
+The **Colormap** control under **Plot Settings → Axes & color** is independent and
 affects only heatmap-style data rendering. Explicit Plot Colors background,
 grid, or text overrides also remain in effect when the application palette
 changes.
@@ -334,7 +345,7 @@ linear-power and dB-pattern agreement formula.
 
 PBP draws a separate min–max band for each selected dataset and polarization,
 bounding that dataset's selected cuts. To plot percentile datasets, first use
-**Dataset Operations → Transform → Percentile** (or **Stats** for other axes),
+**Dataset Operations → Transform → Percentile** (or **Stats** for additional statistics),
 then select those results and enable PBP. PBP does not calculate an additional
 percentile. Bands follow the normal plot color sequence
 (blue first) with transparent fills. With Hold enabled, each Plot adds new
@@ -343,7 +354,19 @@ plots of the same dataset. Turn off Hold or Clear to start again. Each band
 has its own legend entry and can be removed independently. Heatmap fills
 remain available for a single band in the PBP Fill Mode menu.
 
-Right-click **Sector Stats** to open its settings. Choose uniform-width sectors
+The **Percentile** dialog can reduce azimuth, frequency, or both. Check each
+axis to reduce and use **Add band** to enter start/stop bounds. An empty band
+table uses the entire axis. Azimuth bounds use degrees; frequency bounds use
+the chosen Hz/kHz/MHz/GHz unit and are converted for each input dataset.
+Both axes checked computes a joint percentile over all azimuth/frequency
+samples inside each band combination, separately for every elevation and
+polarization. Each combination creates a separate new dataset. Its coordinates
+are the original samples inside the bounds, with the statistic repeated across
+the reduced axes; exact requested bounds are also retained in metadata.
+No boundary samples are invented. Explicit bands include both boundaries,
+and azimuth bands can wrap across the seam. Empty bands are reported as skipped.
+
+Right-click **Sector Stats**, or use its dropdown, to open its settings. Choose uniform-width sectors
 or **Custom sectors** and enter one start/stop azimuth pair per table row.
 Custom sectors may have different widths, gaps, or overlaps; a stop below the
 start crosses the azimuth seam (for example, 170 to -170 degrees). Custom
@@ -359,6 +382,18 @@ statistic is plotted. It is unchecked by default to select an actual sample
 using nearest rank; check it for linear interpolation of linear-power values.
 Apply or OK commits the choice, and reopening the dialog retains it during the
 session. Mean, Median, Min, and Max are unaffected.
+
+Click **Create datasets** in sector settings, or **Sector Stats → Create sector
+datasets**, to create a new dataset for each configured sector and selected
+input. This uses the chosen statistic and current azimuth, frequency,
+elevation, and polarization selection. Uniform sectors retain their half-open
+boundary rule (the last sector includes its stop); custom sectors include both
+edges. The outputs store linear power with undefined coherent phase and can be
+plotted or saved normally. Creating datasets runs in the background and supports
+**Cancel Job**. Plotting or refreshing sectors alone does not add dataset rows.
+Bounded-statistics operations appear in the Python recorder. Single-output band
+operations also work in **Record Actions**; recordings spanning multiple output
+branches retain that recorder's existing single-chain limitation.
 
 The current row is the active dataset: its parameter lists and axis units are
 the display reference. Other selected datasets may use compatible Hz/kHz/MHz/
@@ -442,6 +477,44 @@ Only the selected 2-D slice is gathered, with a two-million-cell limit checked
 before gathering. Delta Map always compares logarithmic levels; use RF Compare
 for phase comparisons. Each colored box represents a sampled coordinate pair,
 not an average over its drawn area.
+
+Waterfall cut controls have dedicated down/up buttons beside each named
+parameter. Each click moves to the previous/next measured coordinate, including
+on irregular grids; holding a button repeats. Buttons disable at the first and
+last sample. Click a waterfall panel to choose the sample sequence for stepping;
+other panels independently snap their linked cuts to that physical position.
+Typed coordinates and keyboard up/down arrows remain available. Stepping uses
+full-precision native coordinates, independently of rounded display text.
+
+**Slider** in **Plot Manipulation** is available for both Plots and ISAR.
+For **Az. vs D.R.** and **ISAR Image**, Frequency moves a band whose **Bandwidth**
+is entered in the dataset's frequency units. Azimuth moves an **Aperture width**
+in degrees; Elevation steps individual acquired elevations. Other plots retain
+single-coordinate stepping. The sweep covers the entire available parameter
+list, replaces that axis's selection, and retains the other axis selections.
+Band starts follow acquired coordinates, with a final band ending at the upper
+bound. Duplicate sample masks and windows with fewer than two samples are
+omitted. The slider disables the corresponding Plot Settings band/aperture
+filter to avoid clipping its own selection a second time. It does not interpolate
+missing measurements. A narrower frequency band gives coarser range resolution.
+
+**Seconds / frame** sets GUI playback pacing. Playback waits for each completed
+plot, then waits the chosen interval before advancing; expensive reconstruction
+can therefore make GUI playback slower. **Export sweep…** offers a numbered PNG
+image sequence or MP4 video, a separate **Seconds per frame**, and a **Position
+step** to export every Nth position (including the final one). Video timing is
+independent of computation speed. Export uses the current plotting settings and
+requires Hold to be off. Set fixed axis/color limits in Plot Settings if needed
+for comparisons across frames.
+
+Each export creates a new folder under the chosen destination, containing
+captioned frames and `manifest.json` with the values, sample rows, and timing.
+PNG files themselves have no playback duration; their manifest records it.
+MP4 export also retains its PNG frames and encoder log. It uses a system FFmpeg
+or the `imageio-ffmpeg` package included in the setup requirements. Progress is
+cancelable; completed frames remain available after cancellation or failure,
+and the manifest records that the sweep is incomplete. Original selections and
+filters are restored and the original plot is recomputed when export ends.
 
 Rendering caps the number of visible lines, points, image cells, waterfall
 panels, and explicit ticks. Line and magnitude-image reduction retain bucket
@@ -541,8 +614,8 @@ weak wanted scatterer is suppressed. Wide selections use a labeled nonlinear
 max-look composite of narrow subapertures and are qualitative rather than a
 single coherent 360-degree reconstruction.
 
-In **ISAR Settings**, enter the occupied cross-range and range half extents in
-meters, then choose **Recommended PFA** for a scene-dependent Fast/Accurate
+In **Plot Settings → Advanced**, enter the occupied cross-range and range half extents in
+meters, then choose **Recommended PFA** on the **Plot** page for a scene-dependent Fast/Accurate
 choice. Formation plans each image from the acquired samples before
 interpolation, distinguishing native phase increments from Fast PFA
 range-curvature error, and records that plan with the result. Passing a
@@ -1160,6 +1233,35 @@ resuming interrupted runs, and the bundle CLI for packaging portable BoR
 inputs on Windows and staging them on Linux. Use cluster tools to monitor and manage
 jobs. Transfer completed `.grim` files locally, then open or drop them into
 GRIM to inspect the results.
+
+## Record Actions
+
+The **Record Actions…** button below the dataset file buttons opens a reusable
+workflow recorder. No Python is required:
+
+1. Select one example dataset, open **Record Actions…**, name the recipe, and
+   click **Record new workflow**.
+2. Perform dataset operations normally. Each successful result is selected
+   automatically so the next operation continues from it.
+3. Click **Stop Recording**, review the steps and their parameters, then select
+   one or more target datasets and click **Run on selected datasets**.
+
+Replay runs the entire chain independently on each target in the background,
+creating a new final dataset per successful target. Originals remain unchanged.
+The existing **Cancel Job** button stops replay without publishing partial
+results. Failures identify the dataset and step; other valid targets can finish.
+Use **Save As…** and **Load…** for portable `.grim-actions.json` recipes. The last
+recipe is also retained between app sessions.
+
+Supported actions include Crop / Slice, Regrid, Decimate, Statistics/Percentile,
+Mirror, Wrap, Shift, Round, Offset, Flip Phase, Time Gate, Phase Center,
+Medianize, Duplicate, and axis/unit conversions. Resolved coordinates retain
+the recording's native axis units; targets must have matching axis units.
+Operations requiring multiple input datasets, such as Align and coherent
+combination, stop recording with an explanation. Review and explicitly choose
+**Keep only the recorded steps** to reuse a partial recording. Plotting,
+overlays, navigation, file actions, and solver tools are outside this recorder.
+The separate Python recorder continues to capture its existing supported actions.
 
 ## Python recorder
 

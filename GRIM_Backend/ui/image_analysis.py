@@ -1,8 +1,8 @@
 """Waterfall axis controls and linked native row/column inspection."""
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QComboBox, QCheckBox, QLabel, QDoubleSpinBox, QFrame, QHBoxLayout, QSizePolicy
+from PySide6.QtCore import QObject, Signal, Qt
+from PySide6.QtWidgets import QComboBox, QCheckBox, QLabel, QDoubleSpinBox, QFrame, QHBoxLayout, QVBoxLayout, QSizePolicy, QToolButton, QAbstractSpinBox
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 
@@ -14,15 +14,53 @@ from GRIM_Backend.plotting.image_grid import line_with_gaps
 class SampleCoordinateSpinBox(QDoubleSpinBox):
     """Type physical coordinates; arrow keys step through available samples."""
     samples = None
+    sampleStepped = Signal(float)
+    _native_value = None
+    _display_value = None
+
+    def set_sample(self, value):
+        self._native_value = float(value)
+        self.setValue(float(value))
+        self._display_value = self.value()
+
+    def coordinate(self):
+        # QDoubleSpinBox rounds to its configured decimals. Keep the actual
+        # coordinate until the user enters a different value.
+        if self._native_value is not None and self.value() == self._display_value:
+            return self._native_value
+        return self.value()
 
     def stepBy(self, steps):
+        self.interpretText()
         if self.samples is None or not len(self.samples):
-            return super().stepBy(steps)
+            return
+        if steps == 0:
+            return
+        current = self.coordinate()
         if steps > 0:
-            index = np.searchsorted(self.samples, self.value(), side="right") + steps - 1
+            index = np.searchsorted(self.samples, current, side="right") + steps - 1
         else:
-            index = np.searchsorted(self.samples, self.value(), side="left") + steps
-        self.setValue(float(self.samples[int(np.clip(index, 0, len(self.samples)-1))]))
+            index = np.searchsorted(self.samples, current, side="left") + steps
+        value = float(self.samples[int(np.clip(index, 0, len(self.samples)-1))])
+        blocked = self.blockSignals(True)
+        try:
+            self.set_sample(value)
+        finally:
+            self.blockSignals(blocked)
+        # Emit the exact coordinate even when two samples share a rounded
+        # displayed value and Qt emits no valueChanged signal.
+        if value != current:
+            self.sampleStepped.emit(value)
+
+    def stepEnabled(self):
+        flags = QAbstractSpinBox.StepEnabledFlag.StepNone
+        if self.samples is not None and len(self.samples):
+            value = self.coordinate()
+            if value > self.samples[0]:
+                flags |= QAbstractSpinBox.StepEnabledFlag.StepDownEnabled
+            if value < self.samples[-1]:
+                flags |= QAbstractSpinBox.StepEnabledFlag.StepUpEnabled
+        return flags
 
     def textFromValue(self, value):
         text = super().textFromValue(value)
@@ -46,13 +84,17 @@ class ImageAnalysisControls(QObject):
         self.combo_aggregation.setToolTip("All selected cuts are included. Level means use linear display units; phase uses a circular mean. Each polarization remains separate.")
         self._position = None
         self._coordinate_frame = None
+        self._anchor_name = None
+        self._bound_record = None
         self.controller = None
         self.cut_bar = QFrame()
         self.cut_bar.setObjectName("waterfallCutControls")
         self.cut_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        layout = QHBoxLayout(self.cut_bar)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        outer = QVBoxLayout(self.cut_bar)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(4)
+        layout = QHBoxLayout()
+        outer.addLayout(layout)
         self.check_horizontal = QCheckBox("Horizontal cut")
         self.check_vertical = QCheckBox("Vertical cut")
         self.check_horizontal.setToolTip("Show the horizontal slice at the selected Y coordinate.")
@@ -61,20 +103,42 @@ class ImageAnalysisControls(QObject):
             widget.setChecked(True)
             layout.addWidget(widget)
             widget.toggled.connect(lambda: self.changed.emit("heatmap"))
+        layout.addStretch(1)
+        layout = QHBoxLayout()
+        layout.setSpacing(4)
+        outer.addLayout(layout)
         self.spin_x, self.spin_y = SampleCoordinateSpinBox(), SampleCoordinateSpinBox()
+        self._step_buttons = {}
+        self._coordinate_labels = {}
         for label, spin in (("X", self.spin_x), ("Y", self.spin_y)):
             spin.setObjectName("waterfallCut" + label)
             spin.setDecimals(9)
             spin.setRange(-1.e100, 1.e100)
             spin.setKeyboardTracking(False)
+            spin.setButtonSymbols(QAbstractSpinBox.NoButtons)
             spin.setMinimumWidth(110)
             spin.setMaximumWidth(165)
             spin.valueChanged.connect(self._position_edited)
             # Enter/focus-out also snaps a typed value that rounds to the
             # existing spin value and therefore emits no valueChanged.
             spin.editingFinished.connect(self._position_edited)
-            layout.addWidget(QLabel(label))
+            spin.sampleStepped.connect(lambda value, axis=label: self._coordinate_stepped(axis, value))
+            self._coordinate_labels[label] = QLabel(label)
+            layout.addWidget(self._coordinate_labels[label])
+            previous, following = QToolButton(), QToolButton()
+            for button, direction, arrow in ((previous, -1, Qt.DownArrow), (following, 1, Qt.UpArrow)):
+                button.setArrowType(arrow)
+                button.setObjectName(f'waterfallCut{label}' + ('Previous' if direction < 0 else 'Next'))
+                button.setMinimumSize(26, 26)
+                button.setFocusPolicy(Qt.NoFocus)
+                button.setAutoRepeat(True)
+                button.setAutoRepeatDelay(350)
+                button.setAutoRepeatInterval(100)
+                button.clicked.connect(lambda _checked=False, widget=spin, delta=direction: widget.stepBy(delta))
+            self._step_buttons[label] = (previous, following)
+            layout.addWidget(previous)
             layout.addWidget(spin, 1)
+            layout.addWidget(following)
         layout.addStretch(1)
         self.cut_bar.hide()
         self.combo_x.currentIndexChanged.connect(lambda: self._axes_changed(self.combo_x, self.combo_y))
@@ -122,19 +186,11 @@ class ImageAnalysisControls(QObject):
         frame = (record.x_axis, record.y_axis, record.x_unit, record.y_unit)
         if self._coordinate_frame is not None and self._coordinate_frame != frame:
             self._position = None
+            self._anchor_name = None
         self._coordinate_frame = frame
-        for spin, axis, unit, values in (
-            (self.spin_x, record.x_axis, record.x_unit, np.concatenate([r.x for r in records])),
-            (self.spin_y, record.y_axis, record.y_unit, np.concatenate([r.y for r in records])),
-        ):
-            blocked = spin.blockSignals(True)
-            spin.samples = np.unique(values)
-            spin.setRange(float(np.min(values)), float(np.max(values)))
-            spin.setSuffix(" " + unit if unit else "")
-            steps = np.diff(np.unique(values))
-            spin.setSingleStep(float(np.min(steps)) if steps.size else 1.)
-            spin.setToolTip(f"{axis.capitalize()} ({unit}). Type a coordinate and press Enter to snap to the nearest sample; arrows step through samples. Click the Waterfall to select both coordinates.")
-            spin.blockSignals(blocked)
+        controller.anchor = next((i for i, r in enumerate(records) if r.name == self._anchor_name), 0)
+        record = records[controller.anchor]
+        self._bound_record = None
         controller.on_selected = self._selected
         controller.on_disconnect = self._disconnected
         position = self._position or (record.x[len(record.x)//2], record.y[len(record.y)//2])
@@ -142,23 +198,58 @@ class ImageAnalysisControls(QObject):
         self._selected(*controller.position, emit=False)
         self.cut_bar.show()
 
+    def _sync_anchor(self):
+        record = self.controller.panels[self.controller.anchor][2]
+        if record is self._bound_record:
+            return
+        self._bound_record = record
+        self._anchor_name = record.name
+        for label, spin, axis, unit, values in (
+            ('X', self.spin_x, record.x_axis, record.x_unit, record.x),
+            ('Y', self.spin_y, record.y_axis, record.y_unit, record.y),
+        ):
+            blocked = spin.blockSignals(True)
+            spin.samples = np.unique(values)
+            steps = np.diff(spin.samples)
+            # Display enough decimals to distinguish unusually close samples.
+            spin.setDecimals(max(9, min(17, int(np.ceil(-np.log10(np.min(steps)))) + 2)) if steps.size else 9)
+            spin.setRange(float(np.min(values)), float(np.max(values)))
+            spin.setSuffix(" " + unit if unit else "")
+            spin.setSingleStep(float(np.min(steps)) if steps.size else 1.)
+            spin.setToolTip(f"{axis.capitalize()} ({unit}). Type a coordinate and press Enter to snap to the nearest sample. Down/up buttons step through {record.name}. Click a panel to use its sample sequence.")
+            spin.blockSignals(blocked)
+            self._coordinate_labels[label].setText(axis.capitalize())
+            for button, direction in zip(self._step_buttons[label], ('Previous', 'Next')):
+                button.setToolTip(f'{direction} {axis} sample in {record.name}')
+
     def _selected(self, x, y, *, emit=True):
+        self._sync_anchor()
         position = (float(x), float(y))
         changed = position != self._position
         self._position = position
         for spin, value in ((self.spin_x, x), (self.spin_y, y)):
             blocked = spin.blockSignals(True)
-            spin.setValue(float(value))
+            spin.set_sample(value)
             spin.blockSignals(blocked)
+        for label, spin in (('X', self.spin_x), ('Y', self.spin_y)):
+            previous, following = self._step_buttons[label]
+            previous.setEnabled(bool(spin.coordinate() > spin.samples[0]))
+            following.setEnabled(bool(spin.coordinate() < spin.samples[-1]))
         if emit and changed:
             self.changed.emit("heatmap_position")
 
     def _position_edited(self, *_):
         if self.controller is not None:
-            self.controller.update(self.spin_x.value(), self.spin_y.value())
+            self.controller.update(self.spin_x.coordinate(), self.spin_y.coordinate())
+
+    def _coordinate_stepped(self, axis, value):
+        if self.controller is not None:
+            x, y = self._position
+            self.controller.update(value if axis == 'X' else x, value if axis == 'Y' else y)
 
     def _disconnected(self):
         self.controller = None
+        self._bound_record = None
         self.cut_bar.hide()
 
     def options(self):
@@ -203,6 +294,7 @@ class LinkedImageCuts:
         self.can_select = can_select
         self.on_selected = self.on_disconnect = None
         self.position = None
+        self.anchor = 0
         self.artists = []
         units_by_axes = {}
         records_by_axes = {}
@@ -277,12 +369,14 @@ class LinkedImageCuts:
             return
         self.update(event.xdata, event.ydata, anchor=axes.index(event.inaxes))
 
-    def update(self, x, y, *, anchor=0, notify=True):
+    def update(self, x, y, *, anchor=None, notify=True):
         if not self.panels or not np.all(np.isfinite([x, y])):
             return
-        # Anchor typed coordinates to the first panel; clicks anchor to the
-        # clicked panel. Other datasets snap independently to that position.
-        source = self.panels[anchor][2]
+        # Keep typing and stepping on the last clicked panel. Other panels
+        # snap independently to that panel's physical coordinate.
+        if anchor is not None:
+            self.anchor = anchor
+        source = self.panels[self.anchor][2]
         x = float(source.x[int(np.argmin(abs(source.x-x)))])
         y = float(source.y[int(np.argmin(abs(source.y-y)))])
         self.position = (x, y)

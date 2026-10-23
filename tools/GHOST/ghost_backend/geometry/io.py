@@ -1,4 +1,6 @@
 import math
+import json
+import re
 import os
 from pathlib import Path
 import shutil
@@ -359,6 +361,31 @@ class Segment:
     y: 'List[float]'
 
 
+def _segment_header(value):
+    """Read quoted names, or an unquoted name followed by an optional numeric type."""
+    value = value.strip()
+    if not value:
+        return "Unnamed", None
+    if value.startswith('"'):
+        try:
+            name, end = json.JSONDecoder().raw_decode(value)
+        except ValueError as exc:
+            raise ValueError("Invalid quoted Segment name: {}".format(value)) from exc
+        suffix = value[end:]
+        if suffix and (not suffix[0].isspace() or not re.fullmatch(r"[+-]?\d+(?:\.0+)?", suffix.strip())):
+            raise ValueError("A quoted Segment name may only be followed by a numeric type.")
+        seg_type = suffix.strip() or None
+    else:
+        parts = value.rsplit(None, 1)
+        if len(parts) == 2 and re.fullmatch(r"[+-]?\d+(?:\.0+)?", parts[1]):
+            name, seg_type = parts
+        else:
+            name, seg_type = value, None
+    if not name.strip() or any(ord(char) < 32 for char in name):
+        raise ValueError("Segment name must be non-empty and cannot contain control characters.")
+    return name, seg_type
+
+
 def parse_geometry(text: 'str') -> 'Tuple[str, List[Segment], List[List[str]], List[List[str]]]':
     lines = [ln.strip() for ln in text.splitlines()]
     title = "Geometry"
@@ -414,13 +441,7 @@ def parse_geometry(text: 'str') -> 'Tuple[str, List[Segment], List[List[str]], L
         if state == "segments":
             if low.startswith("segment:"):
                 flush_segment()
-                parts = ln.split(":", 1)[1].strip().split()
-                if not parts:
-                    current_name, current_type = "Unnamed", None
-                elif len(parts) == 1:
-                    current_name, current_type = parts[0], None
-                else:
-                    current_name, current_type = parts[0], parts[1]
+                current_name, current_type = _segment_header(ln.split(":", 1)[1])
                 current_props = []
                 current_props_seen = False
                 cur_x.clear()
@@ -487,15 +508,13 @@ def build_geometry_text(
     lines: 'List[str]' = [f"Title: {title}"]
     for seg in segments:
         segment_name = str(seg.name).strip()
-        if not segment_name or any(char.isspace() for char in segment_name):
+        if not segment_name or any(ord(char) < 32 for char in segment_name):
             raise ValueError(
                 f"Segment name {seg.name!r} is not representable in .geo files; "
-                "use a non-empty name without whitespace."
+                "use a non-empty name without control characters."
             )
-        if ":" in segment_name or "#" in segment_name:
-            raise ValueError(
-                f"Segment name {seg.name!r} contains reserved .geo punctuation."
-            )
+        if any(char.isspace() or char in ':#"\\' for char in segment_name):
+            segment_name = json.dumps(segment_name)
         props = list(seg.properties)
 
 

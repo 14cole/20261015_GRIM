@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dataclasses import dataclass
 import os
 import tempfile
 
@@ -20,9 +21,21 @@ from GRIM_Backend.plotting.dataset_style import LINE_TYPES
 from GRIM_Backend.plotting.overlay_data import (
     LENGTH_UNITS, MAX_POINTS, PLANES, OverlayPath, axes_scales, axes_signature,
     axis_info, format_coordinate, measurement_text, project_points,
-    read_overlay_points, supports_overlays,
+    read_overlay_points, supports_overlays, transform_points,
 )
 from GRIM_Backend.ui.overlay_transform import OverlayTransformDialog
+
+
+@dataclass
+class _OverlayDrag:
+    item: OverlayPath
+    index: int | None  # None moves the entire path; an index moves one point.
+    ax: object
+    start: np.ndarray | None = None
+    pixels: tuple | None = None
+    original: np.ndarray | None = None
+    segment: int | None = None
+    moved: bool = False
 
 
 class SpatialOverlayPanel(QDialog):
@@ -181,7 +194,8 @@ class SpatialOverlayPanel(QDialog):
         self.help_label.setText(
             "Click Draw points, then click to connect points; Escape finishes. "
             "Use Edit overlay to rotate, move, or mirror the outline. "
-            "Drag a point to move it; right-click to edit. Click a line for its length, "
+            "Drag a line to move the whole overlay, or a point to move only that point; "
+            "right-click to edit. Click a line without dragging for its length, "
             "or choose Measure and click two points."
             if self.axes else "Plot an image with a distance axis to load or draw an overlay."
         )
@@ -496,13 +510,15 @@ class SpatialOverlayPanel(QDialog):
         if self.transform_dialog is not None:
             self.transform_dialog.reject()
 
-    def _hit(self, event, *, include_lines=False):
+    def _hit(self, event, *, include_lines=False, visible_points_only=False):
         if event.inaxes not in self.axes or event.x is None or event.y is None:
             return None
         candidates = ([self.active] if self.active is not None else []) + [
             item for item in reversed(self.paths) if item is not self.active]
         best = None
         for item in candidates:
+            if visible_points_only and not item.show_points and item.linestyle != "None":
+                continue
             line = item.artist
             if line is None or line.axes is not event.inaxes or not line.get_visible():
                 continue
@@ -567,7 +583,7 @@ class SpatialOverlayPanel(QDialog):
         if any(self.owner._button_checked(getattr(self.owner, name, None))
                for name in ("btn_pan", "btn_zoom_box", "btn_markers")):
             return False
-        hit = self._hit(event)
+        hit = self._hit(event, visible_points_only=not self.measure_button.isChecked())
         if self.measure_button.isChecked():
             if hit is not None:
                 if self.measure_start is None:
@@ -582,12 +598,18 @@ class SpatialOverlayPanel(QDialog):
         if hit is not None:
             item, index = hit
             self._activate(item)
-            self.drag = (item, index, event.inaxes)
+            self.drag = _OverlayDrag(item, index, event.inaxes)
             return True
         if not self.draw_button.isChecked():
             segment = self._hit_segment(event)
             if segment is not None:
-                self._measure_segment(*segment)
+                if event.xdata is None or event.ydata is None or not np.all(np.isfinite([event.xdata, event.ydata])):
+                    return True
+                item, index = segment
+                self._activate(item)
+                self.drag = _OverlayDrag(item, None, event.inaxes,
+                    start=np.array([event.xdata, event.ydata]), pixels=(event.x, event.y),
+                    original=item.points.copy(), segment=index)
                 return True
         if not self.draw_button.isChecked() or event.inaxes not in self.axes:
             return False
@@ -632,16 +654,43 @@ class SpatialOverlayPanel(QDialog):
     def on_motion(self, event):
         if self.drag is None or event.canvas is not self.canvas:
             return False
-        item, index, ax = self.drag
+        drag = self.drag
+        item, index, ax = drag.item, drag.index, drag.ax
         if event.inaxes is ax and event.xdata is not None and event.ydata is not None:
             if np.all(np.isfinite([event.xdata, event.ydata])):
-                self.set_point(item, index, event.xdata, event.ydata)
+                if index is not None:
+                    self.set_point(item, index, event.xdata, event.ydata)
+                else:
+                    # Small mouse jitter remains a click. Translation always
+                    # starts from the original points so motion cannot distort
+                    # the shape or accumulate roundoff over successive events.
+                    if not drag.moved and np.hypot(event.x-drag.pixels[0], event.y-drag.pixels[1]) < 3:
+                        return True
+                    offset = (np.array([event.xdata, event.ydata]) - drag.start) * axes_scales(ax)
+                    try:
+                        points = transform_points(drag.original, offset=offset)
+                    except ValueError:
+                        return True
+                    drag.moved = True
+                    item.points = points
+                    if item.artist is not None:
+                        xy = points / axes_scales(ax)
+                        item.artist.set_data(xy[:, 0], xy[:, 1])
+                    self._render_measurement()
+                    self.canvas.draw_idle()
         return True
 
     def on_release(self, event):
         if self.drag is None or event.canvas is not self.canvas:
             return False
+        if event.button != MouseButton.LEFT:
+            return False
+        drag = self.drag
+        if drag.index is None:
+            self.on_motion(event)
         self.drag = None
+        if drag.index is None and not drag.moved and event.inaxes is drag.ax:
+            self._measure_segment(drag.item, drag.segment)
         return True
 
     def on_key(self, event):

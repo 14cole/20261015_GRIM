@@ -177,11 +177,13 @@ frequency_hz,eps_real,eps_imag,mu_real,mu_imag
 ```
 
 Use a `.csv` extension. Both tools accept UTF-8 with or without a BOM, blank
-lines, and full-line `#` comments. Header names and order must match the example;
-surrounding cell whitespace is ignored. Space/tab-separated and headerless
+lines, and full-line `#` comments. Column order, capitalization, spaces and
+brackets may vary; for example `Frequency (GHz),EPS REAL,EPS IMAG,MU REAL,MU IMAG`
+is accepted. Each required physical quantity must occur exactly once, and the
+frequency header must specify Hz, kHz, MHz or GHz. Space/tab-separated and headerless
 files are rejected. See the [shared file format](../GHOST/MATERIAL_CSV_FORMAT.md).
 
-Frequency is in Hz. FREDDY and GHOST use the `e^(+j omega t)` convention, so a
+Exports use Hz; input frequency units are converted explicitly. FREDDY and GHOST use the `e^(+j omega t)` convention, so a
 passive lossy material has negative imaginary permittivity and permeability.
 Positive imaginary values are rejected as active/gain media. Frequencies must
 be positive and unique; interpolation is linear in the real and imaginary
@@ -189,8 +191,9 @@ property components and extrapolation is not performed.
 
 ## Impedance CSV format
 
-Nominal impedance exports and GHOST IBC inputs use the same required header,
-comma separator, Hz frequency and impedance in ohms:
+Nominal impedance exports use the following canonical header, comma separator,
+Hz frequency and impedance in ohms. GHOST also accepts equivalent presentation,
+column order and explicitly declared frequency units as described above:
 
 ```csv
 frequency_hz,resistance_ohm,reactance_ohm

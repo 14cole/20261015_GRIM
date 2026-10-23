@@ -1,4 +1,5 @@
 """Public GRIM python API."""
+from GRIM_Backend.datasets.statistics_bands import band_statistics_dataset
 from GRIM_Backend.datasets.result_storage import operation_result_storage
 from GRIM_Backend.datasets.transforms import (
     _MAX_EXPLICIT_AXIS_POINTS,
@@ -47,6 +48,7 @@ from GRIM_Backend.scripting.recorder import (
     _safe_comment,
 )
 __all__ = [
+    'band_statistics_dataset',
     'DatasetBatchRollbackError',
     'DatasetReference',
     'PythonScriptRecorder',

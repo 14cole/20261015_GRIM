@@ -227,16 +227,18 @@ the project and work with impedance, angle/thickness sweeps, IBC batches, and
 inverse design. Measured layers in the same stack still require frequency
 coverage. Constant values are an isotropic, nondispersive model; measured CSV
 inputs remain available for frequency-dependent behavior.</p>
-<p>GHOST and FREDDY use <b>comma-separated .csv files with frequency in Hz</b>.
-A header is required. Material inputs and mixed-material exports use:</p>
+<p>GHOST and FREDDY use <b>comma-separated .csv files with explicit frequency units</b>.
+A header is required. Canonical material exports use:</p>
 <pre>frequency_hz,eps_real,eps_imag,mu_real,mu_imag
 1000000000,3.2,-0.15,1,0</pre>
 <p>Nominal IBC exports and GHOST IBC inputs use:</p>
 <pre>frequency_hz,resistance_ohm,reactance_ohm
 1000000000,120,15</pre>
-<p>1000000000 Hz is 1 GHz. CSV files use Hz even though sweep controls and plots
-show GHz. Epsilon and mu are relative; impedance is in ohms. Headers and column
-order must match these examples. Use finite values and positive, unique
+<p>1000000000 Hz is 1 GHz. Exports use Hz; inputs also accept kHz, MHz or GHz
+declared in the frequency header. Epsilon and mu are relative; impedance is in
+ohms. Column order, capitalization, spaces and brackets may vary, for example
+Frequency (GHz), EPS REAL, EPS IMAG, MU REAL, MU IMAG. Every required quantity
+must occur exactly once. Use finite values and positive, unique
 frequencies. Blank lines and full-line # comments are allowed; UTF-8 files with
 or without a BOM are accepted. Whitespace-delimited and headerless files are
 rejected. Uncertainty, off-angle and thickness CSVs are analysis reports;

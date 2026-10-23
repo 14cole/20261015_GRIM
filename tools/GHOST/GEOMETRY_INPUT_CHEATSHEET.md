@@ -97,8 +97,11 @@ Dielectrics:
 
 Rules:
 
-- `Segment:` names should not contain spaces. The `TYPE` in the header and in
-  `properties:` must match.
+- `Segment:` names may contain spaces. Saved files quote these names, for
+  example `Segment: "Left wing" 2`. Unquoted multiword names are accepted with
+  a trailing numeric type. Quote names ending in a number when omitting the
+  header type, for example `Segment: "Panel 2"`. The `TYPE` in the header and
+  in `properties:` must match. Names cannot contain newlines/control characters.
 - Every coordinate row is one straight primitive: `x1 y1 x2 y2`.
 - Primitives within one segment must form a continuous head-to-tail chain.
 - Geometry units are not stored in `.geo`. Set the driver/API
@@ -531,7 +534,7 @@ interface or turn the TYPE 1 thin-layer model into a metal-backed stack.
 
 ## Explicit CSV material tables
 
-Headered CSV sidecars in Hz are the frequency-dependent format. The `.csv` file
+Headered CSV sidecars with explicit frequency units are the frequency-dependent format. The `.csv` file
 must be in the **same directory** as the `.geo` file, and the geometry row
 uses only its filename. Directory components, spaces, and other whitespace
 in the filename are not supported; use names such as `radome_material.csv`.
@@ -566,11 +569,12 @@ frequency_hz,eps_real,eps_imag,mu_real,mu_imag
 
 CSV rules (also see the [shared file format](MATERIAL_CSV_FORMAT.md)):
 
-- Headers are required. Names and column order must match the lowercase
-  examples exactly; surrounding cell whitespace is ignored. All material and
-  IBC inputs/outputs use comma-separated `.csv` with frequency in **Hz**,
-  matching FREDDY. Space/tab-separated and headerless files are rejected.
-- Frequencies are positive, unique, and expressed in Hz.
+- Headers are required. Column order, capitalization, spaces and brackets may
+  vary, with every required physical quantity present exactly once. Frequency
+  headers must declare Hz, kHz, MHz or GHz; impedance headers must declare ohms.
+  Exports retain the canonical names and **Hz** units shown above, matching
+  FREDDY. Space/tab-separated and headerless files are rejected.
+- Frequencies are positive and unique after unit conversion.
 - Every data field must be finite and numeric; extra columns are rejected.
 - UTF-8 with or without a BOM is accepted. Blank lines and full-line `#`
   comments are allowed. Do not add trailing inline comments to data rows.

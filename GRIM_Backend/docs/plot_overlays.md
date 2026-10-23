@@ -30,6 +30,7 @@ Points connect in file order. Repeating the first coordinate at the end closes a
 
 - Click **Draw points**, then click positions on the plot. Each point connects to the previous one. Use **Finish drawing** or Escape to finish. Each drawing belongs to one panel; start another drawing for a different panel.
 - Drag a point with the left mouse button to move it freely. This also works for points loaded from a file. Pan, Zoom Box, and data-marker modes take precedence; turn them off to drag overlay points. Starting a drawing turns those modes off.
+- Drag a line segment between points with the left mouse button to move the entire overlay. All its points and disconnected sections move together, preserving the outline's shape. Finish drawing or measuring first, and turn off Pan, Zoom Box, and data-marker modes. Dragging near a visible point still edits that point individually. For a dense outline, turn off **Show points** to grab its line anywhere.
 - Right-click a point and choose **Edit coordinates…** to enter its X and Y values in the currently displayed units. Coordinates display five decimal places; scientific notation is supported when editing. Accepting the dialog without editing a coordinate preserves its full stored precision. **Remove point** deletes that point.
 - Choose an overlay in the **Overlay** list, or click/right-click one of its points, to select it. Set its color, solid/dashed/dotted/dash-dot line style, width, and point visibility. Color, line type, and width are also available in the right-click menu.
 - **Show** hides or reveals the selected overlay. **Remove** deletes the selected overlay. The plot's existing **Clear** button clears the plot and that tab's overlays.
@@ -58,7 +59,7 @@ On Az. vs D.R., the ruler reports azimuth separation and downrange separation in
 
 For measurements tied to editable overlay geometry:
 
-- Click an overlay line segment to show its length. This measures the segment between its two neighboring points, not the entire connected outline. You can also right-click the line and choose **Measure segment**.
+- Click and release an overlay line segment without dragging to show its length. This measures the segment between its two neighboring points, not the entire connected outline. You can also right-click the line and choose **Measure segment**.
 - Click **Measure**, then click two overlay points. The points can belong to different overlays in the same panel. Right-click **Measure from this point** and **Measure to this point** are also available.
 - The plot shows a dashed measurement line and a label; the controls show the length and changes in X and Y. Values use five decimal places. Escape or **Finish measuring** returns to normal point dragging, while the measurement remains visible. **Clear measurement** removes it.
 - Measurements follow the selected points when you drag or edit them, and convert when the plot's length units change. Removing a referenced point or overlay clears its measurement. Only the latest measurement is shown for each plot tab.

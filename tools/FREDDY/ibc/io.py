@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable, Iterable, Iterator, TextIO
 
 from .compute import LayerConfig, MaterialTable, ConstantMaterial
+from .material_columns import material_column_order
 
 CONSTANT_VALUE_FIELDS = ('constant_eps_real', 'constant_eps_imag', 'constant_mu_real', 'constant_mu_imag')
 
@@ -36,7 +37,7 @@ IMPEDANCE_UNCERTAINTY_HEADER = (
 )
 # Free-space (air) terminated input impedance is a planar analysis result,
 # not a one-sided IBC. Its distinct header makes GHOST's IBC loader (which
-# requires IMPEDANCE_HEADER exactly and skips '#' comment lines) refuse it.
+# recognizes only the nominal impedance quantities) refuse it.
 FREE_SPACE_IMPEDANCE_HEADER = (
     "frequency_hz,free_space_backed_resistance_ohm,free_space_backed_reactance_ohm"
 )
@@ -59,7 +60,7 @@ _PROJECT_CONTROL_PATH_KEYS = (
     "mix_prop_file",
 )
 
-# Property and result files are CSV with frequency in Hz. Frequencies are
+# Property and result exports use Hz. Declared input frequency units are
 # converted to GHz on read and back to Hz on write, since every computation and
 # UI field in this project works in GHz.
 HZ_PER_GHZ = 1e9
@@ -297,12 +298,12 @@ def _validate_csv_path(path: Path) -> None:
 
 
 def read_material_table(path: Path) -> MaterialTable:
-    """Read the exact five-column material CSV accepted by the RCS solvers.
+    """Read a five-column material CSV with explicitly declared frequency units.
 
-    Frequencies are stored in Hz in the file and converted to GHz internally.
+    Frequency units from the header are converted to GHz internally.
     UTF-8 with or without a BOM is accepted. Blank lines and full-line ``#``
     comments may precede the header or appear between data rows. The first
-    non-comment row must be the exact schema header.
+    non-comment row identifies the columns; order and presentation may vary.
     """
     rows: list[tuple[float, complex, complex]] = []
     header_found = False
@@ -317,12 +318,10 @@ def read_material_table(path: Path) -> MaterialTable:
             except csv.Error as exc:
                 raise ValueError(f"{path}: line {idx} contains invalid CSV: {exc}") from exc
             if not header_found:
-                found = ",".join(parts)
-                if found != MATERIAL_HEADER:
-                    raise ValueError(
-                        f"{path}: line {idx} must have comma-separated header {MATERIAL_HEADER} (frequency in Hz); "
-                        f"found {found}."
-                    )
+                try:
+                    column_order, frequency_scale = material_column_order(parts, MATERIAL_HEADER.split(","))
+                except ValueError as exc:
+                    raise ValueError(f"{path}: line {idx}: {exc}") from exc
                 header_found = True
                 continue
             if len(parts) != 5:
@@ -331,7 +330,8 @@ def read_material_table(path: Path) -> MaterialTable:
                     f"columns; found {len(parts)}."
                 )
             try:
-                values = [float(part) for part in parts]
+                values = [float(parts[column]) for column in column_order]
+                values[0] *= frequency_scale
             except ValueError:
                 raise ValueError(
                     f"{path}: line {idx} contains a non-numeric value."

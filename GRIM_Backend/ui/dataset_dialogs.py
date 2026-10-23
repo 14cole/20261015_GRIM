@@ -1464,14 +1464,15 @@ def _percentile_interpolation_checkbox() -> QCheckBox:
 
 
 class PercentileDialog(QDialog):
-    """Choose the azimuth percentile and whether to interpolate its value."""
+    """Choose a percentile across azimuth, frequency, or bounded joint populations."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Azimuth Percentile")
+        self.setWindowTitle("Percentile Datasets")
+        self.resize(600, 640)
         layout = QVBoxLayout(self)
         row = QHBoxLayout()
-        label = QLabel("Linear-power percentile across azimuth (0–100):")
+        label = QLabel("Linear-power percentile (0–100):")
         self.spin_pct = QDoubleSpinBox()
         self.spin_pct.setRange(0.0, 100.0)
         self.spin_pct.setDecimals(3)
@@ -1490,6 +1491,30 @@ class PercentileDialog(QDialog):
         note.setWordWrap(True)
         layout.addWidget(note)
 
+        from GRIM_Backend.ui.statistics_bands import StatisticsBandTable
+        self.azimuth_bands = StatisticsBandTable('Reduce azimuth (degrees)', wrap=True, checked=True)
+        self.frequency_bands = StatisticsBandTable('Reduce frequency', checked=False)
+        units_row = QHBoxLayout()
+        units_row.addWidget(QLabel('Frequency band units:'))
+        self.combo_frequency_unit = QComboBox()
+        self.combo_frequency_unit.addItems(['Hz', 'kHz', 'MHz', 'GHz'])
+        self.combo_frequency_unit.setCurrentText('GHz')
+        units_row.addWidget(self.combo_frequency_unit)
+        layout.addLayout(units_row)
+        layout.addWidget(self.azimuth_bands)
+        layout.addWidget(self.frequency_bands)
+        explanation = QLabel(
+            'Each band combination produces a new dataset limited to samples inside its bounds. '
+            'The statistic is repeated on those coordinates. Both axes checked: one joint '
+            'percentile per elevation and polarization. Explicit bands include both boundaries.'
+        )
+        explanation.setWordWrap(True)
+        layout.addWidget(explanation)
+        self.band_error = QLabel()
+        self.band_error.setWordWrap(True)
+        self.band_error.hide()
+        layout.addWidget(self.band_error)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -1497,6 +1522,27 @@ class PercentileDialog(QDialog):
 
     def get_params(self) -> tuple[float, bool]:
         return self.spin_pct.value(), self.chk_interpolate.isChecked()
+
+    def get_band_params(self):
+        axes = [axis for axis, editor in (('azimuth', self.azimuth_bands),
+                                          ('frequency', self.frequency_bands)) if editor.isChecked()]
+        if not axes:
+            raise ValueError('Select azimuth, frequency, or both to reduce.')
+        scale = _FREQUENCY_TO_HZ[self.combo_frequency_unit.currentText().lower()]
+        return dict(axes=axes, azimuth_bands=self.azimuth_bands.bounds(),
+                    frequency_bands=[[lo * scale, hi * scale] for lo, hi in self.frequency_bands.bounds()])
+
+    def accept(self):
+        # End the table editor before reading the bounds.
+        self.spin_pct.setFocus()
+        self.spin_pct.interpretText()
+        try:
+            self.get_band_params()
+        except ValueError as exc:
+            self.band_error.setText(str(exc))
+            self.band_error.show()
+            return
+        super().accept()
 
 
 class StatisticsDialog(QDialog):

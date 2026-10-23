@@ -9,6 +9,11 @@ can move over held PBP bands or reference curves without piling up.
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer
+import numpy as np
+
+from .sweep_frames import make_sweep_frames
+
+RANGE_MODES = {"isar_image", "az_vs_range"}
 
 # The axis each plot type sweeps along; the slider must scrub a different one.
 SWEEP_AXIS = {
@@ -41,6 +46,8 @@ class PlotSliderMixin:
 
     def _schedule_plot_slider_refresh(self, *_args) -> None:
         """Coalesce list rebuilds (one signal per inserted row) into one refresh."""
+        if getattr(self, "plot_slider", None) is None:
+            return
         timer = getattr(self, "_plot_slider_refresh_timer", None)
         if timer is None:
             timer = self._plot_slider_refresh_timer = QTimer(self)
@@ -52,40 +59,115 @@ class PlotSliderMixin:
     def _refresh_plot_slider(self, *_args) -> None:
         """Match the slider range and position to the chosen parameter list."""
         bar = getattr(self, "plot_slider", None)
-        if bar is None or not bar.isVisible():
+        if bar is None or bar.isHidden():
             return
-        widget = self._slider_list(bar.axis())
+        if getattr(self, "_sweep_export", None) is not None:
+            return
+        axis = bar.axis()
+        widget = self._slider_list(axis)
+        dataset = getattr(self, "active_dataset", None)
+        mode = getattr(self, "last_plot_mode", None)
+        band = mode in RANGE_MODES and axis in ("frequency", "azimuth")
+        bar.band_label.setVisible(band)
+        bar.band_width.setVisible(band)
+        bar.band_label.setText("Bandwidth" if axis == "frequency" else "Aperture width")
+        if dataset is None or widget.count() == 0:
+            bar._frames = None
+            bar.set_positions([], 0)
+            return
+        values = np.asarray(getattr(dataset, {"frequency": "frequencies", "azimuth": "azimuths", "elevation": "elevations"}[axis]), dtype=float)
+        unit = str((dataset.units or {}).get(axis, ""))
+        if axis == "azimuth" and band:
+            from .modes.isar_mode import _angle_values_to_degrees
+            values = _angle_values_to_degrees(dataset, axis, values)
+            unit = "deg"
+        key = (id(dataset), axis, mode, widget.count())
+        changed = getattr(bar, "_source_key", None) != key
+        if changed:
+            bar.stop_interaction()
+            bar._source_key = key
+        if band and len(values) >= 2:
+            old = bar.band_width.blockSignals(True)
+            extent = float(np.ptp(values))
+            gaps = np.diff(np.unique(values))
+            minimum = float(np.min(gaps)) if len(gaps) else 1.e-9
+            decimals = max(9, min(15, int(np.ceil(-np.log10(max(minimum, 1.e-15))))+2))
+            bar.band_width.setDecimals(decimals)
+            bar.band_width.setRange(minimum, max(minimum, extent))
+            bar.band_width.setSuffix(f" {unit}")
+            bar.band_width.setSingleStep(minimum)
+            if changed:
+                bar.band_width.setValue(max(minimum, extent/4))
+            bar.band_width.blockSignals(old)
+        try:
+            frames = make_sweep_frames(values, width=bar.band_width.value() if band else None, unit=unit)
+        except ValueError as exc:
+            bar._frames = None
+            bar.set_positions([], 0)
+            bar.value_label.setText(str(exc))
+            bar.stop_play()
+            return
+        bar._frames = frames
         rows = [widget.row(item) for item in widget.selectedItems()]
-        bar.set_positions(
-            [widget.item(row).text() for row in range(widget.count())],
-            min(rows) if rows else 0,
-        )
+        current = bar.slider.value()
+        if not band and rows:
+            matches = np.flatnonzero(frames.rows == min(rows))
+            current = int(matches[0]) if len(matches) else 0
+        bar.set_positions([frames.label(i) for i in range(len(frames))], current)
 
     def _on_plot_slider_moved(self, row: int) -> None:
         bar = getattr(self, "plot_slider", None)
         if bar is None:
             return
+        bar._debounce.stop()
         axis = bar.axis()
         widget = self._slider_list(axis)
-        item = widget.item(int(row))
-        if item is None:
-            return
         mode = getattr(self, "last_plot_mode", None)
         if SWEEP_AXIS.get(mode) == axis:
             bar.stop_play()
             self.status.showMessage(
                 f"This plot sweeps {axis}; choose another slider axis to scrub."
             )
+            self._slider_frame_finished(False)
             return
+        if getattr(self, "_sweep_export", None) is None:
+            self._refresh_plot_slider()
+        frames = getattr(bar, "_frames", None)
+        if frames is None or not 0 <= row < len(frames):
+            self._slider_frame_finished(False)
+            return
+        bar.set_positions(bar._labels, row)
+        self._slider_frame_finished(False)
+        token = object()
+        self._slider_request = (token, bar)
+        self._slider_dispatching = True
+        self._slider_async_token = None
+        bar.render_started()
+        play = getattr(self, "btn_isar_ap_play", None)
+        if play is not None:
+            play.setChecked(False)
         blocked = widget.blockSignals(True)
         try:
             widget.clearSelection()
-            item.setSelected(True)
-            widget.scrollToItem(item)
+            for index in frames.selection(row):
+                widget.item(index).setSelected(True)
+            widget.scrollToItem(widget.item(frames.selection(row)[0]))
         finally:
             widget.blockSignals(blocked)
+        if mode in RANGE_MODES and frames.band:
+            # The list is the exact sample mask. Clear a previous settings
+            # filter so it cannot silently clip the moving band a second time.
+            control = self.chk_isar_freq_band if axis == "frequency" else self.chk_isar_aperture
+            blocked = control.blockSignals(True)
+            control.setChecked(False)
+            control.blockSignals(blocked)
+            settings = getattr(getattr(self, "settings_frame", None), "plot_controls", None)
+            if settings is not None:
+                settings.refresh_conditions()
         self._invalidate_isar_result()
         if mode is None:
+            self._slider_dispatching = False
+            self._slider_frame_finished(False, token)
             return
         hold = self._button_checked(getattr(self, "btn_hold", None))
         before = set()
@@ -97,7 +179,13 @@ class PlotSliderMixin:
                         artist.remove()
             before = {id(artist) for ax in self.plot_figure.axes
                       for artist in (*ax.lines, *ax.collections)}
-        self._render_plot_mode(mode)
+        try:
+            self._render_plot_mode(mode)
+        except Exception as exc:
+            self.status.showMessage(f"Sweep frame failed: {exc}")
+            self._slider_frame_finished(False, token)
+        finally:
+            self._slider_dispatching = False
         if hold:
             if getattr(self, "_ordinary_plot_pending", False):
                 # Numerical work may finish later. Tag only the artists from
@@ -105,6 +193,22 @@ class PlotSliderMixin:
                 self._ordinary_plot_slider_before = before
             else:
                 self._tag_plot_slider_artists(before)
+        if self._slider_async_token is not token:
+            self._slider_frame_finished("updated" in self.status.currentMessage().lower(), token)
+
+    def _slider_frame_finished(self, ok, token=None):
+        request = getattr(self, "_slider_request", None)
+        if request is None or (token is not None and request[0] is not token):
+            return
+        self._slider_request = None
+        request[1].render_finished(ok)
+        exporter = getattr(self, "_sweep_export", None)
+        if exporter is not None:
+            exporter.frame_finished(ok)
+
+    def _export_plot_sweep(self):
+        from GRIM_Backend.ui.sweep_export import start_sweep_export
+        start_sweep_export(self)
 
     def _tag_plot_slider_artists(self, before) -> None:
         # Keep pre-existing held bands, but replace this slider's own

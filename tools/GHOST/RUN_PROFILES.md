@@ -88,6 +88,31 @@ build, run the most expensive units first, and admit concurrent solves against
 the machine's or node's memory. 2D drivers do not read JSON configuration
 files, and portable HPC bundles are for BoR requests.
 
+## Simple exploratory 2D run
+
+For an uncertified local monostatic solve without condition estimation or strict
+quality-gate rejection, use `ghost_backend/run_local_monostatic_exploratory.py`.
+Edit its CONFIG block (`GEOMETRY_FILE`, `FREQUENCIES_GHZ`, `AZIMUTHS_DEG`,
+`GEOMETRY_UNITS`, and `OUTPUT_DIR`), then run from the repository root:
+
+```powershell
+python tools/GHOST/ghost_backend/run_local_monostatic_exploratory.py
+```
+
+It calls the existing 2D API directly with dense factorization and a global mesh,
+skipping adaptive mesh comparisons and mesh certification. Mesh density still
+comes from the geometry's discretization settings. This is a predictable single
+mesh path, not a guarantee that dense solving is fastest for every geometry.
+Input validation, residual calculations, and numerical failures remain active.
+Quality-gate failures are reported but do not prevent export.
+
+Each completed frequency is saved immediately as a VV/HH `.grim` file in a new
+folder under `ghost_exploratory_results` (change `OUTPUT_DIR` in CONFIG). Results retain
+the solver diagnostics and are marked exploratory and uncertified. Relative
+paths use the working directory; material CSVs resolve beside the geometry.
+This script is for 2D, not BoR; disabling BoR's quality rejection requires a
+separate backend change.
+
 ## Recovering an interrupted desktop run
 
 2D and BoR desktop runs create `Run_Recovery/run_<timestamp>_<unique ID>`

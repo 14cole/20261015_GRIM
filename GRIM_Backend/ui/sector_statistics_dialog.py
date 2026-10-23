@@ -160,6 +160,9 @@ class SectorStatisticsDialog(QDialog):
             QDialogButtonBox.Ok | QDialogButtonBox.Apply | QDialogButtonBox.Cancel
         )
         layout.addWidget(self.button_box)
+        self.btn_create_datasets = self.button_box.addButton('Create datasets', QDialogButtonBox.ActionRole)
+        self.btn_create_datasets.setToolTip('Apply these settings and create one bounded dataset per sector and selected input.')
+        self.btn_create_datasets.clicked.connect(self.create_datasets)
         # Enter in a cell should finish that edit, never apply the whole dialog.
         for button in self.findChildren(QPushButton):
             button.setAutoDefault(False)
@@ -436,3 +439,9 @@ class SectorStatisticsDialog(QDialog):
     def accept(self):
         if self.apply_settings():
             super().accept()
+
+    def create_datasets(self):
+        if self.apply_settings():
+            callback = getattr(self.parent(), '_create_sector_statistics_datasets', None)
+            if callback is not None:
+                callback()

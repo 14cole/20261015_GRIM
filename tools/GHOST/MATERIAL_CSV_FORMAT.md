@@ -1,8 +1,9 @@
 # GHOST and FREDDY material/IBC file format
 
 Material and surface-impedance files use `.csv`, comma-separated numeric values,
-and frequency in **Hz**. Both tools require the headers below. Sweep controls
-and plots display GHz; conversion happens only at the file boundary.
+and explicitly labeled frequency units. Exports use **Hz** and the canonical
+headers below. Inputs also accept kHz, MHz or GHz in the frequency header.
+Sweep controls and plots display GHz; conversion happens at the file boundary.
 
 ## Bulk material
 
@@ -35,7 +36,17 @@ headers. These analysis reports are not nominal material or IBC inputs.
 
 ## Parsing and export rules
 
-- Use the exact lowercase header names and column order shown above.
+- Column order, capitalization, spaces, underscores, hyphens and brackets may
+  vary. For example, `Frequency (GHz),EPS REAL,EPS IMAG,MU REAL,MU IMAG` is
+  accepted, and a frequency of `1` in that file means 1 GHz.
+- Frequency labels may use `frequency`, `freq` or `f`, followed by an explicit
+  Hz/kHz/MHz/GHz unit. Relative-property labels accept `eps`, `eps_r`,
+  `epsilon_r` or `relative_permittivity`, and `mu`, `mu_r` or
+  `relative_permeability`, followed by `real` or `imag`. Impedance columns must
+  identify `resistance` and `reactance` in ohm/ohms (or Ω).
+- Every required physical quantity must occur exactly once. Duplicate aliases,
+  missing units, loss-tangent columns, absolute permittivity, and extra analysis
+  columns are rejected rather than interpreted as different quantities.
 - Frequency must be finite, positive, and unique. `1e9` and `1000000000`
   both mean 1 GHz. Input rows may be unordered; readers sort by frequency.
 - Every data row must have exactly the expected number of finite numeric
@@ -45,7 +56,7 @@ headers. These analysis reports are not nominal material or IBC inputs.
 - Real and imaginary components interpolate linearly. Extrapolation is rejected.
 - Exports always include a header and retain 17 significant digits for nominal
   material and impedance data. Closely spaced frequencies remain distinct.
-- Space/tab-separated tables, headerless files, GHz headers, and implicit
+- Space/tab-separated tables, headerless files, and implicit
   `mat.<flag>` tables are not supported. Frequency units are never guessed.
 
 In GHOST, keep the CSV beside the `.geo` and reference its filename explicitly:

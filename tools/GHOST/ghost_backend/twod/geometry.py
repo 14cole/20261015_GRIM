@@ -615,12 +615,13 @@ def _material_base_dir_for_snapshot(
 def _read_csv_numeric_rows(
     path: 'str', expected_header: 'List[str]'
 ) -> 'List[List[float]]':
-    """Read a headered, comma-separated material/IBC CSV with frequency in Hz.
+    """Read a material/IBC CSV and normalize declared frequency units to Hz.
 
     GHOST and FREDDY accept the same UTF-8 CSV contract: an optional BOM,
-    blank lines and full-line # comments, exact headers (cell whitespace is
-    ignored), and finite numeric data with positive, unique frequencies.
+    blank lines and full-line # comments, explicit column identities in any
+    order, and finite numeric data with positive, unique frequencies.
     """
+    from ghost_backend.geometry.material_columns import material_column_order
     if not str(path).lower().endswith(".csv"):
         raise ValueError(f"Material/IBC file must use the .csv extension: {path}")
     rows: 'List[List[float]]' = []
@@ -635,12 +636,10 @@ def _read_csv_numeric_rows(
             except csv.Error as exc:
                 raise ValueError(f"{path}: line {lineno} contains invalid CSV: {exc}") from exc
             if not header_found:
-                if parts != expected_header:
-                    raise ValueError(
-                        f"{path}: line {lineno} must have comma-separated header "
-                        f"{','.join(expected_header)} (frequency in Hz); "
-                        f"found {','.join(parts)}."
-                    )
+                try:
+                    column_order, frequency_scale = material_column_order(parts, expected_header)
+                except ValueError as exc:
+                    raise ValueError(f"{path}: line {lineno}: {exc}") from exc
                 header_found = True
                 continue
             if len(parts) != len(expected_header):
@@ -649,7 +648,8 @@ def _read_csv_numeric_rows(
                     f"{len(expected_header)} comma-separated columns; found {len(parts)}."
                 )
             try:
-                values = [float(part) for part in parts]
+                values = [float(parts[column]) for column in column_order]
+                values[0] *= frequency_scale
             except ValueError as exc:
                 raise ValueError(f"{path}: line {lineno} contains a non-numeric value.") from exc
             if not all(math.isfinite(value) for value in values):

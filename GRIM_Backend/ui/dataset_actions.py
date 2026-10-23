@@ -3137,7 +3137,7 @@ class DatasetOpsMixin:
             )
 
     def _percentile_selected(self) -> None:
-        """Repeat each azimuth percentile across its original azimuth coordinates."""
+        """Create full-span or bounded azimuth/frequency percentile datasets."""
 
         datasets = self._selected_datasets_ordered(
             use_selection_order=True,
@@ -3149,6 +3149,22 @@ class DatasetOpsMixin:
         if dlg.exec() != QDialog.Accepted:
             return
         percentile, interpolate = dlg.get_params()
+        try:
+            band_params = dlg.get_band_params()
+        except ValueError as exc:
+            self.status.showMessage(f'Percentile blocked: {exc}')
+            return
+        if isinstance(band_params, dict) and (
+            band_params['axes'] != ['azimuth'] or band_params['azimuth_bands'] or band_params['frequency_bands']
+        ):
+            from itertools import product
+            specs = [dict(azimuth_band=az, frequency_band=freq)
+                     for az, freq in product(band_params['azimuth_bands'] or [None],
+                                             band_params['frequency_bands'] or [None])]
+            self._create_banded_statistics_datasets(
+                datasets, specs, statistic='percentile', percentile=float(percentile),
+                axes=band_params['axes'], interpolate=bool(interpolate), operation_title='Band percentile')
+            return
         self._create_statistics_datasets(
             datasets,
             statistic="percentile",
@@ -3159,6 +3175,123 @@ class DatasetOpsMixin:
             operation_title="Percentile",
             output_qualifier=" az",
         )
+
+    def _create_sector_statistics_datasets(self) -> None:
+        """Export the current sector configuration and selected plot population."""
+        from GRIM_Backend.plotting.modes import common
+        datasets = self._selected_datasets_ordered(
+            use_selection_order=True, empty_message='Select datasets for sector statistics.')
+        if not datasets:
+            return
+        reference = self._preflight_plot_datasets(datasets)
+        if reference is None:
+            return
+        values = {axis: self._selected_values(widget) for axis, widget in (
+            ('azimuth', self.list_az), ('elevation', self.list_elev), ('frequency', self.list_freq))}
+        polarizations = self._overlay_polarizations()
+        if not all(values.values()) or polarizations is None:
+            self.status.showMessage('Select azimuths, frequencies, elevations and polarizations for sector statistics.')
+            return
+        if isinstance(polarizations, str):
+            polarizations = [polarizations]
+        controls = self._plot_contexts['plotting'].analysis_controls
+        try:
+            azimuths = common.convert_axis_values(values['azimuth'], 'azimuth',
+                                                  self._plot_axis_unit(reference, 'azimuth'), 'deg')
+            sectors = common.parse_sectors(controls.sector_text(unit='deg'), azimuths)
+        except ValueError as exc:
+            self.status.showMessage(f'Sector statistics blocked: {exc}')
+            return
+        selections = []
+        for name, dataset in datasets:
+            selection = {}
+            for axis, attr in (('azimuth', 'azimuths'), ('elevation', 'elevations'), ('frequency', 'frequencies')):
+                mapper = self._overlay_axis_selection if axis == 'azimuth' else self._axis_selection_for_dataset
+                indices = mapper(reference, dataset, axis, values[axis])
+                selection[attr] = [] if indices is None else getattr(dataset, attr)[indices].tolist()
+            selection['polarizations'] = [pol for pol in polarizations
+                                          if self._indices_for_values(dataset.polarizations, [pol], tol=0.0)]
+            selections.append(selection)
+        specs = [dict(azimuth_band=[sector.start, sector.stop_value if sector.stop_value is not None
+                                    else sector.start + sector.width],
+                      azimuth_closed=sector.closed, azimuth_modular=sector.modular) for sector in sectors]
+        self._create_banded_statistics_datasets(
+            datasets, specs, statistic=controls.sector_statistic(), percentile=controls.sector_percentile(),
+            axes=['azimuth'], interpolate=controls.sector_interpolate(),
+            operation_title='Sector statistics', selections=selections)
+
+    def _create_banded_statistics_datasets(self, datasets, specs, *, statistic, percentile,
+                                          axes, interpolate, operation_title, selections=None):
+        from GRIM_Backend.datasets.statistics_bands import band_selection, band_statistics_dataset
+        from GRIM_Backend.datasets.work_control import checkpoint, WorkCancelled
+        if len(specs) * len(datasets) > 4096:
+            self.status.showMessage('At most 4,096 band outputs can be created per operation. Use fewer bands or datasets.')
+            return
+        plans, failures = [], []
+        estimated_peak = 0
+        references = [self._python_reference_for_dataset(ds) for _, ds in datasets]
+        tag = f'p{percentile:g}' if statistic == 'percentile' else statistic
+        for index, (name, dataset) in enumerate(datasets):
+            for spec in specs:
+                kwargs = dict(spec, statistic=statistic, percentile=float(percentile),
+                              axes=list(axes), interpolate=bool(interpolate))
+                if selections is not None:
+                    kwargs['selection'] = selections[index]
+                bounds_label = []
+                if spec.get('azimuth_band') is not None:
+                    lo, hi = spec['azimuth_band']
+                    bounds_label.append(f'Az {lo:g}..{hi:g} deg')
+                if spec.get('frequency_band') is not None:
+                    lo, hi = spec['frequency_band']
+                    bounds_label.append(f'F {lo / 1e9:g}..{hi / 1e9:g} GHz')
+                label = ', '.join(bounds_label) or 'full ' + '/'.join(axes)
+                try:
+                    selected = band_selection(dataset, **spec, selection=kwargs.get('selection'))
+                    shape = tuple(len(selected[key]) for key in ('azimuths', 'elevations', 'frequencies', 'polarizations'))
+                except (ValueError, TypeError) as exc:
+                    failures.append(f'{name} [{label}]: {exc}')
+                    continue
+                estimated_peak += 2 * _derived_grid_peak_bytes(dataset, shape)
+                plans.append((index, name, dataset, kwargs, label))
+        if not plans:
+            self.status.showMessage(f'{operation_title} created 0 datasets. ' + _compact_item_summary(failures))
+            return
+        if not self._review_result_ram_estimate(operation_title, estimated_peak):
+            return
+
+        def compute(progress):
+            results, skipped = [], list(failures)
+            for number, (index, name, dataset, kwargs, label) in enumerate(plans, start=1):
+                checkpoint()
+                try:
+                    result = band_statistics_dataset(dataset, **kwargs)
+                except WorkCancelled:
+                    raise
+                except (ValueError, TypeError) as exc:
+                    skipped.append(f'{name} [{label}]: {exc}')
+                else:
+                    results.append((index, name, result, kwargs, label))
+                progress(number, len(plans), f'{name}: {label}')
+            return results, skipped
+
+        def publish(payload):
+            results, skipped = payload
+            recorder = getattr(self, 'python_recorder', None)
+            for index, name, result, kwargs, label in results:
+                output_name = f'{name} [{tag}; {label}]'
+                output_id = self._add_dataset_row(result, output_name, f'{operation_title}: {tag}; {label}', '')
+                if recorder is not None and references[index] is not None:
+                    recorder.record_function(
+                        self._python_output_reference(output_id, output_name),
+                        'band_statistics_dataset', [references[index]], kwargs=kwargs,
+                        comment=f'{operation_title}: {tag}; {label}')
+            message = f'{operation_title} created {len(results)} dataset(s).'
+            if skipped:
+                message += ' Skipped: ' + _compact_item_summary(skipped)
+            self.status.showMessage(message)
+
+        if self._start_background_callable(operation_title, compute, publish, reports_progress=True):
+            self.status.showMessage(f'Creating {len(plans)} bounded statistics dataset(s)…')
 
     def _statistics_selected(self) -> None:
         datasets = self._selected_datasets_ordered(
@@ -4219,6 +4352,11 @@ class DatasetOpsMixin:
                             f"np.arange({count}, dtype=float), max_gap={gap!r}, support={policy!r})"
                         ),
                         comment=f"Regrid {name} on a resolved {axis} grid",
+                        action_steps=[dict(
+                            kind='function', name='regrid_resolved', args=[axis],
+                            kwargs=dict(start=native_start, step=native_step, count=n,
+                                        max_gap=native_gap, support=support),
+                        )],
                     )
             produced = len(results)
             if produced == 0:
@@ -4507,6 +4645,11 @@ class DatasetOpsMixin:
                             + (f".wrap_phase({selected_mode!r})" if phase else "")
                         ),
                         comment=f"Wrap {name} {target_label} to {suffix}",
+                        action_steps=[dict(kind='method', name=method,
+                                           args=[mode], kwargs={})
+                                      for enabled, method in (
+                                          (wrap_azimuth, 'wrap_azimuth'),
+                                          (wrap_phase_values, 'wrap_phase')) if enabled],
                     )
             produced = len(results)
             if produced == 0:
@@ -4664,6 +4807,8 @@ class DatasetOpsMixin:
                         comment=(
                             f"Round {name} axes {axes_label} to {decimals} decimals"
                         ),
+                        action_steps=[dict(kind='method', name='round_axes',
+                                           args=[int(decimals)], kwargs=enabled_axes)],
                     )
             message = f"Round created {len(results)} dataset(s)."
             if skipped:

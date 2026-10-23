@@ -161,6 +161,7 @@ class DatasetSidebar(QScrollArea):
         "table", "btn_dataset_load", "btn_dataset_save", "btn_dataset_save_all",
         "btn_dataset_export", "btn_dataset_delete", "action_dataset_undo_delete",
         "btn_dataset_cancel", "list_pol", "list_freq", "list_elev", "list_az",
+        "btn_record_actions",
         "lbl_pol", "lbl_freq", "lbl_elev", "lbl_az", "dataset_parameter_splitter",
     )
 
@@ -229,6 +230,10 @@ class DatasetSidebar(QScrollArea):
             dataset_actions.addWidget(button, index // 3, index % 3, 1,
                                       2 if button is self.btn_dataset_delete else 1)
         dataset_actions.addWidget(self.btn_dataset_cancel, 2, 0, 1, 3)
+        self.btn_record_actions = QToolButton(text="Record Actions…")
+        self.btn_record_actions.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.btn_record_actions.setToolTip('Record dataset operations and replay them on selected datasets.')
+        dataset_actions.addWidget(self.btn_record_actions, 3, 0, 1, 3)
         for column in range(3):
             dataset_actions.setColumnStretch(column, 1)
         sec_datasets.addLayout(dataset_actions)
