@@ -99,17 +99,45 @@ Edit its CONFIG block (`GEOMETRY_FILE`, `FREQUENCIES_GHZ`, `AZIMUTHS_DEG`,
 python tools/GHOST/ghost_backend/run_local_monostatic_exploratory.py
 ```
 
-It calls the existing 2D API directly with dense factorization and a global mesh,
-skipping adaptive mesh comparisons and mesh certification. Mesh density still
-comes from the geometry's discretization settings. This is a predictable single
-mesh path, not a guarantee that dense solving is fastest for every geometry.
-Input validation, residual calculations, and numerical failures remain active.
-Quality-gate failures are reported but do not prevent export.
+The default now runs **one initial certification candidate**, without comparing
+meshes or requiring convergence. In the script's CONFIG block:
 
-Each completed frequency is saved immediately as a VV/HH `.grim` file in a new
-folder under `ghost_exploratory_results` (change `OUTPUT_DIR` in CONFIG). Results retain
-the solver diagnostics and are marked exploratory and uncertified. Relative
-paths use the working directory; material CSVs resolve beside the geometry.
+```python
+MESH_MODE = "certification_base"
+FACTORIZATION = "adaptive"
+RAM_BUDGET_GIB = None
+```
+
+| `MESH_MODE` | Single mesh to run |
+| --- | --- |
+| `"certification_base"` (default) | Initial quadratic (P2) candidate when eligible; otherwise the linear base mesh. |
+| `"certification_fine"` | Initial cubic (P3) check candidate when eligible; otherwise the linear fine mesh at the standard 1.5× density. |
+| `"geometry"` | Original global linear mesh using the geometry's N settings. |
+
+The higher-order candidates use the same coarsening and local sizing as the
+initial certification pair. The selection is made independently at each
+frequency. Small cases, explicit panel counts, and geometries/materials that
+cannot use that candidate follow certification's linear path; the console
+prints the actual choice and reason. These are **initial candidates**, not a
+previous run's final refined mesh. No convergence comparison, error-driven
+mesh refinement, or certification runs. Results remain explicitly uncertified.
+
+`FACTORIZATION = "adaptive"` lets the existing automatic planner choose an
+admitted dense, hierarchical, or compressed solver for the selected mesh.
+The exploratory script no longer forces dense factorization. This often avoids
+the much larger global dense system, but does not guarantee every geometry
+fits RAM. `RAM_BUDGET_GIB = None` uses the available-memory limit; a positive
+number supplies an explicit GiB budget. Memory admission and numerical failures
+remain active. To reproduce the previous global dense path, choose
+`MESH_MODE = "geometry"` and `FACTORIZATION = "dense"`.
+
+Condition estimation and strict quality-gate rejection remain disabled.
+Quality-gate failures are reported but do not prevent export. Each completed
+frequency is saved immediately as a VV/HH `.grim` file in a new folder under
+`ghost_exploratory_results` (change `OUTPUT_DIR` in CONFIG). Results retain solver
+diagnostics plus the selected candidate, polynomial degree, sizing strategy,
+and coarsening factor in `metadata.exploratory_mesh`. Relative paths use the
+working directory; material CSVs resolve beside the geometry.
 This script is for 2D, not BoR; disabling BoR's quality rejection requires a
 separate backend change.
 
