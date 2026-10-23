@@ -13,7 +13,7 @@ import numpy as np
 
 from .sweep_frames import make_sweep_frames
 
-RANGE_MODES = {"isar_image", "az_vs_range"}
+RANGE_MODES = {"isar_image", "isar_composite", "az_vs_range"}
 
 # The axis each plot type sweeps along; the slider must scrub a different one.
 SWEEP_AXIS = {

@@ -15,9 +15,9 @@ plots. The first use may take a moment; afterward each workspace stays loaded
 and retains its state when switching tabs. Theme changes, dataset updates, and
 closing GRIM do not initialize an unused workspace.
 
-The Plotting workspace contains **Plots | ISAR | Plot Manipulation**. ISAR Image (BETA)
+The Plotting workspace contains **Plots | ISAR | Plot Manipulation**. **ISAR (BETA)**, **Composite (BETA)**,
 and Az. vs D.R. live on the ISAR page. Fit, zoom, pan, overlays, measurement,
-phase/polarization analysis and image comparison are shared on Plot Manipulation;
+phase/polarization analysis, image comparison, and **Mask Cut** are shared on Plot Manipulation;
 they act on the last selected Plots or ISAR view. The two views retain their own
 results and settings. The upper-right button is always **Plot Settings**, including
 while using Plot Manipulation. It follows the plot currently displayed: **Axes &
@@ -31,12 +31,43 @@ dropdown selections. Numeric limits use compact notation while retaining their
 stored precision. Focus a limit field to replace its contents; press Enter or
 leave the field to apply the edit. Scientific notation is supported. Axis and
 color limits update the display directly; **Apply plot settings** recomputes
-ISAR or Azimuth–Downrange processing changes.
+ISAR, Composite, or Azimuth–Downrange processing changes.
+
+**ISAR (BETA)** always forms a coherent image of the selected aperture.
+**Composite (BETA)** explicitly combines sublook magnitudes into a composite.
+Changing settings, stepping the slider, and replay/export preserve this choice;
+ISAR no longer switches to Composite automatically. Coherent PFA requires an
+aperture narrower than 90 degrees; choose Composite for wider coverage.
+
+To cut an image, open **Plot Manipulation → Mask Cut**, select the displayed
+image/panel, and draw a rectangle or polygon. **Cut Include** retains the selected
+area; **Cut Exclude** removes it. **Finish Cut** creates an independent dataset.
+Cuts use native pixel centers and preserve image coordinates: discarded pixels
+become zero, and existing unknown pixels remain unknown. A reduced preview does
+not reduce the cut's numerical resolution. The source dataset is unchanged.
+
+For Fourier ISAR (Fast/Accurate, including the Recommended choice), Mask Cut adds
+reconstructed complex radar data to the main dataset table, using the selected
+native azimuth, frequency, elevation, and polarization axes. Save/export and
+plot this row like other radar datasets. Reconstruction inverts the normalized
+Fourier transform, then interpolates back from the imaging grid. It is approximate:
+aperture taper and coverage remain applied, cropped-out image regions are zero,
+and samples outside supported imaging coordinates or originally missing remain
+unknown. It does not restore the original untapered measurement. Cut geometry,
+window, phase convention, and reconstruction notes are retained in provenance.
+
+Composite has no coherent phase to invert. Composite and Sparse ISAR cuts create
+image datasets in the Mask Cut list; Fourier ISAR cuts also retain an image there.
+Use **Save Image…** / **Open Image…** for `.grim-image.npz` files containing the
+numerical pixels, coordinates, and cut history. Fourier images also retain the
+complex pixels and inverse context, so reopened cuts can reconstruct radar data
+again. Image datasets remain in the dialog's list for the current GRIM session;
+save them before closing GRIM. They are not frequency/azimuth rows or screenshots.
+Closing Mask Cut without finishing a cut creates no dataset.
 
 Buttons wrap to fit the available width. Legend, Auto Plot, Auto Scale, Hold,
 and Clear share the **Plot Tools** row with Dataset Operations, Export Plot,
-and the active view's Settings button aligned on the right. Hold, trace markers and
-the parameter slider are disabled for ISAR. The selected tab has a filled
+and the active view's Settings button aligned on the right. Hold and trace markers are disabled for ISAR and Composite; the parameter slider remains available. The selected tab has a filled
 background. Parameter lists use plain row highlights without an additional
 colored selection marker.
 
@@ -45,7 +76,7 @@ Dataset Operations has a **BETA** group containing **Wedge → Conic**,
 and **SENTRi El→GRIM**. **Transform** includes **dBke ↔ dBsm**, the broadside
 uniform-extrusion estimate; its generated result names use ASCII `to` rather
 than arrows. Dataset Audit and Compatibility are no longer offered in the GUI.
-The **ISAR Image (BETA)** button,
+The **ISAR (BETA)** and **Composite (BETA)** buttons,
 **Assembly (BETA)** tab, and FREDDY's **Material Mix (BETA)** tab also identify
 features whose validation is not complete. These labels do not change their
 calculations or availability.
@@ -509,7 +540,7 @@ Typed coordinates and keyboard up/down arrows remain available. Stepping uses
 full-precision native coordinates, independently of rounded display text.
 
 **Slider** in **Plot Manipulation** is available for both Plots and ISAR.
-For **Az. vs D.R.** and **ISAR Image**, Frequency moves a band whose **Bandwidth**
+For **Az. vs D.R.**, **ISAR**, and **Composite**, Frequency moves a band whose **Bandwidth**
 is entered in the dataset's frequency units. Azimuth moves an **Aperture width**
 in degrees; Elevation steps individual acquired elevations. Other plots retain
 single-coordinate stepping. The sweep covers the entire available parameter

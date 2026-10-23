@@ -31,7 +31,7 @@ def update_image_style(owner):
     mode = getattr(owner, "last_plot_mode", None)
     if mode == "waterfall":
         return update_waterfall_display(owner)
-    if mode not in ("isar_image", "az_vs_range", "range_freq", "delta_map"):
+    if mode not in ("isar_image", "isar_composite", "az_vs_range", "range_freq", "delta_map"):
         return False
     axes = list(getattr(owner, "plot_axes", None) or [owner.plot_ax])
     meshes = [artist for ax in axes for artist in [*ax.images, *ax.collections]
@@ -42,7 +42,8 @@ def update_image_style(owner):
     state = getattr(figure, "_grim_image_display_state", None)
     if state is None or state["mode"] != mode or state["meshes"] != meshes:
         linear = owner._plot_scale_is_linear()
-        label = {"isar_image": "Image Intensity (linear)" if linear else "Image Intensity (dB)",
+        label = {"isar_composite": "Image Intensity (linear)" if linear else "Image Intensity (dB)",
+                 "isar_image": "Image Intensity (linear)" if linear else "Image Intensity (dB)",
                  "az_vs_range": "Range image intensity (linear, a.u.)" if linear else "Range image intensity (dB re 1 a.u.)",
                  "delta_map": "A - B (dB)"}.get(mode, "")
         if mode == "range_freq":

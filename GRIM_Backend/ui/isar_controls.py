@@ -53,10 +53,11 @@ class AdvancedIsarControls(QWidget):
         layout = QFormLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.mode = QComboBox()
-        for label, value in (("Automatic aperture policy", "auto"), ("Single coherent image", "coherent"),
+        for label, value in (("Single coherent image", "coherent"),
                              ("Qualitative max-look composite", "composite")):
             self.mode.addItem(label, value)
-        self.mode.setToolTip("Automatic retains the 20° composite switch. A coherent image requires <90° and should be checked against the requested scene.")
+        self.mode.setEnabled(False)
+        self.mode.setToolTip("Selected by the ISAR or Composite plot button. ISAR forms a coherent image; Composite combines sublook magnitudes.")
         layout.addRow("Image mode", self.mode)
         self.scene = QCheckBox("Use scene bounds and crop result")
         layout.addRow(self.scene)
@@ -103,6 +104,14 @@ class AdvancedIsarControls(QWidget):
             spin.valueChanged.connect(lambda _=None: self.changed.emit() if self.scene.isChecked() else None)
         self.side.valueChanged.connect(lambda: self.changed.emit() if self.side.isEnabled() else None)
         self.native.toggled.connect(lambda: self.changed.emit() if self.native.isEnabled() else None)
+        self.set_plot_mode("isar_image")
+
+    def set_plot_mode(self, plot_mode):
+        value = "composite" if plot_mode == "isar_composite" else "coherent"
+        blocked = self.mode.blockSignals(True)
+        self.mode.setCurrentIndex(self.mode.findData(value))
+        self.mode.blockSignals(blocked)
+        self.side.setEnabled(value == "composite")
 
     def _mode_changed(self):
         self.side.setEnabled(self.mode.currentData() != 'coherent')

@@ -3823,7 +3823,7 @@ class DatasetOpsMixin:
         return started
 
     def _export_plot(self) -> None:
-        if self.last_plot_mode == "isar_image":
+        if self.last_plot_mode in ("isar_image", "isar_composite"):
             if getattr(self, "_isar_busy", False):
                 self.status.showMessage(
                     "ISAR reconstruction is still running; wait for the latest "

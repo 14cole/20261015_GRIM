@@ -156,12 +156,14 @@ PLOT_OPS_SPECS = {
             ("Phase Analysis", "phase_analysis"),
             ("Polarization", "polarization"),
             ("Images A/B…", "image_compare"),
+            ("Mask Cut", "mask_cut"),
         ),
     ),
     "isar": (
         (
             ("Clear", "clear"),
-            ("ISAR Image (BETA)", "isar_image"),
+            ("ISAR (BETA)", "isar_image"),
+            ("Composite (BETA)", "isar_composite"),
             ("Az. vs D.R.", "az_vs_range"),
             ("Slider", "slider"),
             ("Overlays", "overlays"),
@@ -180,6 +182,7 @@ PLOT_OPS_SPECS = {
             ("Phase Analysis", "phase_analysis"),
             ("Polarization", "polarization"),
             ("Images A/B…", "image_compare"),
+            ("Mask Cut", "mask_cut"),
         ),
     ),
 }
@@ -191,11 +194,11 @@ PLOTTING_CONTROL_GROUPS = (
         ("azimuth_rect", "azimuth_polar", "frequency", "elevation_sweep", "waterfall", "cdf"),
         ("compare", "delta_map", "sector_stats", "range_freq", "pbp", "phase"),
     )),
-    ("ISAR", (("isar_image", "az_vs_range"),)),
+    ("ISAR", (("isar_image", "isar_composite", "az_vs_range"),)),
     ("Plot Manipulation", (
         ("fit_x", "fit_y", "fit_both", "zoom_box", "pan"),
         ("markers", "slider", "overlays", "measure"),
-        ("phase_analysis", "polarization", "image_compare"),
+        ("phase_analysis", "polarization", "image_compare", "mask_cut"),
     )),
 )
 
@@ -926,6 +929,8 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
                     controls[role].clicked.connect(
                         lambda _checked=False, key=analysis: self._show_engineering_tool(key)
                     )
+            if "mask_cut" in controls:
+                controls["mask_cut"].clicked.connect(self._show_mask_cut)
             if "image_compare" in controls:
                 controls["image_compare"].clicked.connect(self._show_image_comparison)
             if "azimuth_rect" in controls:
@@ -980,6 +985,9 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
                 controls["isar_image"].clicked.connect(
                     self._on_explicit_isar_plot_clicked
                 )
+            if "isar_composite" in controls:
+                controls["isar_composite"].clicked.connect(
+                    lambda checked=False: self._on_explicit_isar_plot_clicked(checked, composite=True))
             if "az_vs_range" in controls:
                 controls["az_vs_range"].clicked.connect(self._plot_az_vs_range)
             if "fit_both" in controls:
@@ -1357,6 +1365,10 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             self._plot_contexts[self._active_plot_tab].inline_analysis = panel
         panel.open_tool(tab or "measure")
         return panel
+
+    def _show_mask_cut(self, _checked=False) -> None:
+        from GRIM_Backend.ui.mask_cut import open_mask_cut
+        self._mask_cut_dialog = open_mask_cut(self)
 
     def _show_image_comparison(self, _checked=False) -> None:
         from GRIM_Backend.ui.image_comparison import open_image_comparison
@@ -1934,6 +1946,9 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
                 "measure": "Measure traces (peaks, crossings, bandwidth, region statistics) or click two image points for distance. Azimuth vs Downrange reports angular and downrange separation separately.",
                 "phase_analysis": "Plot magnitude/phase, I/Q, phase residual, or phase-slope diagnostics on this canvas.",
                 "polarization": "Plot channel strengths, co-/cross-channel ratios, reciprocity, and channel phase differences on this canvas.",
+                "isar_image": "Form a coherent ISAR image of the selected aperture.",
+                "isar_composite": "Combine sublook magnitudes into a composite image.",
+                "mask_cut": "Keep or remove a drawn region from ISAR/Composite and create a new dataset.",
                 "image_compare": "Compare captured images with locked coordinates and scales, linked cursors, blink/swipe, signed differences, and region statistics.",
                 "sector_stats": (
                     "Mean, median, max, min, or a percentile of linear power inside "
@@ -2139,6 +2154,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         self.btn_auto_scale = controls.get("auto_scale")
         self.btn_pbp = controls.get("pbp")
         self.btn_isar_image = controls.get("isar_image")
+        self.btn_isar_composite = controls.get("isar_composite")
         self.btn_phase = controls.get("phase")
         self.btn_zoom_box = controls.get("zoom_box")
         self.btn_pan = controls.get("pan")
@@ -2150,6 +2166,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         self.btn_phase_analysis = controls.get("phase_analysis")
         self.btn_polarization = controls.get("polarization")
         self.btn_image_compare = controls.get("image_compare")
+        self.btn_mask_cut = controls.get("mask_cut")
 
         context = self._plot_contexts[tab_key]
         if tab_key == "isar":

@@ -132,8 +132,8 @@ class SliderBandWidgetTests(unittest.TestCase):
             del self.harness
         self.app.processEvents()
 
-    def test_checkbox_updates_both_range_modes_and_arrows_select_adjacent_band(self):
-        for mode in ('isar_image', 'az_vs_range'):
+    def test_checkbox_updates_range_modes_and_arrows_select_adjacent_band(self):
+        for mode in ('isar_image', 'isar_composite', 'az_vs_range'):
             with self.subTest(mode=mode):
                 self.harness = SliderHarness(mode)
                 bar = self.harness.plot_slider

@@ -22,6 +22,7 @@ PLOT_MODES = MappingProxyType({mode.key: mode for mode in (
     PlotMode("cdf", "CDF", True),
     PlotMode("waterfall", "Waterfall", True),
     PlotMode("isar_image", "ISAR", True),
+    PlotMode("isar_composite", "Composite", True),
     PlotMode("delta_map", "Delta Map", True),
     PlotMode("compare", "Compare"),
     PlotMode("sector_stats", "Sector Statistics"),

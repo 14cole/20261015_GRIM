@@ -193,14 +193,14 @@ def plot_datasets(
             f"Unsupported headless plot mode {mode!r}; supported modes are "
             + ", ".join(sorted(HEADLESS_PLOT_MODES))
         )
-    if mode_key == "isar_image" and len(selected) != 1:
+    if mode_key in ("isar_image", "isar_composite") and len(selected) != 1:
         raise ValueError("ISAR headless plotting requires exactly one dataset")
     polarizations = tuple(dict.fromkeys(
         [polarization] if isinstance(polarization, str) else polarization
     ))
     if not polarizations or not all(isinstance(value, str) and value for value in polarizations):
         raise ValueError("polarization must contain one or more polarization names")
-    if mode_key in {"delta_map", "isar_image"} and len(polarizations) != 1:
+    if mode_key in {"delta_map", "isar_image", "isar_composite"} and len(polarizations) != 1:
         raise ValueError(f"{mode_key} requires exactly one polarization")
     polarization = polarizations[0]
     try:
@@ -596,13 +596,14 @@ def plot_datasets(
         tag = sweep_analysis.axis_tag(config, phase=phase) if mode_key == "frequency" or len(az_values) > 1 or config["mode"] != "median" else ""
         axes.set_ylabel(response.replace(" (", tag + " (", 1))
 
-    elif mode_key == "isar_image":
+    elif mode_key in ("isar_image", "isar_composite"):
         from GRIM_Backend.plotting.modes.isar_mode import _length_unit, form_isar
         from GRIM_Backend.isar.geometry import image_extent, draw_image, image_axis_labels
         from GRIM_Backend.isar.quality import reconstruction_advisories
 
         dataset = selected[0][1]
         options = dict(isar_options or {})
+        options["aperture_mode"] = "composite" if mode_key == "isar_composite" else "coherent"
         options.setdefault("length_unit", "in")
 
 
@@ -705,8 +706,9 @@ def plot_datasets(
                 )
             else:
                 reconstruction_label += " | Coherent + Wide-Aperture Composite"
+        image_name = "Composite" if mode_key == "isar_composite" else "ISAR"
         title = (
-            f"ISAR Image | {elevation_name} {elevation_deg:g} deg | "
+            f"{image_name} Image | {elevation_name} {elevation_deg:g} deg | "
             f"Pol {dataset.polarizations[pol_idx]} | {reconstruction_label}"
         )
         if len(bands) > 1:
@@ -813,6 +815,6 @@ def plot_datasets(
         handles, labels = axis.get_legend_handles_labels()
         if show_legend and handles:
             axis.legend()
-    if mode_key != "isar_image":
+    if mode_key not in ("isar_image", "isar_composite"):
         figure.tight_layout()
     return figure

@@ -868,6 +868,8 @@ def _estimate_band_working_set_bytes(
     # conservative per-source-cell allowance.
     preprocess_peak = 64 * source_cells
     retained_output = (12 if retain_complex else 4) * image_cells
+    if retain_complex:
+        retained_output += source_cells  # Mask Cut native validity map.
     if reconstruction == "sparse":
         # FISTA and support debias can simultaneously hold X/Y/gradient/new
         # iterates plus adjoint, residual and CG buffers.
@@ -910,18 +912,22 @@ def _result_array_bytes(results) -> int:
 
     total = 0
     seen: set[int] = set()
-    for result in results:
-        for value in result.values():
-            if not isinstance(value, np.ndarray):
-                continue
-            root = value
-            while isinstance(getattr(root, "base", None), np.ndarray):
-                root = root.base
-            identity = id(root)
-            if identity in seen:
-                continue
-            seen.add(identity)
-            total += int(root.nbytes)
+    pending = list(results)
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            pending.extend(value.values())
+            continue
+        if not isinstance(value, np.ndarray):
+            continue
+        root = value
+        while isinstance(getattr(root, "base", None), np.ndarray):
+            root = root.base
+        identity = id(root)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        total += int(root.nbytes)
     return total
 
 
@@ -2288,6 +2294,39 @@ def _compute_band(
             native["warning"] = "Sparse convergence fits the gridded model; the original polar measurements disagree with this image."
     elif recon == "sparse":
         native = {"status": "not_computed", "reason": "Native diagnostics disabled by caller"}
+    inverse_context = None
+    if retain_complex and recon != "sparse":
+        # Capture the actual Fourier grid before display flips/cropping. The
+        # inverse recovers windowed, gridded phase history, never an untapered
+        # claim to the original measurements.
+        wa = _window_array(window_name, len(theta)).astype(np.float32)
+        wf = _window_array(window_name, len(freq_uniform)).astype(np.float32)
+        gain = float(sum(np.sum(weights[row] * wa[row] * wf, dtype=np.float64)
+                         for row in range(len(theta))))
+        native_valid = allocate_result((len(sorted_band_indices), len(freq_indices_sorted)), bool)
+        ids, fids = np.asarray(sorted_band_indices), np.asarray(freq_indices_sorted)
+        for block in result_blocks(native_valid.shape):
+            if _cancel_requested(cancel_check):
+                return "ISAR computation superseded."
+            native_valid[block] = np.isfinite(dataset.rcs_slice(
+                np.ix_(ids[block[0]], [elev_idx], fids[block[1]], [pol_idx]))[:, 0, :, 0])
+        from GRIM_Backend.isar.masking import reconstruction_extra
+        inverse_context = {
+            "full_x": np.asarray(x_range).copy(), "full_y": np.asarray(y_range).copy(),
+            "u": np.mean(freq_uniform) * (theta - np.mean(theta)),
+            "v": np.asarray(freq_uniform).copy(), "gain": gain,
+            "accurate": preprocess_mode == "accurate", "conjugate_time": conjugate_time,
+            "native_azimuth_degrees": band_az_values[order].copy(),
+            "native_frequency_hz": np.asarray(freq_hz).copy(),
+            "look_center_degrees": float(np.mean(az_values)),
+            "azimuths": np.asarray(dataset.azimuths)[ids].copy(),
+            "frequencies": np.asarray(dataset.frequencies)[fids].copy(),
+            "elevations": np.asarray(dataset.elevations)[[elev_idx]].copy(),
+            "polarizations": [str(dataset.polarizations[pol_idx])],
+            "native_valid": native_valid, "units": dict(dataset.units or {}),
+            "extra": reconstruction_extra(dataset),
+            "history": str(dataset.history or ""), "window": window_name,
+        }
     return {
         "az_values": az_values,
         "magnitude": magnitude,
@@ -2322,6 +2361,7 @@ def _compute_band(
             "coverage_interpolation": "windowed_sinc_on_complete_stencils_cubic_at_edges_positive_linear_near_holes" if preprocess_mode == "accurate" else "positive_linear",
         },
         **({"complex_image": complex_image} if retain_complex else {}),
+        **({"mask_inverse": inverse_context} if inverse_context is not None else {}),
     }
 
 
@@ -2914,6 +2954,8 @@ def _compute_bands(params: dict):
             result["x_range"] = result["x_range"][ix].copy()
             result["y_range"] = result["y_range"][iy].copy()
             result["scene_cropped"] = True
+        if params.get("retain_mask_source"):
+            result["mask_magnitude"] = result["magnitude"]
         # GUI rendering can reduce oversized images after formation; headless
         # callers keep the full numerical grid by disabling this parameter.
         if params.get("decimate_display", True):
@@ -3138,10 +3180,10 @@ def form_isar(
     return result
 
 
-def render(self) -> None:
+def render(self, *, composite=False) -> None:
     """Compatibility entrypoint for the ISAR presentation adapter."""
     from .isar_render import render as implementation
-    return implementation(self)
+    return implementation(self, composite=composite)
 
 
 def display_results(self, params: dict, band_results: list, elapsed: float) -> None:

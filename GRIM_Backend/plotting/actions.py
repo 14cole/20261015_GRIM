@@ -419,7 +419,8 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             "frequency": self._plot_frequency,
             "elevation_sweep": self._plot_elevation_sweep,
             "waterfall": self._plot_waterfall,
-            "isar_image": self._plot_isar_image,
+            "isar_image": lambda: self._plot_isar_image(composite=False),
+            "isar_composite": self._plot_isar_composite,
             "az_vs_range": self._plot_az_vs_range,
             "compare": self._plot_compare,
             "delta_map": self._plot_delta_map,
@@ -503,7 +504,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             self._plot_azimuth_polar()
         elif self.last_plot_mode == "frequency":
             self._plot_frequency()
-        elif self.last_plot_mode == "isar_image":
+        elif self.last_plot_mode in ("isar_image", "isar_composite"):
             self._plot_isar_image()
 
     def _on_waterfall_style_changed(self) -> None:
@@ -516,7 +517,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         if self.last_plot_mode == "range_freq":
             self._plot_range_freq()
             return
-        if self.last_plot_mode not in ("waterfall", "isar_image", "az_vs_range"):
+        if self.last_plot_mode not in ("waterfall", "isar_image", "isar_composite", "az_vs_range"):
             return
         if self.last_plot_mode == "waterfall":
             self._plot_waterfall()
@@ -569,7 +570,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
 
         if self.last_plot_mode == "waterfall":
             self._plot_waterfall()
-        elif self.last_plot_mode == "isar_image":
+        elif self.last_plot_mode in ("isar_image", "isar_composite"):
             self._plot_isar_image()
         elif self.last_plot_mode == "az_vs_range":
             self._plot_az_vs_range()
@@ -634,7 +635,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             self._plot_range_freq()
         elif self.last_plot_mode == "waterfall":
             self._plot_waterfall()
-        elif self.last_plot_mode == "isar_image":
+        elif self.last_plot_mode in ("isar_image", "isar_composite"):
             self._plot_isar_image()
         elif self.last_plot_mode == "az_vs_range":
             self._plot_az_vs_range()
@@ -1276,7 +1277,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         if self.last_plot_mode != "delta_map" and getattr(self.plot_figure, "_grim_delta_layout", False):
             self.plot_figure.set_layout_engine(None)
             self.plot_figure._grim_delta_layout = False
-        if self.last_plot_mode != 'isar_image' and getattr(self.plot_figure, '_grim_isar_layout', False):
+        if self.last_plot_mode not in ('isar_image', 'isar_composite') and getattr(self.plot_figure, '_grim_isar_layout', False):
             self.plot_figure.set_layout_engine(None)
             self.plot_figure._grim_isar_layout = False
         if self.last_plot_mode not in ("frequency", "elevation_sweep", "cdf") and getattr(
@@ -2301,7 +2302,8 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             signals.done.connect(self._on_isar_compute_done)
             signals.progress.connect(self._on_isar_progress)
         params["progress"] = lambda detail: signals.progress.emit(params, str(detail))
-        self.status.showMessage("Computing ISAR image…")
+        image_name = "Composite" if params.get("plot_mode") == "isar_composite" else "ISAR"
+        self.status.showMessage(f"Computing {image_name} image…")
 
         def work(params=params, signals=signals):
             try:
@@ -2348,7 +2350,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
                 self._last_isar_figure_token = params.get("figure_token")
                 # Freeze the worker-captured recipe after successful publication.
                 self._record_python_plot(
-                    "isar_image",
+                    params.get("plot_mode", "isar_image"),
                     resolved=self._resolved_isar_python_plot(params),
                     datasets_override=[("ISAR Dataset", params["dataset"])],
                     emit=bool(params.get("_record_python_request", False)),
@@ -2389,7 +2391,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         width_spin = getattr(self, "spin_isar_ap_width", None)
         if center_spin is None or width_spin is None:
             return
-        mode = "az_vs_range" if self.last_plot_mode == "az_vs_range" else "isar_image"
+        mode = self.last_plot_mode if self.last_plot_mode in ("az_vs_range", "isar_composite") else "isar_image"
         chk = getattr(self, "chk_isar_aperture", None)
         width = float(width_spin.value())
         step = width / 2.0 if width > 0.0 else 1.0  # 50% overlap between looks
@@ -2446,9 +2448,9 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         self._isar_play_generation = getattr(self, "_isar_play_generation", 0) + 1
         if checked:
             self._isar_play_mode = (
-                "az_vs_range" if self.last_plot_mode == "az_vs_range" else "isar_image"
+                self.last_plot_mode if self.last_plot_mode in ("az_vs_range", "isar_composite") else "isar_image"
             )
-            if self.last_plot_mode not in ("isar_image", "az_vs_range"):
+            if self.last_plot_mode not in ("isar_image", "isar_composite", "az_vs_range"):
                 self.last_plot_mode = "isar_image"
             self._isar_play_step()
 
@@ -2456,7 +2458,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         """Set the color scale to [peak − N, peak] of the rendered image —
         the standard ISAR dynamic-range convention. Works on the displayed
         data, so it's instant (no recompute)."""
-        if self.last_plot_mode not in ("isar_image", "az_vs_range"):
+        if self.last_plot_mode not in ("isar_image", "isar_composite", "az_vs_range"):
             self.status.showMessage("Peak scaling applies to a rendered ISAR or azimuth/range image.")
             return
         meshes = self._current_isar_image_meshes()
@@ -2498,7 +2500,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         self._maybe_autoplot()
 
     def _on_isar_window_changed(self) -> None:
-        if self.last_plot_mode == "isar_image":
+        if self.last_plot_mode in ("isar_image", "isar_composite"):
             self._plot_isar_image()
         elif self.last_plot_mode == "az_vs_range":
             self._plot_az_vs_range()
@@ -2507,7 +2509,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         """Retune the rendered ISAR image's color scale in place. Unlike the
         Apply button this does NOT re-run the imaging — clim changes only
         touch the existing AxesImage, so they can respond per keystroke."""
-        if self.last_plot_mode not in ("isar_image", "az_vs_range"):
+        if self.last_plot_mode not in ("isar_image", "isar_composite", "az_vs_range"):
             return
         from GRIM_Backend.plotting.image_display import update_image_style
         if update_image_style(self):
@@ -3051,12 +3053,12 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         if checked is not None:
             self.plot_canvas.draw_idle()
 
-    def _on_explicit_isar_plot_clicked(self, _checked: bool = False) -> None:
+    def _on_explicit_isar_plot_clicked(self, _checked: bool = False, *, composite=False) -> None:
         """Form one ISAR request with recorder intent scoped to that request."""
 
         self._python_record_next_isar = True
         try:
-            self._plot_isar_image()
+            self._plot_isar_image(composite=composite)
         finally:
             self._python_record_next_isar = False
 
@@ -3105,7 +3107,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             if show_legend is None
             else bool(show_legend)
         )
-        if spec[3] == "isar_image":
+        if spec[3] in ("isar_image", "isar_composite"):
             parameters.update(self._current_isar_python_display_style())
         if spec[3] == "delta_map":
             parameters["show_colorbar"] = bool(self.chk_colorbar.isChecked())
@@ -3224,7 +3226,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         polarization = override.pop("polarization", None)
         if polarization is None:
             selected_pol = self._selected_values(self.list_pol)
-            if not selected_pol or (mode in ("isar_image", "delta_map") and len(selected_pol) != 1):
+            if not selected_pol or (mode in ("isar_image", "isar_composite", "delta_map") and len(selected_pol) != 1):
                 return
             polarization = selected_pol[0] if len(selected_pol) == 1 else tuple(selected_pol)
 
@@ -3266,7 +3268,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
                 (float(self.spin_plot_zmin.value()), float(self.spin_plot_zmax.value()))
                 if self.spin_plot_zmin.value() < self.spin_plot_zmax.value() else None
             )
-        if mode == "isar_image":
+        if mode in ("isar_image", "isar_composite"):
             parameters.update(self._current_isar_python_display_style())
         spec = (
             "supported",
@@ -3428,9 +3430,14 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         self._restore_plot_markers()
         self._maybe_autoscale()
 
-    def _plot_isar_image(self) -> None:
+    def _plot_isar_composite(self) -> None:
+        self._plot_isar_image(composite=True)
+
+    def _plot_isar_image(self, *, composite=None) -> None:
         self._set_compare_sector_controls_visible(False)
-        isar_mode.render(self)
+        if composite is None:
+            composite = self.last_plot_mode == "isar_composite"
+        isar_mode.render(self, composite=composite)
         self._maybe_autoscale()
 
     def _plot_az_vs_range(self) -> None:

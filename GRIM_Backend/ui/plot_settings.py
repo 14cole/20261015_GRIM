@@ -9,8 +9,8 @@ from PySide6.QtWidgets import (
 from GRIM_Backend.plotting.registry import PLOT_MODES
 
 
-IMAGES = {"waterfall", "isar_image", "az_vs_range", "range_freq", "delta_map"}
-RANGE_IMAGES = {"isar_image", "az_vs_range"}
+IMAGES = {"waterfall", "isar_image", "isar_composite", "az_vs_range", "range_freq", "delta_map"}
+RANGE_IMAGES = {"isar_image", "isar_composite", "az_vs_range"}
 
 
 class _SettingsTabs(QTabWidget):
@@ -97,12 +97,12 @@ class ContextPlotSettings(QWidget):
         form = self.group("Plot", "Range image processing", RANGE_IMAGES)
         self.row(form, "Window", c.combo_isar_window)
         self.row(form, "Range unit", c.combo_isar_units)
-        self.conditional_row(form, "Reconstruction", c.combo_isar_recon, when=lambda: self.mode == "isar_image")
+        self.conditional_row(form, "Reconstruction", c.combo_isar_recon, when=lambda: self.mode in ("isar_image", "isar_composite"))
         self.row(form, "", c.chk_isar_freq_band)
         self.conditional_row(form, "Frequency minimum", c.spin_isar_freq_min, when=c.chk_isar_freq_band.isChecked)
         self.conditional_row(form, "Frequency maximum", c.spin_isar_freq_max, when=c.chk_isar_freq_band.isChecked)
         self.row(form, "Mirror downrange", c.chk_isar_flip_y)
-        self.conditional_row(form, "Mirror cross-range", c.chk_isar_flip_x, when=lambda: self.mode == "isar_image")
+        self.conditional_row(form, "Mirror cross-range", c.chk_isar_flip_x, when=lambda: self.mode in ("isar_image", "isar_composite"))
         c.chk_isar_freq_band.toggled.connect(self.refresh_conditions)
         form = self.group("Plot", "Aperture", RANGE_IMAGES)
         self.row(form, "", c.chk_isar_aperture)
@@ -113,22 +113,22 @@ class ContextPlotSettings(QWidget):
         c.chk_isar_aperture.toggled.connect(self.refresh_conditions)
         form = self.group("Axes & color", "Image display", RANGE_IMAGES)
         self.row(form, "Dynamic range", c.spin_isar_peak_drop, c.btn_isar_peak_scale)
-        self.conditional_row(form, "", c.chk_isar_square, when=lambda: self.mode == "isar_image")
+        self.conditional_row(form, "", c.chk_isar_square, when=lambda: self.mode in ("isar_image", "isar_composite"))
         c.btn_isar_apply.setText("Apply plot settings")
         c.btn_isar_apply.setToolTip("Recompute the current image using these processing settings. Color and axis limits update directly.")
 
-        form = self.group("Advanced", "Azimuth interpolation", {"isar_image"})
+        form = self.group("Advanced", "Azimuth interpolation", {"isar_image", "isar_composite"})
         self.row(form, "", c.chk_isar_az_interp)
         for label, spin in (("Minimum (deg)", c.spin_isar_az_min), ("Maximum (deg)", c.spin_isar_az_max),
                             ("Step (deg)", c.spin_isar_az_step)):
             self.conditional_row(form, label, spin, when=c.chk_isar_az_interp.isChecked)
         c.chk_isar_az_interp.toggled.connect(self.refresh_conditions)
-        form = self.group("Advanced", "Sparse reconstruction", {"isar_image"},
+        form = self.group("Advanced", "Sparse reconstruction", {"isar_image", "isar_composite"},
                           when=lambda: c.combo_isar_recon.currentText().lower().startswith("sparse"))
         self.row(form, "Strength", c.spin_isar_l1_strength)
         self.row(form, "Iterations", c.spin_isar_l1_iters)
         c.combo_isar_recon.currentIndexChanged.connect(self.refresh_conditions)
-        form = self.group("Advanced", "Scene, composition & memory", {"isar_image"})
+        form = self.group("Advanced", "Scene, composition & memory", {"isar_image", "isar_composite"})
         c.isar_advanced.layout().setRowWrapPolicy(QFormLayout.WrapLongRows)
         c.isar_advanced.scene.setText("Crop to scene bounds")
         c.isar_advanced.native.setText("Validate against measured samples")
@@ -194,11 +194,12 @@ class ContextPlotSettings(QWidget):
 
     def set_mode(self, mode):
         self.mode = mode
+        self.context.isar_advanced.set_plot_mode(mode)
         title = PLOT_MODES[mode].label if mode in PLOT_MODES else (mode or "").replace("_", " ").title()
         self.heading.setText(f"Settings for {title}" if mode else "Create a plot to see its settings.")
         # Range profiles do not use the sparse reconstruction choice retained
         # from a preceding ISAR image.
-        self.context.combo_isar_window.setEnabled(mode != "isar_image" or not
+        self.context.combo_isar_window.setEnabled(mode not in ("isar_image", "isar_composite") or not
             self.context.combo_isar_recon.currentText().lower().startswith("sparse"))
         self.refresh_conditions()
 

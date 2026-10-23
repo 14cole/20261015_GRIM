@@ -33,11 +33,11 @@ def _spin_band_bounds(lo_spin, hi_spin, lo: float, hi: float) -> tuple[float, fl
     return low, high
 
 
-def render(self) -> None:
+def render(self, *, composite=False) -> None:
     """GUI-thread half: validate the selections, capture everything the worker
     needs into a params dict, and hand off to the mixin's async submit. The
     finished computation comes back through `display_results`."""
-    self.last_plot_mode = "isar_image"
+    self.last_plot_mode = "isar_composite" if composite else "isar_image"
     self._start_plot_render()
     if self.active_dataset is None:
         self.status.showMessage("Select a dataset before plotting.")
@@ -45,7 +45,10 @@ def render(self) -> None:
     if self._preflight_plot_datasets([("Dataset", self.active_dataset)]) is None:
         return
     advanced = getattr(self, "isar_advanced", None)
+    if advanced is not None:
+        advanced.set_plot_mode(self.last_plot_mode)
     options = advanced.options() if advanced is not None else {}
+    options["aperture_mode"] = "composite" if composite else "coherent"
     # Freeze the automatic system-aware budget now; every band and replay
     # uses the same captured choice rather than a moving available-RAM value.
     options["memory_limit_bytes"] = computation.resolve_memory_limit(
@@ -306,16 +309,18 @@ def render(self) -> None:
                 az_count,
                 len(freq_indices_sorted),
                 reconstruction="accurate" if recon == "auto" else recon,
-                retain_complex=False,
+                retain_complex=True,
             )
             n_az_fft = computation._next_fast_len(max(az_count, 256))
             n_freq_fft = computation._next_fast_len(max(len(freq_indices_sorted), 256))
-            # Only the display-decimated magnitude outlives formation.
+            # Keep native magnitude and complex pixels for Mask Cut.
             reduced = max(n_az_fft, n_freq_fft) > min(
                 common.MAX_IMAGE_SIDE, int(np.sqrt(common.MAX_IMAGE_CELLS)))
             # Reduced overviews keep two native peak-index grids as well as
             # magnitude; these remain bounded by the display cell budget.
-            retained = (12 if reduced else 4) * common.bounded_image_cell_count(n_az_fft, n_freq_fft)
+            retained = 12 * n_az_fft * n_freq_fft + len(band) * len(freq_indices_sorted)
+            if reduced:
+                retained += 12 * common.bounded_image_cell_count(n_az_fft, n_freq_fft)
         estimated_peak = max(estimated_peak, estimated_resident + working)
         estimated_resident += retained
     try:
@@ -332,6 +337,9 @@ def render(self) -> None:
     params = {
         **options,
         "dataset": self.active_dataset,
+        "retain_complex": not composite,
+        "retain_mask_source": True,
+        "plot_mode": self.last_plot_mode,
         # Identity token: if the active figure changed while computing (user
         # switched tabs), the finished result is dropped instead of being
         # painted onto whatever tab is now in front.
@@ -459,6 +467,8 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
                 br["x_range"], br["y_range"], br["display_peak_x_indices"], br["display_peak_y_indices"])
         from GRIM_Backend.plotting.image_analysis import attach_isar_record
         attach_isar_record(self, mesh, br, params)
+        from GRIM_Backend.isar.masking import image_from_band
+        mesh._grim_mask_source = image_from_band(br, params)
         if square_aspect:
             # Preserve the selected coordinate limits on every redraw. With
             # constrained layout and a colorbar, adjustable="datalim" can
@@ -496,8 +506,9 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
             recon_label += f" | Wide-Aperture Composite ({composite_subs} looks)"
         else:
             recon_label += " | Coherent + Wide-Aperture Composite"
+    image_name = "Composite" if params.get("plot_mode") == "isar_composite" else "ISAR"
     fig_title = (
-        f"ISAR Image | {elev_name} {elev_value:g} deg | Pol {pol_value}{recon_label}"
+        f"{image_name} | {elev_name} {elev_value:g} deg | Pol {pol_value}{recon_label}"
     )
     if n_bands > 1:
         self.plot_figure.suptitle(fig_title, color=self._current_plot_text())
@@ -603,7 +614,7 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
         mode_label = "Cartesian PFA"
     else:
         mode_label = "Fast PFA"
-    parts = [f"ISAR image updated in {elapsed:.2f}s ({mode_label})"]
+    parts = [f"{image_name} image updated in {elapsed:.2f}s ({mode_label})"]
     if n_bands > 1:
         parts.append(f" ({n_bands} bands)")
     notes = []
