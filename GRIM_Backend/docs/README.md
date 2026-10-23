@@ -236,11 +236,8 @@ to save a standalone converted CSV or whitespace table instead.
 ## Appearance
 
 Choose **View → Application Palette** to switch the complete integrated GUI
-between **Colorful**, **Light**, **Dark**, and **Raytheon** chrome. The Raytheon
-application palette uses only the official primary and secondary colors:
-white, black, Cool Gray 1/5/10, and Red 186. Its five tertiary colors are
-reserved for PowerPoint charts with enough data series to require them; they
-are not used for application chrome or embedded-tool plots.
+between **Colorful**, **Dark**, **Neutral Dark**, and **Windows Classic** chrome.
+Saved Light or Raytheon preferences fall back to Dark.
 The choice is saved for the next GRIM session and is applied immediately to
 GRIM controls, both plot canvases, GHOST geometry/solver views, FREDDY controls
 and plots, and the Assembly 3-D preview. Changing appearance never changes a

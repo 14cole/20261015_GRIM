@@ -24,27 +24,6 @@ APPLICATION_PALETTES: dict[str, dict[str, object]] = {
             "#4f46e5", "#0e7490", "#9333ea", "#0284c7",
         ),
     },
-    "Light": {
-        "is_dark": False,
-        "win_bg": "#f1f5f9",
-        "panel_bg": "#ffffff",
-        "text": "#0f172a",
-        "head_bg": "#dbeafe",
-        "border": "#94a3b8",
-        "hover": "#bfdbfe",
-        "checked_bg": "#2563eb",
-        "checked_border": "#1d4ed8",
-        "grid": "#cbd5e1",
-        "muted": "#475569",
-        "fg": "#0f172a",
-        "plot_line_freq": "#0369a1",
-        "plot_line_angle": "#6d28d9",
-        "plot_worst": "#b45309",
-        "layer_colors": (
-            "#1d4ed8", "#0369a1", "#4f46e5", "#0e7490",
-            "#2563eb", "#475569", "#7c3aed", "#0284c7",
-        ),
-    },
     "Dark": {
         "is_dark": True,
         "win_bg": "#0f172a",
@@ -90,29 +69,6 @@ APPLICATION_PALETTES: dict[str, dict[str, object]] = {
             "#047857", "#be185d", "#4338ca", "#475569",
         ),
     },
-    "Raytheon": {
-        "is_dark": False,
-        "win_bg": "#d9d9d6",
-        "panel_bg": "#ffffff",
-        "text": "#000000",
-        "head_bg": "#d9d9d6",
-        "border": "#63666a",
-        "hover": "#63666a",
-        "checked_bg": "#ce1126",
-        "checked_border": "#ce1126",
-        "grid": "#b1b3b3",
-        "muted": "#63666a",
-        "fg": "#000000",
-        # Embedded application plots use primary/secondary colors. The brand's
-        # tertiary colors are reserved for PowerPoint charts when needed.
-        "plot_line_freq": "#000000",
-        "plot_line_angle": "#ce1126",
-        "plot_worst": "#63666a",
-        "layer_colors": (
-            "#000000", "#ce1126", "#63666a", "#b1b3b3",
-            "#d9d9d6", "#000000", "#ce1126", "#63666a",
-        ),
-    },
     "Windows Classic": {
         # Early-2000s Windows chrome. "ui_style": "classic" switches
         # GRIM_Backend/ui/classic_theme.py on; see that module to remove.
@@ -148,15 +104,15 @@ APPLICATION_PALETTES: dict[str, dict[str, object]] = {
 DEFAULT_APPLICATION_PALETTE = "Dark"
 APPLICATION_PALETTE_DESCRIPTIONS = {
     "Colorful": "Purple, cyan, and magenta dark application chrome",
-    "Light": "Bright neutral application chrome with blue accents",
     "Dark": "GRIM blue/slate dark application chrome",
     "Neutral Dark": "Neutral slate surfaces, subtle borders, and blue actions",
-    "Raytheon": "Official white, black, cool gray, and Red 186 chrome",
     "Windows Classic": "Early-2000s Windows gray chrome with bevels and navy selection",
 }
 APPLICATION_PALETTE_SETTINGS_KEY = "appearance/application_palette"
 LEGACY_APPLICATION_PALETTE_NAMES = {
-    "Raytheon-inspired": "Raytheon",
+    "Light": "Dark",
+    "Raytheon": "Dark",
+    "Raytheon-inspired": "Dark",
 }
 # Official tertiary colors are intentionally not part of application chrome
 # or embedded-tool plots. They are reserved for optional PowerPoint charts
