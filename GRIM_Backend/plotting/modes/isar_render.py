@@ -61,12 +61,14 @@ def render(self) -> None:
     flip_y_widget = getattr(self, "chk_isar_flip_y", None)
     flip_y = bool(flip_y_widget.isChecked()) if flip_y_widget is not None else False
     contract_assumptions: list[str] = []
+    metadata_notes: list[str] = []
     try:
         preflight_error = computation._isar_preflight_error(
             self.active_dataset,
             flip_x=flip_x,
             flip_y=flip_y,
             undeclared_out=contract_assumptions,
+            notes_out=metadata_notes,
         )
     except (TypeError, ValueError) as exc:
         self.status.showMessage(f"ISAR blocked: invalid convention metadata: {exc}.")
@@ -353,6 +355,7 @@ def render(self) -> None:
         "flip_x": flip_x,
         "flip_y": flip_y,
         "isar_contract_assumptions": contract_assumptions,
+        "isar_metadata_notes": metadata_notes,
     }
     # Reject an unformable aperture (e.g. a coherent sector of 90 degrees or
     # more) before starting the worker.

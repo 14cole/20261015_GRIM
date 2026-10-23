@@ -17,8 +17,7 @@ from GRIM_Backend.datasets.result_storage import allocate_result, operation_resu
 from GRIM_Backend.plotting.requests import PlotPlan, PlotRequest, PlotResult, check_cancel
 from GRIM_Backend.plotting.image_grid import native_sample_width
 
-from GRIM_Backend.datasets.transforms import _declared_time_sign
-from GRIM_Backend.datasets.phase_conventions import declared_range_phase_sign
+from GRIM_Backend.datasets.phase_conventions import plot_phase_conventions
 from . import common
 from .isar_mode import (
     _MAX_INTERP_COMPLEX_CELLS,
@@ -235,17 +234,16 @@ def _range_display_grid(azimuths, ranges, image, *, azimuth_width, max_side, ret
     return (*result, (ix, iy) if reduced else None) if return_peaks else result
 
 
-def _range_convention(dataset, *, flip_y=False):
-    """Validate before reading samples, including when called by a worker/script."""
-    time_sign = _declared_time_sign(dataset)
-    range_sign = declared_range_phase_sign(dataset)
+def _range_convention(dataset, *, flip_y=False, notes=None):
+    """Resolve time normalization while leaving display flips to the user."""
+    time_sign, range_sign = plot_phase_conventions(dataset, notes=notes)
     # Negative-time phasors are conjugated before the IFFT. A positive range
     # law in that convention therefore already becomes the canonical law.
-    if range_sign == 1 and time_sign != "-jwt" and not flip_y:
-        raise ValueError(
+    if range_sign == 1 and time_sign != "-jwt" and not flip_y and notes is not None:
+        notes.append(
             "dataset explicitly declares S~exp(+j*2*k*R), while the default range "
-            "axis assumes S~exp(-j*2*k*R). Convert the phase history and its "
-            "declarations, or enable Flip Y after validating a known target."
+            "axis assumes S~exp(-j*2*k*R); target positions may be mirrored. "
+            "The selected Flip Y setting is preserved."
         )
     return time_sign
 
@@ -265,13 +263,6 @@ def render(self) -> None:
     flip_x_widget = getattr(self, "chk_isar_flip_x", None)
     if flip_x_widget is not None and hasattr(flip_x_widget, "setEnabled"):
         flip_x_widget.setEnabled(False)
-    try:
-        for _, dataset in datasets:
-            _range_convention(dataset, flip_y=flip_y)
-    except ValueError as exc:
-        self.status.showMessage(f"Az vs Down-Range blocked: {exc}")
-        return
-
     az_indices = sorted(self._selected_indices(self.list_az))
     aperture = getattr(self, "chk_isar_aperture", None)
     if aperture is not None and aperture.isChecked() and az_indices:
@@ -393,7 +384,8 @@ def _prepare_panel(request, plan, frequency_plan, index, cancel, batch_bytes):
     from .isar_mode import _window_array
     dataset = plan.dataset
     flip_y = bool(request.options.get("flip_y", False))
-    time_sign = _range_convention(dataset, flip_y=flip_y)
+    metadata_notes = []
+    time_sign = _range_convention(dataset, flip_y=flip_y, notes=metadata_notes)
     if dataset.phase_coverage() == "none":
         # Zero-power cells of power-only data read as 0+0j and would pass the
         # usable-row check below without any real phase history.
@@ -459,6 +451,8 @@ def _prepare_panel(request, plan, frequency_plan, index, cancel, batch_bytes):
             range_padding_factor=n_fft / len(target),
             azimuth_gap_count=len(angular_bands(range(len(az_values)), az_values)) - 1,
             missing_profile_count=missing_profiles,
+            metadata_notes=metadata_notes,
+            time_convention_conjugated=time_sign == "-jwt",
             range_scalloping_loss_db=_range_scalloping_loss_db(window, n_fft))
 
 
@@ -510,7 +504,7 @@ def _display(self, result):
     notes = []
     for plan, panel in zip(request.plans, panels):
         sampling = panel["frequency_sampling"]
-        details = []
+        details = list(panel.get("metadata_notes", ()))
         if float(sampling["non_uniformity"]) >= 1e-3:
             details.append(f"resampled frequency (Δ-spread {sampling['non_uniformity']*100:.1f}%)")
         if sampling.get("gap_count", 0):
@@ -566,7 +560,8 @@ def _draw_panel(self, request, plan, panel, ax, vmin, vmax):
         "azimuth", "range", self._plot_axis_unit(reference,"azimuth"), unit_name,
         "range_profile_intensity", "linear" if self._plot_scale_is_linear() else "dB",
         logarithmic=not self._plot_scale_is_linear(),
-        notes=("Overview block maxima: cuts/ROI/differences use displayed blocks.",) if decimated else (),
+        notes=tuple(panel.get("metadata_notes", ())) + (
+            ("Overview block maxima: cuts/ROI/differences use displayed blocks.",) if decimated else ()),
         metadata={"kind":"az_vs_range", "source_name":source_name,
             "polarization":str(dataset.polarizations[pol_idx]),
             "frequency_values_hz":freq_hz.tolist(),
@@ -576,7 +571,8 @@ def _draw_panel(self, request, plan, panel, ax, vmin, vmax):
             "azimuth_gap_count":panel["azimuth_gap_count"],
             "missing_profile_count":panel["missing_profile_count"],
             "range_mirrored":bool(request.options.get("flip_y", False)),
-            "time_convention_conjugated":_declared_time_sign(dataset) == "-jwt"})
+            "time_convention_conjugated":panel["time_convention_conjugated"],
+            "metadata_notes":panel.get("metadata_notes", [])})
     if peak_indices is not None:
         attach_block_peak_probe(mesh, x_edges, y_edges, az_values, range_axis, *peak_indices)
     ax.set_xlabel(self._plot_axis_label(reference, "azimuth"))

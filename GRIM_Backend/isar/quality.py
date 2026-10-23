@@ -32,6 +32,7 @@ def reconstruction_advisories(bands):
     notes, native_checks, unchecked = [], [], []
     for band in bands:
         for item in [band, *band.get('composite_look_diagnostics', [])]:
+            notes.extend(item.get('isar_metadata_notes', []))
             notes.extend(item.get('accuracy_plan', {}).get('warnings', []))
             native = item.get('native_residual', {})
             if native.get('status') == 'computed':

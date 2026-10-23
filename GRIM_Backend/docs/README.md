@@ -589,42 +589,39 @@ averaging policies must be selected explicitly.
 
 ## ISAR formation and numerical results
 
-The ISAR tab forms a static-scene, far-field, monostatic image from calibrated
-complex phase history referenced to one fixed origin. Frequency units must be
-explicitly declared as Hz, kHz, MHz, or GHz. Explicit near-field, bistatic,
-quasi-/pseudo-monostatic, drifting-reference, or
-uncompensated-motion metadata fails closed. Genuinely missing legacy convention
-metadata and unknown producer vocabulary do not block formation: GRIM treats
-them as user-owned assumptions and records every undeclared contract field in
-the completed result and artifact.
-This is especially important for Pioneer PIO, whose interchange header cannot
-carry the full acquisition contract. The same contract also binds the two-way
-range law: for positive-time or undeclared-time samples, an explicit
-`S~exp(+j*2*k*R)` declaration is blocked under the default axes unless both
-Flip X and Flip Y are deliberately enabled and checked against a known
-asymmetric target. Declared negative-time samples are normalized automatically
-and do not need these flips to correct the time convention.
+The ISAR tab uses a static-scene, far-field, monostatic model to form an image
+from complex phase history. The user chooses which data to plot. SENTRi theta,
+other elevation conventions, near-field/bistatic geometry, motion, phase
+references, and range-phase declarations do not block formation. The selected
+numeric azimuth/elevation values are used as supplied after degree/radian unit
+conversion; SENTRi elevations are not automatically relabeled. Use **Geometry &
+Units → SENTRi El→GRIM** when you want that coordinate conversion.
 
-Time-convention checks include `time_convention`, `phase_reference`, and
-`amplitude_convention` in both metadata containers. Conflicting declarations
-are rejected. ISAR automatically conjugates declared negative-time samples
-before regridding, reconstruction, and native residual checks. The source
-dataset remains unchanged; the status message and exported image contract
-record the normalization. A display mirror remains a separate coordinate choice.
-Missing declarations and ambiguous placeholders such as `none`, `unknown`,
-and `unspecified` become recorded assumptions, not blockers. Explicit near-field,
-bistatic, drifting-reference, and unsupported coordinate declarations still
-require correction; missing frequency units and unusable phase data still block.
+Metadata that disagrees with the imaging model produces informational notes,
+not confirmation dialogs. Missing conventions remain recorded assumptions.
+The status/tooltip, numerical results (`isar_metadata_notes`), and saved ISAR
+artifact retain these notes. Formation still uses the same model; it does not
+add bistatic, near-field, or motion-compensation processing based on a tag.
+Frequency units must be declared as Hz, kHz, MHz, or GHz. Missing complex phase,
+insufficient samples, invalid axes, degenerate geometry (including signed
+elevation ±90°), unsupported algorithm parameters, and memory limits still
+receive numerical validation.
 
-Az. vs D.R. conjugates declared `exp(-jwt)` samples before range processing.
-For positive-time or undeclared-time samples that explicitly declare
-`S~exp(+j*2*k*R)`, it requires **Flip Y** or an explicit data/convention
-conversion. Flip Y mirrors the range coordinates and image together and is
-recorded in the image metadata. Flip X applies only to ISAR cross-range and
-is disabled on Az. vs D.R., whose horizontal coordinates remain acquired
-azimuths. For a horizontal scene, ISAR reports horizontal range at nonzero
-elevation; Az. vs D.R. reports line-of-sight range. Both retain the dataset's
-phase-reference origin.
+ISAR and Az. vs D.R. conjugate unambiguously declared `exp(-jwt)` samples before
+processing. The source remains unchanged and the result records normalization.
+Conflicting or malformed time declarations leave samples unconjugated and add
+an informational note; strict metadata checks remain in dataset-changing
+operations. Positive two-way range phase `S~exp(+j*2*k*R)` no longer requires
+Flip X/Flip Y or conversion before plotting. A note describes the possible
+mirroring, and the selected flips are honored. Range–Freq also treats ambiguous
+phase declarations as notes, retaining its existing normalization of usable
+range-phase declarations.
+
+Flip X applies only to ISAR cross-range and is disabled on Az. vs D.R., whose
+horizontal coordinates remain acquired azimuths. Flip Y mirrors the range
+coordinates and image together. For a horizontal scene, ISAR reports horizontal
+range at nonzero elevation; Az. vs D.R. reports line-of-sight range. Both retain
+the dataset's phase-reference origin.
 
 Fast PFA is the interactive narrow-look path; Accurate Cartesian PFA removes
 the remaining range-curvature approximation for supported apertures. Sparse L1

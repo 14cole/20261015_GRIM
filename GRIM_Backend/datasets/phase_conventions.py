@@ -69,3 +69,24 @@ def declared_range_phase_sign(dataset) -> int | None:
     if len(signs) > 1:
         raise ValueError("dataset contains contradictory two-way range-phase declarations")
     return next(iter(signs), None)
+
+
+def plot_phase_conventions(dataset, *, notes: list[str] | None = None):
+    """Resolve usable declarations without vetoing a read-only plot.
+
+    Ambiguous time metadata leaves samples unconjugated; ambiguous range
+    metadata leaves the plot's default range convention in effect. Strict
+    parsers remain available for operations that modify or combine datasets.
+    """
+    resolved = []
+    for parser, fallback in (
+        (declared_time_sign, "samples are used without time-convention conjugation"),
+        (declared_range_phase_sign, "the default range-phase convention is used"),
+    ):
+        try:
+            resolved.append(parser(dataset))
+        except (TypeError, ValueError) as exc:
+            resolved.append(None)
+            if notes is not None:
+                notes.append(f"{exc}; {fallback}")
+    return tuple(resolved)

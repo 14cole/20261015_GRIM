@@ -27,8 +27,7 @@ from GRIM_Backend.datasets.result_storage import (
 from GRIM_Backend.datasets.storage import raw_coverage_scope
 from GRIM_Backend.datasets.phase_conventions import (
     RANGE_PHASE_METADATA_KEYS as _ISAR_RANGE_PHASE_METADATA_KEYS,
-    declared_range_phase_sign as _declared_range_phase_sign,
-    declared_time_sign,
+    plot_phase_conventions,
     metadata_is_unspecified,
 )
 
@@ -965,7 +964,7 @@ _ISAR_MOTION_METADATA_KEYS = (
 )
 
 
-def _declared_scalar_metadata(dataset, key: str) -> str:
+def _strict_scalar_metadata(dataset, key: str) -> str:
     """Read one convention declaration without guessing between containers."""
 
     declared = []
@@ -993,6 +992,16 @@ def _declared_scalar_metadata(dataset, key: str) -> str:
     return declared[0] if declared else ""
 
 
+def _declared_scalar_metadata(dataset, key: str, *, notes=None) -> str:
+    """Read provenance without making malformed annotations a plot veto."""
+    try:
+        return _strict_scalar_metadata(dataset, key)
+    except (TypeError, ValueError) as exc:
+        if notes is not None:
+            notes.append(f"{exc}; the declaration is not used for imaging")
+        return ""
+
+
 def _isar_preflight_error(
     dataset,
     *,
@@ -1000,19 +1009,17 @@ def _isar_preflight_error(
     flip_x: bool = False,
     flip_y: bool = False,
     undeclared_out: list[str] | None = None,
+    notes_out: list[str] | None = None,
 ) -> str | None:
-    """Return a user-facing reason that ``dataset`` is unsafe for ISAR.
+    """Check numerical prerequisites and report nonblocking provenance notes.
 
-    The implemented k-space geometry is GRIM conic azimuth/elevation and the
-    IFFT uses ``exp(+j*omega*t)`` after normalizing negative-time samples, with a monostatic phase history
-    proportional to ``exp(-j*2*k*R)``. Missing declarations on a legacy file
-    are recorded as user assumptions instead of blocking formation;
-    contradictory or unsupported declarations still fail closed.
-
-    ``legacy_metadata_attested`` remains accepted for compatibility with
-    previously recorded scripts but is no longer required. When supplied,
-    ``undeclared_out`` receives human-readable names for contract declarations
-    that were absent from the source dataset.
+    Formation uses the selected numeric azimuth/elevation values as supplied
+    (after unit conversion), and the monostatic far-field model. Metadata does
+    not veto the user's choice or automatically relabel SENTRi theta. An
+    unambiguous negative-time declaration still normalizes samples to +jwt.
+    ``legacy_metadata_attested`` is accepted for script compatibility only.
+    ``undeclared_out`` records missing assumptions; ``notes_out`` records
+    declarations that disagree with the imaging model or are unusable.
     """
 
     if not isinstance(legacy_metadata_attested, (bool, np.bool_)):
@@ -1023,6 +1030,11 @@ def _isar_preflight_error(
         flip_y, (bool, np.bool_)
     ):
         raise TypeError("flip_x and flip_y must be True or False")
+
+    if notes_out is not None and not isinstance(notes_out, list):
+        raise TypeError("notes_out must be a list or None")
+    notes = notes_out if notes_out is not None else []
+    declared_time_key, range_phase_sign = plot_phase_conventions(dataset, notes=notes)
 
     units = getattr(dataset, "units", None) or {}
     extra = getattr(dataset, "extra", None) or {}
@@ -1129,36 +1141,22 @@ def _isar_preflight_error(
             or "reactive near" in semantic
         )
 
-    # Explicit incompatible geometry remains authoritative. Missing or
-    # placeholder geometry is recorded below as a user-owned assumption.
+    # Geometry annotations describe model suitability; they do not veto a plot.
     monostatic_declared = False
     far_field_declared = False
     for key in _ISAR_GEOMETRY_METADATA_KEYS:
-        declared = _declared_scalar_metadata(dataset, key)
+        declared = _declared_scalar_metadata(dataset, key, notes=notes)
         if not declared:
             continue
         if placeholder_semantics(declared):
             continue
         semantic = normalized_semantics(declared)
-        if any(word in semantic.split() for word in ("bistatic", "multistatic")):
-            return (
-                f"{key} declares {declared!r}; this ISAR implementation requires "
-                "monostatic phase history"
-            )
-        if (
-            "near field" in semantic
-            or "nearfield" in semantic
-            or "fresnel" in semantic
-        ):
-            return (
-                f"{key} declares {declared!r}; this ISAR implementation requires "
-                "far-field phase history"
-            )
         if incompatible_geometry(declared):
-            return (
-                f"{key} is explicitly {declared!r}; verify and declare far-field "
-                "monostatic geometry before ISAR"
+            notes.append(
+                f"{key} is explicitly {declared!r}; formation still assumes "
+                "far-field monostatic geometry"
             )
+            continue
         geometry_identity_key = key in _ISAR_GEOMETRY_IDENTITY_KEYS
         if geometry_identity_key:
             if "monostatic" not in semantic.split():
@@ -1182,16 +1180,14 @@ def _isar_preflight_error(
     # ``complex_field_domain`` records the algebraic meaning of a complex
     # response (for example a support-referenced difference or a feature
     # delta), not necessarily its propagation zone.  Preserve those valid
-    # downstream workflows while still rejecting an explicitly unsafe domain.
+    # downstream workflows while reporting a different propagation domain.
     complex_field_domain = _declared_scalar_metadata(
-        dataset, "complex_field_domain"
+        dataset, "complex_field_domain", notes=notes
     )
     if complex_field_domain and incompatible_geometry(complex_field_domain):
-        return (
-            "complex_field_domain declares an incompatible or unverified "
-            f"response {complex_field_domain!r}; ISAR requires a verified "
-            "far-field response"
-        )
+        notes.append("complex_field_domain declares an incompatible or unverified "
+            f"response {complex_field_domain!r}; formation still assumes a "
+            "far-field response")
     if complex_field_domain and recognized_far_field(complex_field_domain):
         far_field_declared = True
     if any(
@@ -1203,14 +1199,12 @@ def _isar_preflight_error(
             "fixed_observation_elevation_deg",
         )
     ):
-        return (
-            "dataset carries fixed incident/observation coordinates from a "
-            "bistatic acquisition; monostatic ISAR cannot use that geometry"
-        )
+        notes.append("dataset carries fixed incident/observation coordinates from a "
+            "bistatic acquisition; formation still uses the monostatic model")
 
     stable_motion_declared = False
     for key in _ISAR_MOTION_METADATA_KEYS:
-        declared = _declared_scalar_metadata(dataset, key)
+        declared = _declared_scalar_metadata(dataset, key, notes=notes)
         if not declared:
             continue
         if placeholder_semantics(declared):
@@ -1231,10 +1225,9 @@ def _isar_preflight_error(
         else:
             explicitly_unsafe = unsafe_semantics(declared)
         if explicitly_unsafe:
-            return (
-                f"{key} declares {declared!r}; ISAR requires a stable, "
-                "motion-compensated phase center"
-            )
+            notes.append(f"{key} declares {declared!r}; formation still assumes a stable, "
+                "motion-compensated phase center")
+            continue
         motion_words = set(semantic.split())
         explicitly_safe = bool(
             (false_value if inverse_polarity else true_value)
@@ -1252,7 +1245,7 @@ def _isar_preflight_error(
         stable_motion_declared = True
 
     elevation_declarations = {
-        str(value or "").strip().lower()
+        str(value).strip().lower()
         for value in (
             units.get("elevation_coordinate_convention", ""),
             extra.get("sentri_elevation_convention", ""),
@@ -1270,23 +1263,20 @@ def _isar_preflight_error(
                               if value in {_GRIM_ELEVATION, _SENTRI_NATIVE_ELEVATION}
                               or incompatible_elevation(value)}
     if len(elevation_declarations) > 1:
-        return "units and extra contain contradictory elevation conventions"
-    elevation_convention = next(iter(elevation_declarations), "")
+        notes.append("units and extra contain contradictory elevation conventions; "
+                     "selected numeric elevations are used as supplied")
+    elevation_convention = (next(iter(elevation_declarations))
+                            if len(elevation_declarations) == 1 else "")
     if elevation_convention == _SENTRI_NATIVE_ELEVATION:
-        return (
-            "native SENTRi theta uses 0 deg top-down and 90 deg waterline. "
-            "Run Geometry & Units > Convert SENTRi Coordinates before ISAR"
-        )
-    if elevation_convention != _GRIM_ELEVATION and incompatible_elevation(elevation_convention):
-        return (
-            f"elevation convention {elevation_convention!r} is unsupported; "
-            "convert or relabel it to GRIM signed elevation before ISAR"
-        )
+        notes.append("native SENTRi theta is declared; selected numeric elevations are used "
+            "as supplied, without automatic SENTRi-to-GRIM conversion")
+    elif elevation_convention != _GRIM_ELEVATION and incompatible_elevation(elevation_convention):
+        notes.append(f"elevation convention {elevation_convention!r} differs from GRIM signed elevation; "
+            "selected numeric elevations are used as supplied")
 
-    phase_reference = _declared_scalar_metadata(dataset, "phase_reference")
+    phase_reference = _declared_scalar_metadata(dataset, "phase_reference", notes=notes)
     if placeholder_semantics(phase_reference):
         phase_reference = ""
-    declared_time_key = declared_time_sign(dataset)
     semantic_phase = normalized_semantics(phase_reference)
     phase_words = set(semantic_phase.split())
     phase_has_fixed_reference = bool(
@@ -1302,19 +1292,13 @@ def _isar_preflight_error(
         }
         or unsafe_semantics(phase_reference)
     ):
-        return (
-            f"phase reference {phase_reference!r} is not a verified fixed "
-            "phase center; calibrate/motion-compensate before ISAR"
-        )
+        notes.append(f"phase reference {phase_reference!r} is not a verified fixed "
+            "phase center; formation proceeds without additional compensation")
 
-    range_phase_sign = _declared_range_phase_sign(dataset)
     if range_phase_sign == 1 and declared_time_key != "-jwt" and not (bool(flip_x) and bool(flip_y)):
-        return (
-            "dataset explicitly declares S~exp(+j*2*k*R), while the default ISAR "
-            "axes assume S~exp(-j*2*k*R). Convert/conjugate the phase history, "
-            "or deliberately enable both Flip X and Flip Y after validating a "
-            "known asymmetric target"
-        )
+        notes.append("dataset explicitly declares S~exp(+j*2*k*R), while the default ISAR "
+            "axes assume S~exp(-j*2*k*R); target positions may be mirrored. "
+            "The selected Flip X and Flip Y settings are preserved")
 
     missing = []
     if elevation_convention != _GRIM_ELEVATION:
@@ -1356,6 +1340,7 @@ def _isar_metadata_token(dataset, elevation_index: int, polarization_index: int)
         ))),
         str(units.get("azimuth", "deg")),
         str(units.get("elevation", "deg")),
+        plot_phase_conventions(dataset),
         scalar_fields,
         float(np.asarray(dataset.elevations)[int(elevation_index)]),
         str(np.asarray(dataset.polarizations)[int(polarization_index)]),
@@ -1972,7 +1957,7 @@ def _compute_band(
         az_center_deg,
         preprocess_mode,
     )
-    conjugate_time = declared_time_sign(dataset) == "-jwt"
+    conjugate_time = plot_phase_conventions(dataset)[0] == "-jwt"
     prep = _preprocess_cache_get(cache_key)
     cache_hit = prep is not None
     if progress is not None:
@@ -2956,9 +2941,12 @@ def _compute_bands(params: dict):
         contract_assumptions = tuple(
             str(value) for value in params.get("isar_contract_assumptions", ())
         )
-        result["isar_contract_user_assumed"] = bool(contract_assumptions)
+        result["isar_metadata_notes"] = list(dict.fromkeys(
+            params.get("isar_metadata_notes", ())))
+        result["isar_contract_user_assumed"] = bool(
+            contract_assumptions or result["isar_metadata_notes"])
         result["isar_contract_undeclared_fields"] = list(contract_assumptions)
-        source_time = declared_time_sign(params["dataset"])
+        source_time = plot_phase_conventions(params["dataset"])[0]
         result["time_convention_conjugated"] = source_time == "-jwt"
         result["image_contract"].update(
             source_time_convention=source_time or "undeclared",
@@ -3027,15 +3015,18 @@ def form_isar(
     false for scientific result export.
     ``legacy_metadata_attested`` is retained only for backward compatibility
     with older recorded scripts. Missing legacy convention metadata is now a
-    recorded user assumption; explicit incompatibilities are still rejected.
+    recorded user assumption. Conflicting/unsupported metadata produces notes,
+    not a formation veto; selected angles and flip settings remain user choices.
     """
     contract_assumptions: list[str] = []
+    metadata_notes: list[str] = []
     preflight_error = _isar_preflight_error(
         dataset,
         legacy_metadata_attested=legacy_metadata_attested,
         flip_x=bool(flip_x),
         flip_y=bool(flip_y),
         undeclared_out=contract_assumptions,
+        notes_out=metadata_notes,
     )
     if preflight_error is not None:
         raise ValueError(f"ISAR blocked: {preflight_error}")
@@ -3136,6 +3127,7 @@ def form_isar(
         "retain_complex": bool(retain_complex),
         "decimate_display": bool(decimate_display),
         "isar_contract_assumptions": contract_assumptions,
+        "isar_metadata_notes": metadata_notes,
         "aperture_mode": aperture_mode, "scene_half_extent_m": scene_half_extent_m,
         "composite_side": composite_side, "native_diagnostics": native_diagnostics,
         "memory_limit_bytes": memory_limit_bytes, "memory_allow_exceed": memory_allow_exceed,

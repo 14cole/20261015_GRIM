@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 
 from GRIM_Backend.datasets.constants import C0
-from GRIM_Backend.datasets.phase_conventions import declared_range_phase_sign, declared_time_sign
+from GRIM_Backend.datasets.phase_conventions import plot_phase_conventions
 from GRIM_Backend.datasets.result_storage import allocate_result, operation_result_storage, result_blocks
 from GRIM_Backend.plotting.requests import PlotPlan, PlotRequest, PlotResult, check_cancel
 
@@ -60,9 +60,10 @@ class SelectedSweeps:
         self.complete_count = 0
         # The declared range law directly defines the frequency slope of a
         # positive-range target. Time convention is only a fallback when that
-        # law is absent. Parse both so conflicting declarations never pass.
-        self.time_sign = declared_time_sign(dataset)
-        self.range_phase_sign = declared_range_phase_sign(dataset)
+        # law is absent. Ambiguous provenance becomes a nonblocking note.
+        self.metadata_notes = []
+        self.time_sign, self.range_phase_sign = plot_phase_conventions(
+            dataset, notes=self.metadata_notes)
         self.conjugate = (self.range_phase_sign == 1 if self.range_phase_sign is not None
                           else self.time_sign == "-jwt")
 
@@ -203,6 +204,8 @@ def prepare_range_frequency(request, cancel=None):
                     phase_normalization=dict(time_sign=sweeps.time_sign,
                         range_phase_sign=sweeps.range_phase_sign, conjugated=sweeps.conjugate))
                 result.items.append(panel)
+                panel["phase_normalization"]["metadata_notes"] = sweeps.metadata_notes
+                result.notes.extend(f"{plan.name}: {note}" for note in sweeps.metadata_notes)
                 if sweeps.range_phase_sign is not None:
                     law = "exp(+j2kR)" if sweeps.range_phase_sign == 1 else "exp(-j2kR)"
                     normalization = "; conjugated for the range transform" if sweeps.conjugate else ""

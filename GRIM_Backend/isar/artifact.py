@@ -515,7 +515,11 @@ def build_isar_manifest(
             "flip_y": bool(params["flip_y"]),
             "isar_contract_user_assumed": bool(
                 params.get("isar_contract_assumptions", ())
+                or params.get("isar_metadata_notes", ())
             ),
+            "isar_metadata_notes": list(dict.fromkeys(
+                str(value) for value in params.get("isar_metadata_notes", ())
+            )),
             "isar_contract_undeclared_fields": [
                 str(value)
                 for value in params.get("isar_contract_assumptions", ())
