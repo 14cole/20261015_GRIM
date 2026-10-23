@@ -24,12 +24,10 @@ def recipe_from_params(params):
         'options': {'window': str(params['window_name']), 'reconstruction': str(params['recon']),
             'length_unit': str(params['unit_name']), 'aperture_center_degrees': params.get('az_center_deg'),
             'azimuth_target_degrees': None if target is None else np.asarray(target, dtype=float).tolist(),
-            'l1_strength': float(params['l1_strength']), 'l1_iterations': int(params['l1_iters']),
             'flip_x': bool(params['flip_x']), 'flip_y': bool(params['flip_y']),
             'aperture_mode': str(params.get('aperture_mode', 'auto')),
             'scene_half_extent_m': params.get('scene_half_extent_m'),
             'composite_side': int(params.get('composite_side', 1024)),
-            'native_diagnostics': bool(params.get('native_diagnostics', True)),
             'memory_limit_bytes': params.get('memory_limit_bytes'),
             'memory_allow_exceed': bool(params.get('memory_allow_exceed', False))}}
 
@@ -84,7 +82,7 @@ def _matching_indices(axis, values, *, atol):
 
 def recipe_arguments(dataset, recipe):
     from GRIM_Backend.plotting.modes.isar_mode import (
-        _angle_values_to_degrees, _unit_to_hz_scale, _window_name, _length_unit, _sparse_parameters,
+        _angle_values_to_degrees, _unit_to_hz_scale, _window_name, _length_unit,
     )
     from .quality import aperture_mode, scene_extents
     if not isinstance(recipe, dict) or recipe.get('schema') != RECIPE_SCHEMA:
@@ -94,15 +92,13 @@ def recipe_arguments(dataset, recipe):
             raise ValueError('Recipe needs at least two angular and frequency samples')
     options = dict(recipe.get('options', {}))
     allowed = {'window', 'reconstruction', 'length_unit', 'aperture_center_degrees', 'azimuth_target_degrees',
-               'l1_strength', 'l1_iterations', 'flip_x', 'flip_y', 'aperture_mode', 'scene_half_extent_m',
-               'composite_side', 'native_diagnostics', 'memory_limit_bytes', 'memory_allow_exceed'}
+               'flip_x', 'flip_y', 'aperture_mode', 'scene_half_extent_m',
+               'composite_side', 'memory_limit_bytes', 'memory_allow_exceed'}
     if set(options) - allowed:
         raise ValueError('Recipe contains unsupported formation options')
     options['window'] = _window_name(options.get('window', 'Hanning'))
     options['length_unit'] = _length_unit(options.get('length_unit', 'm'))[0]
-    options['l1_strength'], options['l1_iterations'] = _sparse_parameters(
-        options.get('l1_strength', .05), options.get('l1_iterations', 300))
-    if options.get('reconstruction', 'fast') not in {'fft', 'fast', 'accurate', 'sparse', 'auto'}:
+    if options.get('reconstruction', 'fast') not in {'fft', 'fast', 'accurate', 'auto'}:
         raise ValueError('Unknown recipe reconstruction')
     aperture_mode(options.get('aperture_mode', 'auto'))
     scene_extents(options.get('scene_half_extent_m'))
@@ -112,7 +108,7 @@ def recipe_arguments(dataset, recipe):
     from .memory import resolve_memory_limit
     if options.get('memory_limit_bytes') is not None:
         options['memory_limit_bytes'] = resolve_memory_limit(options['memory_limit_bytes'])
-    for key in ('flip_x', 'flip_y', 'native_diagnostics', 'memory_allow_exceed'):
+    for key in ('flip_x', 'flip_y', 'memory_allow_exceed'):
         if key in options and not isinstance(options[key], bool):
             raise ValueError(f'Recipe {key} must be Boolean')
     center = options.get('aperture_center_degrees')

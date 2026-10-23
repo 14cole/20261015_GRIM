@@ -3214,12 +3214,10 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             "azimuth_target_degrees": (
                 None if target is None else np.asarray(target, dtype=float).tolist()
             ),
-            "l1_strength": float(params["l1_strength"]),
-            "l1_iterations": int(params["l1_iters"]),
             "flip_x": bool(params["flip_x"]),
             "flip_y": bool(params["flip_y"]),
         }
-        for key in ("aperture_mode", "scene_half_extent_m", "composite_side", "native_diagnostics", "memory_limit_bytes", "memory_allow_exceed"):
+        for key in ("aperture_mode", "scene_half_extent_m", "composite_side", "memory_limit_bytes", "memory_allow_exceed"):
             if key in params:
                 options[key] = params[key]
         return {

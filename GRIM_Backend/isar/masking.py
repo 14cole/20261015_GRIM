@@ -42,7 +42,7 @@ class MaskImage:
             return RECONSTRUCTION_NOTE
         if self.metadata.get("kind") == "composite":
             return "Image dataset only: Composite combines magnitudes and has no recoverable complex phase."
-        return "Image dataset only: radar reconstruction currently supports Fourier ISAR (Fast/Accurate), not Sparse ISAR."
+        return "Image dataset only: radar reconstruction requires Fourier ISAR (Fast/Accurate)."
 
 
 def reconstruction_extra(dataset):

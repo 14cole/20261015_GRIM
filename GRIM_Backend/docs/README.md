@@ -56,7 +56,7 @@ and samples outside supported imaging coordinates or originally missing remain
 unknown. It does not restore the original untapered measurement. Cut geometry,
 window, phase convention, and reconstruction notes are retained in provenance.
 
-Composite has no coherent phase to invert. Composite and Sparse ISAR cuts create
+Composite has no coherent phase to invert. Composite cuts create
 image datasets in the Mask Cut list; Fourier ISAR cuts also retain an image there.
 Use **Save Image…** / **Open Image…** for `.grim-image.npz` files containing the
 numerical pixels, coordinates, and cut history. Fourier images also retain the
@@ -671,12 +671,9 @@ range at nonzero elevation; Az. vs D.R. reports line-of-sight range. Both retain
 the dataset's phase-reference origin.
 
 Fast PFA is the interactive narrow-look path; Accurate Cartesian PFA removes
-the remaining range-curvature approximation for supported apertures. Sparse L1
-is labeled **experimental**: it is a fixed-lambda sparse image reconstruction,
-not target/contaminant classification, BPDN noise removal, pylon removal, or
-bird removal. Its status reports convergence, residual, objective/duality gap,
-support, and debias diagnostics. A strong unwanted scatterer can remain while a
-weak wanted scatterer is suppressed. Wide selections use a labeled nonlinear
+the remaining range-curvature approximation for supported apertures. Both are
+coherent Fourier methods; Recommended PFA selects between them using the scene
+plan. Fast PFA remains the default. Wide selections can use a labeled nonlinear
 max-look composite of narrow subapertures and are qualitative rather than a
 single coherent 360-degree reconstruction.
 
@@ -706,16 +703,12 @@ sampling/curvature warnings, coverage/gaps, nominal resolution, and windowed
 origin PSF cuts for each image. Power FWHM, peak sidelobe
 ratio and integrated sidelobe ratio describe **one-dimensional
 cuts** through the origin response on the actual gridded support, not a full 2D
-ISLR or an off-center focusing guarantee. Sparse and composite formation are
-nonlinear and have no single fixed PSF; composite artifacts retain individual
-look diagnostics. Sparse quality also includes a native polar-data residual,
-distinct from its gridded optimization residual. The bounded diagnostic uses up
-to 4096 source positions and 512 retained image points, records sampling and
-omitted-energy fractions, and explains when it cannot be computed. It evaluates
-the full formed image before optional scene cropping and display flips.
+ISLR or an off-center focusing guarantee. Composite formation is
+nonlinear and has no single fixed PSF; composite artifacts retain individual
+look diagnostics.
 Worker-stage progress appears in the status bar. Changing an ISAR setting or
 applying new ones stops a running formation at its next processing block.
-Sparse-only controls and the ignored Sparse taper are disabled appropriately.
+The taper window applies to both Fourier reconstruction methods.
 
 Nonuniform samples are interpolated only within acquired support. Missing
 frequency or azimuth sectors are placed on the uniform working grid with zero
@@ -736,7 +729,7 @@ array. Storage adaptively skips slow ZIP compression for noise-like complex data
 and uses it when a bounded sample predicts useful savings, including for flipped
 or strided images. Every artifact includes a versioned JSON manifest with
 selected-source content digests, source history/conventions, formation settings,
-user-assumed undeclared convention fields, coverage, sampling, and sparse
+user-assumed undeclared convention fields, coverage, and sampling
 diagnostics. Save and load
 preflight array headers, normalized working bytes, band/cell counts, and
 recursively bounded metadata before numerical extraction; complex axes,
@@ -746,7 +739,7 @@ explicitly record that no complex image exists.
 
 Artifacts also save all six gap diagnostics with units, engine version,
 realized spatial-frequency support, phase/frame conventions, accuracy plans,
-PSF/native residuals, memory accounting, and exact composite sublook indices.
+PSF metrics, memory accounting, and exact composite sublook indices.
 Complex pixels use a spatial-frequency-origin-demodulated phase convention;
 `physical_coefficients(image, x_range, y_range, image_contract)` restores physical
 point-coefficient phases. It does not make a general FFT image an exact sparse
@@ -776,8 +769,8 @@ bands, elapsed = form_isar(dataset, retain_complex=True, **options)
 
 `plan_isar(unwrapped_azimuth_degrees, frequency_hz, ...)` and the bounded native
 `PolarPointOperator` forward/adjoint are available through the scripting API.
-The adjoint is not an inverse; Sparse L1 still uses its existing gridded LASSO
-objective. A production accelerated native reconstruction remains future work.
+The adjoint is not an inverse. A production accelerated native reconstruction
+remains future work.
 
 Export Plot is refused while a newer formation is pending or after the canvas is
 cleared, so a previous canvas cannot be mistaken for current settings.

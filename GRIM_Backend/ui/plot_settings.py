@@ -121,15 +121,9 @@ class ContextPlotSettings(QWidget):
                             ("Step (deg)", c.spin_isar_az_step)):
             self.conditional_row(form, label, spin, when=c.chk_isar_az_interp.isChecked)
         c.chk_isar_az_interp.toggled.connect(self.refresh_conditions)
-        form = self.group("Advanced", "Sparse reconstruction", {"isar_image", "isar_composite"},
-                          when=lambda: c.combo_isar_recon.currentText().lower().startswith("sparse"))
-        self.row(form, "Strength", c.spin_isar_l1_strength)
-        self.row(form, "Iterations", c.spin_isar_l1_iters)
-        c.combo_isar_recon.currentIndexChanged.connect(self.refresh_conditions)
         form = self.group("Advanced", "Scene, composition & memory", {"isar_image", "isar_composite"})
         c.isar_advanced.layout().setRowWrapPolicy(QFormLayout.WrapLongRows)
         c.isar_advanced.scene.setText("Crop to scene bounds")
-        c.isar_advanced.native.setText("Validate against measured samples")
         c.isar_advanced.memory_allow.setText("Allow budget overrun")
         self.row(form, "", c.isar_advanced)
         c.isar_advanced.changed.connect(self.refresh_conditions)
@@ -166,11 +160,9 @@ class ContextPlotSettings(QWidget):
 
     def refresh_conditions(self, *_):
         advanced = self.context.isar_advanced
-        sparse = self.context.combo_isar_recon.currentText().lower().startswith("sparse")
         for widget, visible in ((advanced.x_half, advanced.scene.isChecked()),
                                 (advanced.y_half, advanced.scene.isChecked()),
                                 (advanced.side, advanced.mode.currentData() != "coherent"),
-                                (advanced.native, sparse),
                                 (advanced.memory_limit, not advanced.memory_auto.isChecked())):
             advanced.layout().setRowVisible(widget, visible)
         for label, field, when in self.conditions:
@@ -195,10 +187,6 @@ class ContextPlotSettings(QWidget):
         self.context.isar_advanced.set_plot_mode(mode)
         title = PLOT_MODES[mode].label if mode in PLOT_MODES else (mode or "").replace("_", " ").title()
         self.heading.setText(f"Settings for {title}" if mode else "Create a plot to see its settings.")
-        # Range profiles do not use the sparse reconstruction choice retained
-        # from a preceding ISAR image.
-        self.context.combo_isar_window.setEnabled(mode not in ("isar_image", "isar_composite") or not
-            self.context.combo_isar_recon.currentText().lower().startswith("sparse"))
         self.refresh_conditions()
 
     def refresh_from_canvas(self, *_):

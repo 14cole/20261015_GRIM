@@ -35,14 +35,6 @@ def sync_frequency_controls(context, dataset):
             spin.blockSignals(old)
 
 
-def sync_reconstruction_controls(context):
-    sparse = context.combo_isar_recon.currentText().lower().startswith("sparse")
-    context.spin_isar_l1_strength.setEnabled(sparse)
-    context.spin_isar_l1_iters.setEnabled(sparse)
-    context.combo_isar_window.setEnabled(not sparse)
-    advanced = getattr(context, 'isar_advanced', None)
-    if advanced is not None:
-        advanced.native.setEnabled(sparse)
 
 
 class AdvancedIsarControls(QWidget):
@@ -77,10 +69,6 @@ class AdvancedIsarControls(QWidget):
         self.side.setValue(1024)
         self.side.setToolTip("Composite grid pixels per side. More pixels do not improve physical resolution.")
         layout.addRow("Composite pixels per side", self.side)
-        self.native = QCheckBox("Check sparse image against acquired polar samples")
-        self.native.setChecked(True)
-        self.native.setToolTip("Bounded direct point prediction. Reports selected-sample count and any omitted image support.")
-        layout.addRow(self.native)
         self.memory_auto = QCheckBox("Use half of available RAM")
         self.memory_auto.setChecked(True)
         self.memory_limit = QSpinBox()
@@ -89,7 +77,7 @@ class AdvancedIsarControls(QWidget):
         from GRIM_Backend.isar.memory import resolve_memory_limit
         self.memory_limit.setValue(max(1, resolve_memory_limit(use_environment=False) // 1024**2))
         self.memory_limit.setEnabled(False)
-        self.memory_limit.setToolTip("Budget for ISAR formation and retained results. Large Fourier staging arrays can use temporary disk storage. Sparse solving still needs RAM.")
+        self.memory_limit.setToolTip("Budget for ISAR formation and retained results. Large Fourier staging arrays can use temporary disk storage.")
         self.memory_allow = QCheckBox("Allow computation above the memory budget")
         self.memory_allow.setToolTip("Continue when the estimated working set exceeds the selected budget. The operating system may page or reject an allocation.")
         layout.addRow("Memory budget", self.memory_auto)
@@ -103,7 +91,6 @@ class AdvancedIsarControls(QWidget):
         for spin in (self.x_half, self.y_half):
             spin.valueChanged.connect(lambda _=None: self.changed.emit() if self.scene.isChecked() else None)
         self.side.valueChanged.connect(lambda: self.changed.emit() if self.side.isEnabled() else None)
-        self.native.toggled.connect(lambda: self.changed.emit() if self.native.isEnabled() else None)
         self.set_plot_mode("isar_image")
 
     def set_plot_mode(self, plot_mode):
@@ -129,6 +116,6 @@ class AdvancedIsarControls(QWidget):
     def options(self):
         return {"aperture_mode": self.mode.currentData(),
                 "scene_half_extent_m": (self.x_half.value(), self.y_half.value()) if self.scene.isChecked() else None,
-                "composite_side": self.side.value(), "native_diagnostics": self.native.isChecked(),
+                "composite_side": self.side.value(),
                 "memory_limit_bytes": None if self.memory_auto.isChecked() else self.memory_limit.value() * 1024**2,
                 "memory_allow_exceed": self.memory_allow.isChecked()}

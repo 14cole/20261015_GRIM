@@ -690,8 +690,6 @@ def plot_datasets(
         resolved = {band.get('resolved_reconstruction', reconstruction) for band in bands}
         if len(resolved) > 1:
             reconstruction_label = "PFA method selected per aperture"
-        elif 'sparse' in resolved or reconstruction in {"sparse", "l1", "sparse-l1"}:
-            reconstruction_label = "Sparse L1 (Experimental)"
         elif 'accurate' in resolved or reconstruction in {"accurate", "cartesian", "pfa-accurate"}:
             reconstruction_label = "Cartesian PFA"
         else:
@@ -759,23 +757,6 @@ def plot_datasets(
 
         for advisory in reconstruction_advisories(bands):
             warnings.warn(advisory, RuntimeWarning, stacklevel=2)
-        sparse_results = [
-            band for band in bands if band.get("sparse_iterations") is not None
-        ]
-        if sparse_results and not all(
-            bool(band.get("sparse_converged", False)) for band in sparse_results
-        ):
-            worst_gap = max(
-                float(band.get("sparse_relative_duality_gap", float("inf")))
-                for band in sparse_results
-            )
-            warnings.warn(
-                "ISAR sparse reconstruction did not certify convergence for "
-                f"every band (worst relative duality gap {worst_gap:.3g}); "
-                "treat the image as diagnostic, not quantitatively final.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
         axes = axes_values[0]
     else:
         raise ValueError(f"Unsupported plot mode: {mode!r}")

@@ -49,8 +49,6 @@ class PlotContext:
     spin_isar_freq_min: QDoubleSpinBox
     spin_isar_freq_max: QDoubleSpinBox
     combo_isar_recon: QComboBox
-    spin_isar_l1_strength: QDoubleSpinBox
-    spin_isar_l1_iters: QDoubleSpinBox
     chk_isar_flip_x: QCheckBox
     chk_isar_flip_y: QCheckBox
     chk_isar_aperture: QCheckBox

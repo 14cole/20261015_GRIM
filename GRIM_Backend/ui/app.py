@@ -1124,10 +1124,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             # Numeric aperture filtering and peak scaling remain live.
             # Playback belongs to the shared slider and waits for publication.
             if tab_key == "isar":
-                from GRIM_Backend.ui.isar_controls import sync_reconstruction_controls
-                sync_reconstruction_controls(context)
-                context.combo_isar_recon.currentTextChanged.connect(
-                    lambda _=None, c=context: sync_reconstruction_controls(c))
                 context.isar_advanced.changed.connect(self._invalidate_isar_result)
                 # Numerical exports and the visible canvas are bound to the
                 # exact controls that produced them. Deferred settings edits
@@ -1145,8 +1141,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
                     (context.spin_isar_freq_min, "valueChanged"),
                     (context.spin_isar_freq_max, "valueChanged"),
                     (context.combo_isar_recon, "currentTextChanged"),
-                    (context.spin_isar_l1_strength, "valueChanged"),
-                    (context.spin_isar_l1_iters, "valueChanged"),
                     (context.chk_isar_flip_x, "toggled"),
                     (context.chk_isar_flip_y, "toggled"),
                     (context.chk_isar_aperture, "toggled"),
@@ -1557,42 +1551,13 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         combo_isar_recon.addItems([
             "Fast PFA (FFT)",
             "Accurate PFA (Cartesian)",
-            "Sparse L1 (experimental)",
         ])
         combo_isar_recon.setToolTip(
             "Fast PFA: keystone-corrected matched-filter imaging — quickest, "
             "but residual range curvature can defocus off-center scatterers.\n"
             "Accurate PFA: regrids both Cartesian wavenumber axes before the FFT; "
             "better focus for wider apertures and targets away from the phase center.\n"
-            "Sparse L1: experimental fixed-lambda complex LASSO/FISTA image "
-            "reconstruction. It promotes a sparse pixel image and may reduce "
-            "sidelobes or noise, but it can also suppress weak or distributed "
-            "real scattering. It does not identify/remove pylons, birds, "
-            "cavity returns, or clutter, and it does not create cleaned phase "
-            "history. Slower (iterative); intended for sub-aperture/sub-band "
-            "looks. The taper window only applies to PFA modes."
-        )
-        spin_isar_l1_strength = PlotNumberSpin()
-        spin_isar_l1_strength.setRange(0.001, 0.9)
-        spin_isar_l1_strength.setDecimals(3)
-        spin_isar_l1_strength.setSingleStep(0.01)
-        spin_isar_l1_strength.setValue(0.05)
-        spin_isar_l1_strength.setToolTip(
-            "Sparsity strength (λ as a fraction of the matched-filter peak). "
-            "Higher produces a sparser image but can delete faint real returns; "
-            "lower retains more pixels. This is not a calibrated noise bound "
-            "and does not select a physical contaminant component."
-        )
-        spin_isar_l1_iters = PlotNumberSpin()
-        spin_isar_l1_iters.setRange(10, 1000)
-        spin_isar_l1_iters.setDecimals(0)
-        spin_isar_l1_iters.setSingleStep(25)
-        spin_isar_l1_iters.setValue(300)
-        spin_isar_l1_iters.setSuffix(" it")
-        spin_isar_l1_iters.setToolTip(
-            "Maximum sparse solver iterations. The status bar reports whether "
-            "the primal/dual-gap convergence test passed; reaching this limit "
-            "means the solution is not certified."
+            "Recommended PFA: chooses Fast or Accurate using the scene plan."
         )
         combo_isar_recon.addItem("Recommended PFA (scene-aware)")
         chk_isar_flip_x = QCheckBox("Flip X")
@@ -1886,8 +1851,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             spin_isar_freq_min=spin_isar_freq_min,
             spin_isar_freq_max=spin_isar_freq_max,
             combo_isar_recon=combo_isar_recon,
-            spin_isar_l1_strength=spin_isar_l1_strength,
-            spin_isar_l1_iters=spin_isar_l1_iters,
             chk_isar_flip_x=chk_isar_flip_x,
             chk_isar_flip_y=chk_isar_flip_y,
             chk_isar_aperture=chk_isar_aperture,

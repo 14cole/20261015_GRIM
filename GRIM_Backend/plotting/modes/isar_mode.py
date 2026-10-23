@@ -17,7 +17,6 @@ from GRIM_Backend.isar.quality import (
     plan_isar, image_contract, psf_metrics, scene_extents, cartesian_support_scale,
     aperture_mode as normalize_aperture_mode,
 )
-from GRIM_Backend.isar.operators import native_image_residual
 from GRIM_Backend.isar.memory import (
     BATCH_BYTES, compute_memory_policy, current_memory_policy, resolve_memory_limit,
 )
@@ -151,30 +150,6 @@ def _window_name(name: str) -> str:
     return _ISAR_WINDOW_LOOKUP[key]
 
 
-def _sparse_parameters(strength, n_iters) -> tuple[float, int]:
-    """Validate the fixed-lambda LASSO controls used by public/headless ISAR."""
-
-    try:
-        strength_value = float(strength)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("l1_strength must be a finite number between 0 and 1") from exc
-    if not np.isfinite(strength_value) or not 0.0 < strength_value < 1.0:
-        raise ValueError("l1_strength must be a finite number strictly between 0 and 1")
-
-    if isinstance(n_iters, (bool, np.bool_)):
-        raise ValueError("l1_iterations must be an integer between 10 and 10000")
-    try:
-        iterations_value = int(n_iters)
-        numeric_iterations = float(n_iters)
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise ValueError("l1_iterations must be an integer between 10 and 10000") from exc
-    if (
-        not np.isfinite(numeric_iterations)
-        or numeric_iterations != iterations_value
-        or not 10 <= iterations_value <= 10_000
-    ):
-        raise ValueError("l1_iterations must be an integer between 10 and 10000")
-    return strength_value, iterations_value
 
 
 def _spacing_summary(differences: np.ndarray) -> tuple[float, float, float]:
@@ -634,7 +609,7 @@ def _scene_axes(
     elevation_deg: float = 0.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Cross-range / range axes of the (padded, fftshifted) image grid —
-    shared by the FFT and sparse reconstructions, which image onto the same
+    used by Fourier reconstruction to image onto the
     k-space geometry."""
     c0 = 299_792_458.0
     projection = abs(float(np.cos(np.deg2rad(elevation_deg))))
@@ -671,7 +646,7 @@ def _pfa_regrid_azimuth(
     Without this, the decoupled Fourier model is only exact at the band
     center: at 20% fractional bandwidth the k_x mismatch reaches ~10%, which
     smears a point scatterer over several pixels no matter how good the
-    solver is. With it, the separable model the sparse solver inverts matches
+    solver is. With it, the separable Fourier model matches
     the physics to second order (residual: range curvature, O(ψ²)).
 
     Rows lose a sliver at the ends where k_n < k̄ shrinks the source support;
@@ -795,17 +770,6 @@ def _pfa_regrid_cartesian(
 
 
 
-def _soft_threshold_complex(x: np.ndarray, t: float) -> np.ndarray:
-    """Complex soft-thresholding: shrink magnitudes by `t`, keep phases —
-    the proximal operator of t·Σ|x_i| for complex x."""
-    mag = np.abs(x)
-    scale = np.maximum(mag - t, 0.0) / np.maximum(mag, 1e-30)
-    return x * scale.astype(np.float32)
-
-
-# Sparse reconstructions beyond this many image pixels would need tens of
-# seconds per solve; steer the user to a sub-aperture / sub-band instead.
-_SPARSE_MAX_PIXELS = 16_000_000
 
 
 def _environment_mebibytes(name: str, default: int, minimum: int) -> int:
@@ -870,11 +834,7 @@ def _estimate_band_working_set_bytes(
     retained_output = (12 if retain_complex else 4) * image_cells
     if retain_complex:
         retained_output += source_cells  # Mask Cut native validity map.
-    if reconstruction == "sparse":
-        # FISTA and support debias can simultaneously hold X/Y/gradient/new
-        # iterates plus adjoint, residual and CG buffers.
-        formation_peak = 24 * source_cells + 144 * image_cells
-    elif reconstruction in {"fft", "fast", "accurate"}:
+    if reconstruction in {"fft", "fast", "accurate"}:
         formation_peak = 32 * source_cells + 40 * image_cells
     else:
         raise ValueError(f"unsupported ISAR reconstruction {reconstruction!r}")
@@ -1582,313 +1542,6 @@ def _preprocess_cache_put(key: tuple, value: dict) -> None:
             _PREPROCESS_CACHE_BYTES -= int(evicted.get("_cache_nbytes", 0))
 
 
-def _compute_band_sparse_l1(
-    rcs_polar: np.ndarray,
-    theta: np.ndarray,
-    freq_hz: np.ndarray,
-    df: float,
-    unit_scale: float,
-    strength: float,
-    n_iters: int,
-    *,
-    sample_weights: np.ndarray | None = None,
-    elevation_deg: float = 0.0,
-    cancel_check=None,
-    convergence_tol: float = 1.0e-4,
-):
-    """Experimental fixed-λ complex LASSO image reconstruction.
-
-    The accurately regridded Cartesian phase history ``S`` is modeled by a
-    partial Fourier operator, and FISTA solves
-
-        min_X  ½‖W(A·X − S)‖₂² + λ‖X‖₁,
-        λ = strength · ‖AᴴW²S‖_∞.
-
-    This is a penalized LASSO problem, *not* residual-constrained BPDN and not
-    target/contaminant decomposition.  Pixel sparsity may suppress sidelobes,
-    noise, weak real returns, or distributed scattering alike; it cannot
-    identify or remove a pylon, bird, cavity return, or other physical source.
-
-    FISTA uses an objective-triggered adaptive restart and a primal/dual-gap
-    certificate.  A support-restricted least-squares refit can remove the
-    LASSO amplitude bias after safeguards against underdetermined or unstable
-    supports.  The taper selection intentionally does not apply to this mode.
-    """
-    strength, n_iters = _sparse_parameters(strength, n_iters)
-    try:
-        convergence_tol = float(convergence_tol)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("sparse convergence_tol must be a finite number in (0, 1)") from exc
-    if not np.isfinite(convergence_tol) or not 0.0 < convergence_tol < 1.0:
-        raise ValueError("sparse convergence_tol must be a finite number in (0, 1)")
-
-    n_az = theta.size
-    n_freq = freq_hz.size
-    n_az_fft = _next_fast_len(max(n_az, 256))
-    n_freq_fft = _next_fast_len(max(n_freq, 256))
-    n_pad = n_az_fft * n_freq_fft
-    if n_pad > _SPARSE_MAX_PIXELS:
-        return (
-            f"Sparse L1 grid too large ({n_az_fft}×{n_freq_fft}). Narrow the "
-            "selection (Aperture / Freq Band) or switch Recon to FFT."
-        )
-
-    if _cancel_requested(cancel_check):
-        return "ISAR computation superseded."
-    S = np.ascontiguousarray(rcs_polar, dtype=np.complex64)
-    if sample_weights is None:
-        weights = np.ones(S.shape, dtype=np.float32)
-    else:
-        weights = np.clip(np.asarray(sample_weights, dtype=np.float32), 0.0, 1.0)
-        if weights.shape != S.shape:
-            raise ValueError("Sparse ISAR sample weights must match the phase-history shape")
-    weights_sq = weights * weights
-    if _cancel_requested(cancel_check):
-        return "ISAR computation superseded."
-
-    def forward(X: np.ndarray) -> np.ndarray:
-        # image -> predicted phase history at the measured (θ, f) samples
-        return _fft2(np.fft.ifftshift(X))[:n_az, :n_freq]
-
-    def adjoint(y: np.ndarray) -> np.ndarray:
-        Z = np.zeros((n_az_fft, n_freq_fft), dtype=np.complex64)
-        Z[:n_az, :n_freq] = y
-        return np.fft.fftshift(_ifft2(Z)).astype(np.complex64) * np.float32(n_pad)
-
-    # The sampling mask is part of the measurement operator. Missing samples
-    # must not be interpreted as measured zero fields.
-    lip = float(n_pad)
-    matched = adjoint(weights_sq * S)
-    if _cancel_requested(cancel_check):
-        return "ISAR computation superseded."
-    matched_peak = float(np.abs(matched).max())
-    lam = strength * matched_peak
-    if lam <= 0.0:
-        return "Sparse L1 reconstruction: selected data is identically zero."
-
-    weighted_data = weights * S
-    weighted_data_norm = float(
-        np.sqrt(np.sum(np.abs(weighted_data) ** 2, dtype=np.float64))
-    )
-
-    def lasso_diagnostics(value: np.ndarray) -> dict:
-        predicted = forward(value)
-        residual = weights * (predicted - S)
-        residual_sq = float(np.sum(np.abs(residual) ** 2, dtype=np.float64))
-        l1_norm = float(np.sum(np.abs(value), dtype=np.float64))
-        objective = 0.5 * residual_sq + lam * l1_norm
-
-        # For min .5||B x-b||^2 + lambda||x||_1, a scaled residual is dual
-        # feasible when ||B^H u||_inf <= lambda.  Its objective supplies an
-        # actual optimality certificate; small iterate changes alone can be
-        # misleading for the highly underdetermined partial-Fourier operator.
-        dual_gradient = adjoint(weights * residual)
-        dual_norm = float(np.abs(dual_gradient).max())
-        dual_scale = min(1.0, lam / max(dual_norm, 1.0e-30))
-        dual_value = residual * np.float32(dual_scale)
-        dual_objective = -0.5 * float(
-            np.sum(np.abs(dual_value) ** 2, dtype=np.float64)
-        ) - float(
-            np.real(
-                np.sum(
-                    np.conjugate(weighted_data) * dual_value,
-                    dtype=np.complex128,
-                )
-            )
-        )
-        duality_gap = max(objective - dual_objective, 0.0)
-        relative_gap = duality_gap / max(
-            abs(objective), abs(dual_objective), 1.0e-30
-        )
-        residual_norm = float(np.sqrt(residual_sq))
-        return {
-            "objective": objective,
-            "duality_gap": duality_gap,
-            "relative_duality_gap": relative_gap,
-            "residual_norm": residual_norm,
-            "relative_residual_norm": residual_norm
-            / max(weighted_data_norm, 1.0e-30),
-        }
-
-    X = np.zeros((n_az_fft, n_freq_fft), dtype=np.complex64)
-    Y = X
-    t_momentum = 1.0
-    iterations_used = 0
-    restart_count = 0
-    previous_checkpoint_objective = float("inf")
-    converged = False
-    diagnostics = None
-    for iteration in range(n_iters):
-        if _cancel_requested(cancel_check):
-            return "ISAR computation superseded."
-        grad = adjoint(weights_sq * (forward(Y) - S))
-        if _cancel_requested(cancel_check):
-            return "ISAR computation superseded."
-        X_new = _soft_threshold_complex(Y - grad / np.float32(lip), lam / lip)
-        if not np.all(np.isfinite(X_new)):
-            return "Sparse L1 reconstruction failed: solver produced non-finite values."
-        t_new = 0.5 * (1.0 + np.sqrt(1.0 + 4.0 * t_momentum**2))
-        Y_new = X_new + np.float32((t_momentum - 1.0) / t_new) * (X_new - X)
-        iterations_used = iteration + 1
-        checkpoint = (
-            iterations_used >= 10 and iterations_used % 5 == 0
-        ) or iterations_used == n_iters
-        if checkpoint:
-            diagnostics = lasso_diagnostics(X_new)
-            if _cancel_requested(cancel_check):
-                return "ISAR computation superseded."
-            objective = diagnostics["objective"]
-            if objective > previous_checkpoint_objective * (1.0 + 1.0e-7):
-                # FISTA can oscillate after it identifies a small support.
-                # Drop the extrapolation when the certified objective rises.
-                Y_new = X_new
-                t_new = 1.0
-                restart_count += 1
-            previous_checkpoint_objective = objective
-            if diagnostics["relative_duality_gap"] <= convergence_tol:
-                X = X_new
-                converged = True
-                break
-        X, Y, t_momentum = X_new, Y_new, t_new
-
-    if diagnostics is None or not converged:
-        if _cancel_requested(cancel_check):
-            return "ISAR computation superseded."
-        diagnostics = lasso_diagnostics(X)
-        if _cancel_requested(cancel_check):
-            return "ISAR computation superseded."
-
-    lasso_residual_norm = diagnostics["residual_norm"]
-    lasso_peak = float(np.abs(X).max())
-    # Do not let floating-point/proximal crumbs make the restricted normal
-    # equations nearly singular.  The -60 dB amplitude floor is well below
-    # the weakest coefficient normally retained by the public lambda range.
-    support_threshold = lasso_peak * 1.0e-3
-    support = np.abs(X) > support_threshold
-    support_size = int(np.count_nonzero(support))
-    measured_samples = int(np.count_nonzero(weights > 1.0e-6))
-    debias_applied = False
-    debias_iterations = 0
-    debias_status = "skipped: empty recovered support"
-
-    # Debias: the l1 shrinkage biases recovered amplitudes low.
-    # Re-fit least squares ON THE RECOVERED SUPPORT ONLY, penalty removed, so
-    # off-support pixels stay zero.  Never attempt an underdetermined refit,
-    # and retain the LASSO result if CG breaks down, explodes, or makes the
-    # weighted data residual worse.
-    if support_size > measured_samples:
-        debias_status = (
-            f"skipped: support ({support_size}) exceeds measured samples "
-            f"({measured_samples})"
-        )
-    elif support_size > 0:
-        def normal_op(v: np.ndarray) -> np.ndarray:
-            out = adjoint(weights_sq * forward(v))
-            out[~support] = 0
-            return out
-
-        b = matched.copy()
-        b[~support] = 0
-        candidate = X.copy()
-        candidate[~support] = 0
-        r = b - normal_op(candidate)
-        p = r.copy()
-        rs_old = float(np.vdot(r, r).real)
-        b_norm = float(np.vdot(b, b).real)
-        cg_ok = np.isfinite(rs_old) and np.isfinite(b_norm)
-        for cg_iteration in range(50):
-            if _cancel_requested(cancel_check):
-                return "ISAR computation superseded."
-            if not cg_ok or rs_old <= 1.0e-10 * max(b_norm, 1.0e-30):
-                break
-            Ap = normal_op(p)
-            denominator = float(np.vdot(p, Ap).real)
-            scale_floor = (
-                np.finfo(np.float32).eps
-                * max(float(np.linalg.norm(p)) * float(np.linalg.norm(Ap)), 1.0e-30)
-            )
-            if not np.isfinite(denominator) or denominator <= scale_floor:
-                cg_ok = False
-                break
-            alpha = rs_old / denominator
-            candidate = candidate + np.complex64(alpha) * p
-            r = r - np.complex64(alpha) * Ap
-            rs_new = float(np.vdot(r, r).real)
-            debias_iterations = cg_iteration + 1
-            if not np.isfinite(rs_new):
-                cg_ok = False
-                break
-            p = r + np.complex64(rs_new / max(rs_old, 1e-30)) * p
-            rs_old = rs_new
-        candidate[~support] = 0
-
-        if cg_ok and np.all(np.isfinite(candidate)):
-            if _cancel_requested(cancel_check):
-                return "ISAR computation superseded."
-            candidate_residual = weights * (forward(candidate) - S)
-            if _cancel_requested(cancel_check):
-                return "ISAR computation superseded."
-            candidate_residual_norm = float(
-                np.sqrt(
-                    np.sum(np.abs(candidate_residual) ** 2, dtype=np.float64)
-                )
-            )
-            candidate_peak = float(np.abs(candidate).max())
-            stable_amplitude = candidate_peak <= max(lasso_peak * 1.0e3, 1.0e-20)
-            residual_improved = candidate_residual_norm <= lasso_residual_norm * (1.0 + 1.0e-5)
-            if stable_amplitude and residual_improved:
-                X = candidate
-                debias_applied = True
-                debias_status = "applied"
-            elif not stable_amplitude:
-                debias_status = "skipped: unstable amplitude growth"
-            else:
-                debias_status = "skipped: refit did not improve weighted residual"
-        else:
-            debias_status = "skipped: conjugate-gradient breakdown"
-
-    if _cancel_requested(cancel_check):
-        return "ISAR computation superseded."
-    output_residual = weights * (forward(X) - S)
-    if _cancel_requested(cancel_check):
-        return "ISAR computation superseded."
-    output_residual_norm = float(
-        np.sqrt(np.sum(np.abs(output_residual) ** 2, dtype=np.float64))
-    )
-    sparse_status = (
-        "converged by relative primal/dual gap"
-        if converged
-        else "maximum iterations reached; convergence not certified"
-    )
-    sparse_diagnostics = {
-        "sparse_converged": converged,
-        "sparse_status": sparse_status,
-        "sparse_iterations": iterations_used,
-        "sparse_restarts": restart_count,
-        "sparse_lambda": lam,
-        "sparse_objective": diagnostics["objective"],
-        "sparse_duality_gap": diagnostics["duality_gap"],
-        "sparse_relative_duality_gap": diagnostics["relative_duality_gap"],
-        "sparse_lasso_residual_norm": lasso_residual_norm,
-        "sparse_lasso_relative_residual_norm": diagnostics["relative_residual_norm"],
-        "sparse_output_residual_norm": output_residual_norm,
-        "sparse_output_relative_residual_norm": output_residual_norm
-        / max(weighted_data_norm, 1.0e-30),
-        "sparse_support_size": support_size,
-        "sparse_support_threshold": support_threshold,
-        "sparse_debias_applied": debias_applied,
-        "sparse_debias_iterations": debias_iterations,
-        "sparse_debias_status": debias_status,
-    }
-
-    # No rescale needed: a unit-amplitude scatterer produces |S| = 1 under the
-    # forward model, so the recovered X IS the physical reflectivity (≈ 1 →
-    # 0 dB), matching the FFT path's normalization convention.
-    x_range, y_range = _scene_axes(
-        n_az_fft, n_freq_fft, theta, freq_hz, df, unit_scale,
-        elevation_deg=elevation_deg,
-    )
-    return X, x_range, y_range, sparse_diagnostics
 
 
 def _compute_band(
@@ -1905,12 +1558,9 @@ def _compute_band(
     az_target_deg: np.ndarray | None = None,
     az_center_deg: float | None = None,
     recon: str = "fft",
-    l1_strength: float = 0.05,
-    l1_iters: int = 300,
     elevation_deg: float = 0.0,
     retain_complex: bool = False,
     resident_bytes: int = 0,
-    native_diagnostics: bool = True,
     progress=None,
     cancel_check=None,
 ):
@@ -1943,7 +1593,7 @@ def _compute_band(
     if _cancel_requested(cancel_check):
         return "ISAR computation superseded."
     target_token = None if az_target_deg is None else _array_token(np.asarray(az_target_deg))
-    preprocess_mode = "accurate" if recon in {"accurate", "sparse"} else "fast"
+    preprocess_mode = "accurate" if recon == "accurate" else "fast"
     source_token = _selected_data_token(
         dataset,
         sorted_band_indices,
@@ -2199,30 +1849,18 @@ def _compute_band(
         "cross_half_extent": 299_792_458.0 / (4.0 * projection * fc_eff * dtheta_eff) * unit_scale,
     }
 
-    if recon == "sparse":
-        if progress is not None:
-            progress("Solving sparse image")
-        out = _compute_band_sparse_l1(
-            observed, theta, freq_uniform, df_eff, unit_scale, l1_strength, l1_iters,
-            sample_weights=weights, elevation_deg=elevation_deg,
-            cancel_check=cancel_check,
-        )
-        if isinstance(out, str):
-            return out
-        complex_image, x_range, y_range, sparse_diagnostics = out
-    else:
-        if progress is not None:
-            progress("Forming Fourier image")
-        if _cancel_requested(cancel_check):
-            return "ISAR computation superseded."
-        out = _compute_band_polar_format(
-            window_name, observed, theta, freq_uniform, df_eff, unit_scale,
-            sample_weights=weights, elevation_deg=elevation_deg,
-            cancel_check=cancel_check, apply_sample_weights=True,
-        )
-        if isinstance(out, str):
-            return out
-        complex_image, x_range, y_range = out
+    if progress is not None:
+        progress("Forming Fourier image")
+    if _cancel_requested(cancel_check):
+        return "ISAR computation superseded."
+    out = _compute_band_polar_format(
+        window_name, observed, theta, freq_uniform, df_eff, unit_scale,
+        sample_weights=weights, elevation_deg=elevation_deg,
+        cancel_check=cancel_check, apply_sample_weights=True,
+    )
+    if isinstance(out, str):
+        return out
+    complex_image, x_range, y_range = out
 
     magnitude = allocate_result(complex_image.shape, np.float32)
     for block in result_blocks(complex_image.shape):
@@ -2258,44 +1896,20 @@ def _compute_band(
         )
 
     contract = image_contract(theta - np.mean(theta), freq_uniform, float(np.mean(az_values)), elevation_deg, unit_scale)
-    if recon == "sparse":
-        psf = {"definition": "nonlinear sparse image; no fixed image PSF"}
-    else:
-        psf_key = (window_name, elevation_deg, unit_scale)
+    psf_key = (window_name, elevation_deg, unit_scale)
+    with _PREPROCESS_CACHE_LOCK:
+        psf = prep.get("psf_metrics", {}).get(psf_key)
+    if psf is None:
+        psf = psf_metrics(weights, _window_array(window_name, len(theta)),
+            _window_array(window_name, len(freq_uniform)), theta, freq_uniform, elevation_deg, unit_scale)
         with _PREPROCESS_CACHE_LOCK:
-            psf = prep.get("psf_metrics", {}).get(psf_key)
-        if psf is None:
-            psf = psf_metrics(weights, _window_array(window_name, len(theta)),
-                _window_array(window_name, len(freq_uniform)), theta, freq_uniform, elevation_deg, unit_scale)
-            with _PREPROCESS_CACHE_LOCK:
-                cache = prep.setdefault("psf_metrics", {})
-                if len(cache) >= 8:
-                    cache.clear()
-                cache[psf_key] = psf
-        psf = {key: dict(value) if isinstance(value, dict) else value for key, value in psf.items()}
-    native = {"status": "not_computed", "reason": "Native residual is available for sparse point images"}
-    if recon == "sparse" and native_diagnostics:
-        if progress is not None:
-            progress("Checking sparse image against original polar samples")
-        ids = np.asarray(sorted_band_indices, dtype=np.intp)
-        fids = np.asarray(freq_indices_sorted, dtype=np.intp)
-        try:
-            def normalized_samples(ia, jf):
-                samples = dataset.rcs_slice((ids[ia], elev_idx, fids[jf], pol_idx))
-                return np.conjugate(samples) if conjugate_time else samples
-
-            native = native_image_residual(complex_image, x_range, y_range, contract,
-                band_az_values[order], freq_hz,
-                normalized_samples,
-                support_threshold=sparse_diagnostics.get("sparse_support_threshold", 0.), cancel_check=cancel_check)
-        except InterruptedError:
-            return "ISAR computation superseded."
-        if native.get("high_model_mismatch"):
-            native["warning"] = "Sparse convergence fits the gridded model; the original polar measurements disagree with this image."
-    elif recon == "sparse":
-        native = {"status": "not_computed", "reason": "Native diagnostics disabled by caller"}
+            cache = prep.setdefault("psf_metrics", {})
+            if len(cache) >= 8:
+                cache.clear()
+            cache[psf_key] = psf
+    psf = {key: dict(value) if isinstance(value, dict) else value for key, value in psf.items()}
     inverse_context = None
-    if retain_complex and recon != "sparse":
+    if retain_complex:
         # Capture the actual Fourier grid before display flips/cropping. The
         # inverse recovers windowed, gridded phase history, never an untapered
         # claim to the original measurements.
@@ -2343,17 +1957,10 @@ def _compute_band(
         "phase_coverage": float(prep["coverage"]),
         "preprocess_cache_hit": cache_hit,
         "source_selection_digest": source_token.hex(),
-        **(sparse_diagnostics if recon == "sparse" else {}),
-        **(
-            {"sparse_diagnostics": dict(sparse_diagnostics)}
-            if recon == "sparse"
-            else {}
-        ),
         "accurate_pfa": preprocess_mode == "accurate",
         "sampling": sampling,
         "image_contract": contract,
         "psf": psf,
-        "native_residual": native,
         "spatial_frequency_support": {
             "u_min_hz": contract["spatial_frequency_origin_hz"][0],
             "u_max_hz": float(np.mean(freq_uniform) * (theta[-1] - np.mean(theta))),
@@ -2529,7 +2136,7 @@ def _predict_sublook_scene_axes(
     )
     freq_uniform = np.asarray(freq_plan["target"], dtype=float)
     theta = np.deg2rad(az_uniform)
-    if reconstruction in {"accurate", "sparse"}:
+    if reconstruction == "accurate":
         _q, theta, freq_uniform = _cartesian_pfa_axes(theta, freq_uniform)
     df_eff = float(np.mean(np.diff(freq_uniform)))
     return _scene_axes(
@@ -2555,15 +2162,12 @@ def _compute_band_composite(
     unit_scale: float,
     *,
     recon: str,
-    l1_strength: float,
-    l1_iters: int,
     elevation_deg: float,
     retain_complex: bool = False,
     resident_bytes: int = 0,
     az_center_deg: float | None = None,
     composite_side: int = 1024,
     scene_half_extent_m=None,
-    native_diagnostics: bool = True,
     progress=None,
     cancel_check=None,
 ):
@@ -2654,16 +2258,9 @@ def _compute_band_composite(
     fr_largest_gap = 0.0
     phase_coverage = 1.0
     processed_looks = 0
-    sparse_converged_looks = 0
-    sparse_max_iterations = 0
-    sparse_restarts = 0
-    sparse_max_gap = 0.0
-    sparse_max_residual = 0.0
-    sparse_support_size = 0
-    sparse_all_debiased = True
     look_diagnostics = []
 
-    # Form, rotate, and discard one sublook at a time.  Only the final
+    # Form, rotate, and discard one sublook at a time. Only the final
     # float32 composite and bounded interpolation scratch remain resident.
     for chunk, theta_c in chunk_specs:
         if progress is not None:
@@ -2674,11 +2271,9 @@ def _compute_band_composite(
             dataset, window_name, chunk, freq_indices_sorted, elev_idx, pol_idx,
             freq_hz, df, unit_scale,
             az_target_deg=None, recon=recon,
-            l1_strength=l1_strength, l1_iters=l1_iters,
             az_center_deg=az_center_deg, elevation_deg=elevation_deg,
             retain_complex=False,
             resident_bytes=resident_bytes + composite_bytes,
-            native_diagnostics=native_diagnostics,
             cancel_check=cancel_check,
         )
         if isinstance(r, str):
@@ -2690,7 +2285,7 @@ def _compute_band_composite(
         look_plan = plan_isar(physical_az[chunk], freq_hz, elevation_degrees=elevation_deg,
             scene_half_extent_m=look_half, reconstruction=recon, mode='coherent')
         look_diagnostics.append({"sampling": r.get("sampling", {}), "psf": r.get("psf", {}),
-            "native_residual": r.get("native_residual", {}), "phase_coverage": r.get("phase_coverage", 0.),
+            "phase_coverage": r.get("phase_coverage", 0.),
             "accuracy_plan": look_plan})
         az_nonuni = max(az_nonuni, r.get("az_nonuniformity", 0.0))
         fr_nonuni = max(fr_nonuni, r.get("freq_nonuniformity", 0.0))
@@ -2701,24 +2296,6 @@ def _compute_band_composite(
         az_largest_gap = max(az_largest_gap, r.get("az_largest_gap", 0.0))
         fr_largest_gap = max(fr_largest_gap, r.get("freq_largest_gap", 0.0))
         phase_coverage = min(phase_coverage, r.get("phase_coverage", 1.0))
-        if recon == "sparse":
-            sparse_converged_looks += int(bool(r.get("sparse_converged", False)))
-            sparse_max_iterations = max(
-                sparse_max_iterations, int(r.get("sparse_iterations", 0))
-            )
-            sparse_restarts += int(r.get("sparse_restarts", 0))
-            sparse_max_gap = max(
-                sparse_max_gap,
-                float(r.get("sparse_relative_duality_gap", float("inf"))),
-            )
-            sparse_max_residual = max(
-                sparse_max_residual,
-                float(r.get("sparse_output_relative_residual_norm", float("inf"))),
-            )
-            sparse_support_size += int(r.get("sparse_support_size", 0))
-            sparse_all_debiased = sparse_all_debiased and bool(
-                r.get("sparse_debias_applied", False)
-            )
 
         if _cancel_requested(cancel_check):
             return "ISAR computation superseded."
@@ -2790,22 +2367,6 @@ def _compute_band_composite(
             "wide-aperture max-look composite is incoherent and has no "
             "physically defined complex image"
         )
-    if recon == "sparse":
-        aggregate_sparse_diagnostics = {
-            "sparse_converged": sparse_converged_looks == processed_looks,
-            "sparse_status": (
-                f"{sparse_converged_looks}/{processed_looks} sub-apertures "
-                "converged by relative primal/dual gap"
-            ),
-            "sparse_iterations": sparse_max_iterations,
-            "sparse_restarts": sparse_restarts,
-            "sparse_relative_duality_gap": sparse_max_gap,
-            "sparse_output_relative_residual_norm": sparse_max_residual,
-            "sparse_support_size": sparse_support_size,
-            "sparse_debias_applied": sparse_all_debiased,
-        }
-        result.update(aggregate_sparse_diagnostics)
-        result["sparse_diagnostics"] = dict(aggregate_sparse_diagnostics)
     return result
 
 
@@ -2869,14 +2430,12 @@ def _compute_bands(params: dict):
                 params["df"],
                 params["unit_scale"],
                 recon=recon,
-                l1_strength=params.get("l1_strength", 0.05),
-                l1_iters=params.get("l1_iters", 300),
                 elevation_deg=params.get("elevation_deg", 0.0),
                 retain_complex=bool(params.get("retain_complex", False)),
                 resident_bytes=resident_bytes,
                 az_center_deg=params.get("az_center_deg"),
                 composite_side=int(composite_side), scene_half_extent_m=half,
-                native_diagnostics=params.get("native_diagnostics", True), progress=progress,
+                progress=progress,
                 cancel_check=cancel_check,
             )
         else:
@@ -2893,12 +2452,10 @@ def _compute_bands(params: dict):
                 az_target_deg=params["az_target_deg"],
                 az_center_deg=params.get("az_center_deg"),
                 recon=recon,
-                l1_strength=params.get("l1_strength", 0.05),
-                l1_iters=params.get("l1_iters", 300),
                 elevation_deg=params.get("elevation_deg", 0.0),
                 retain_complex=bool(params.get("retain_complex", False)),
                 resident_bytes=resident_bytes,
-                native_diagnostics=params.get("native_diagnostics", True), progress=progress,
+                progress=progress,
                 cancel_check=cancel_check,
             )
         if isinstance(result, str):
@@ -3011,8 +2568,6 @@ def form_isar(
     length_unit: str = "m",
     aperture_center_degrees: float | None = None,
     azimuth_target_degrees: np.ndarray | None = None,
-    l1_strength: float = 0.05,
-    l1_iterations: int = 300,
     flip_x: bool = False,
     flip_y: bool = False,
     retain_complex: bool = False,
@@ -3021,7 +2576,6 @@ def form_isar(
     aperture_mode: str = "auto",
     scene_half_extent_m=None,
     composite_side: int = 1024,
-    native_diagnostics: bool = True,
     memory_limit_bytes: int | None = None,
     memory_allow_exceed: bool = False,
     cancel_check=None,
@@ -3030,26 +2584,19 @@ def form_isar(
     """Form ISAR images without Qt.
 
     Returns ``(band_results, elapsed_seconds)`` using the same physical path as
-    the GUI. ``reconstruction`` accepts ``auto``, ``fast``, ``accurate``, or ``sparse``.
+    the GUI. ``reconstruction`` accepts ``auto``, ``fast``, or ``accurate``.
     ``auto`` uses scene-dependent sampling/curvature advice to choose a PFA.
     ``aperture_mode`` is ``auto`` (legacy >20° max-look policy), ``coherent``
     (<90°), or ``composite``. Each composite look is bounded to 10°; grid side
     is configurable from 32 to 4096. ``scene_half_extent_m=(x,y)`` specifies the
     occupied horizontal scene for planning and crops the retained image.
     Native sampling diagnostics use acquired samples before interpolation.
-    ``native_diagnostics`` enables a bounded original-polar-data residual for
-    Sparse; it does not change that solver's gridded objective. Diagnostics,
-    support PSF cuts, and a complex phase/frame contract accompany results.
+    Support PSF cuts and a complex phase/frame contract accompany results.
     ``cancel_check`` is a callable returning true to stop at a processing block;
     ``progress`` receives stage text. Callbacks run on the calling thread.
     ``memory_limit_bytes`` defaults to half available RAM. Set
     ``memory_allow_exceed=True`` to continue above the conservative estimate.
-    Fourier staging spills to disk; each complete padded 1-D FFT and sparse
-    solver workspaces still require RAM.
-    Sparse mode is an experimental fixed-lambda LASSO image reconstruction;
-    it does not perform target/contaminant separation or emit cleaned phase
-    history. ``l1_strength`` must be in ``(0, 1)`` and ``l1_iterations`` is a
-    certified-solver iteration ceiling, not a promise of convergence.
+    Fourier staging spills to disk; each complete padded 1-D FFT still requires RAM.
     ``retain_complex=True`` keeps each coherent band's complex image for
     scientific export; the default returns magnitude only to limit memory.
     ``decimate_display=True`` applies the GUI's peak-preserving display-only
@@ -3108,20 +2655,15 @@ def form_isar(
     )
     window_name = _window_name(window)
     _, unit_scale = _length_unit(length_unit)
-    l1_strength, l1_iterations = _sparse_parameters(
-        l1_strength, l1_iterations
-    )
     recon_key = str(reconstruction).strip().lower()
     if recon_key == "auto":
         pass
     elif recon_key in {"accurate", "cartesian", "pfa-accurate"}:
         recon_key = "accurate"
-    elif recon_key in {"sparse", "l1", "sparse-l1"}:
-        recon_key = "sparse"
     elif recon_key in {"fast", "fft", "pfa", "fast-pfa"}:
         recon_key = "fft"
     else:
-        raise ValueError("reconstruction must be 'auto', 'fast', 'accurate', or 'sparse'")
+        raise ValueError("reconstruction must be 'auto', 'fast', or 'accurate'")
 
     if aperture_center_degrees is not None:
         try:
@@ -3162,8 +2704,6 @@ def form_isar(
         "az_center_deg": aperture_center_degrees,
         "window_name": window_name,
         "recon": recon_key,
-        "l1_strength": l1_strength,
-        "l1_iters": l1_iterations,
         "flip_x": bool(flip_x),
         "flip_y": bool(flip_y),
         "retain_complex": bool(retain_complex),
@@ -3171,7 +2711,7 @@ def form_isar(
         "isar_contract_assumptions": contract_assumptions,
         "isar_metadata_notes": metadata_notes,
         "aperture_mode": aperture_mode, "scene_half_extent_m": scene_half_extent_m,
-        "composite_side": composite_side, "native_diagnostics": native_diagnostics,
+        "composite_side": composite_side,
         "memory_limit_bytes": memory_limit_bytes, "memory_allow_exceed": memory_allow_exceed,
         "cancel_check": cancel_check, "progress": progress,
     })

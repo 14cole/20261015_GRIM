@@ -1208,8 +1208,7 @@ def solve_bpdn_components(
     A primal-dual hybrid-gradient method is used with a certified operator-norm
     upper bound; the finite power estimate is retained only as a diagnostic and
     never used to relax the convergence-safe steps. This is residual-constrained
-    BPDN, not the fixed-lambda LASSO used by GRIM's visualization-oriented sparse
-    image former. Oversized direct point dictionaries fail before preflight or
+    BPDN. Oversized direct point dictionaries fail before preflight or
     iteration unless the caller accepts their projected uncached runtime with
     the explicit opt-in flag.
     """

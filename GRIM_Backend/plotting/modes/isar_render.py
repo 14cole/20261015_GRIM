@@ -266,18 +266,12 @@ def render(self, *, composite=False) -> None:
     recon_lower = recon_text.lower()
     if recon_lower.startswith("recommended"):
         recon = "auto"
-    elif recon_lower.startswith("sparse"):
-        recon = "sparse"
     elif "accurate" in recon_lower or "cartesian" in recon_lower:
         recon = "accurate"
     else:
         recon = "fft"
-    l1_strength_spin = getattr(self, "spin_isar_l1_strength", None)
-    l1_iters_spin = getattr(self, "spin_isar_l1_iters", None)
-    l1_strength = float(l1_strength_spin.value()) if l1_strength_spin is not None else 0.05
-    l1_iters = int(l1_iters_spin.value()) if l1_iters_spin is not None else 300
     # Byte-based worker preflight. Display-cell caps alone do not account for
-    # the complex source slice or FFT/FISTA temporaries.
+    # the complex source slice or FFT temporaries.
     estimated_resident = 0
     estimated_peak = 0
     for band in bands:
@@ -358,8 +352,6 @@ def render(self, *, composite=False) -> None:
         "az_center_deg": az_center_deg,
         "window_name": str(self.combo_isar_window.currentText()),
         "recon": recon,
-        "l1_strength": l1_strength,
-        "l1_iters": l1_iters,
         "flip_x": flip_x,
         "flip_y": flip_y,
         "isar_contract_assumptions": contract_assumptions,
@@ -494,8 +486,6 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
     resolved = {br.get('resolved_reconstruction', params.get('recon')) for br in band_results}
     if len(resolved) > 1:
         recon_label = " | PFA method selected per aperture"
-    elif 'sparse' in resolved:
-        recon_label = " | Sparse L1 (Experimental)"
     elif 'accurate' in resolved:
         recon_label = " | Cartesian PFA"
     else:
@@ -608,8 +598,6 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
     fr_max = max(br.get("freq_nonuniformity", 0.0) for br in band_results)
     if len(resolved) > 1:
         mode_label = 'PFA method selected per aperture'
-    elif 'sparse' in resolved:
-        mode_label = "Sparse L1 (Experimental)"
     elif 'accurate' in resolved:
         mode_label = "Cartesian PFA"
     else:
@@ -674,38 +662,6 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
             "peak-preserving display decimation applied; narrow the aperture/band "
             "for full display resolution"
         )
-    sparse_results = [
-        br for br in band_results if br.get("sparse_iterations") is not None
-    ]
-    if sparse_results:
-        converged_count = sum(
-            bool(br.get("sparse_converged", False)) for br in sparse_results
-        )
-        max_iterations = max(
-            int(br.get("sparse_iterations", 0)) for br in sparse_results
-        )
-        max_gap = max(
-            float(br.get("sparse_relative_duality_gap", float("inf")))
-            for br in sparse_results
-        )
-        if converged_count == len(sparse_results):
-            notes.append(
-                f"sparse solver converged ({max_iterations} iterations, "
-                f"relative gap ≤{max_gap:.2g})"
-            )
-        else:
-            notes.append(
-                f"SPARSE NOT CONVERGED: {converged_count}/{len(sparse_results)} "
-                f"images certified at {max_iterations} iterations "
-                f"(worst relative gap {max_gap:.2g})"
-            )
-        max_relative_residual = max(
-            float(br.get("sparse_output_relative_residual_norm", float("inf")))
-            for br in sparse_results
-        )
-        notes.append(
-            f"sparse weighted residual ≤{max_relative_residual:.3g} relative"
-        )
     if band_results:
         sampling = band_results[0].get("sampling", {})
         if sampling:
@@ -715,7 +671,6 @@ def display_results(self, params: dict, band_results: list, elapsed: float) -> N
                 f"unambiguous |x|≤{sampling['cross_half_extent']:.3g}, "
                 f"|r|≤{sampling['range_half_extent']:.3g} {unit_name}"
             )
-    # Model checks concern physical accuracy, independently of FISTA convergence.
     # Keep these at the front of the status so they are visible on small windows.
     advisories = reconstruction_advisories(band_results)
     if hasattr(self.status, 'setToolTip'):

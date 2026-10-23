@@ -444,7 +444,7 @@ def build_isar_manifest(
                 "phase_coverage": float(band.get("phase_coverage", 1.0)),
                 "sampling": _json_safe(band.get("sampling", {})),
                 **{key: _json_safe(band.get(key, {})) for key in (
-                    "accuracy_plan", "image_contract", "psf", "native_residual",
+                    "accuracy_plan", "image_contract", "psf",
                     "memory_budget", "spatial_frequency_support",
                 )},
                 **{key: _json_safe(band.get(key, 0)) for key in (
@@ -465,7 +465,6 @@ def build_isar_manifest(
                     band.get("freq_nonuniformity", 0.0)
                 ),
                 "composite_looks": int(band.get("composite", 0)),
-                "sparse": _json_safe(band.get("sparse_diagnostics", {})),
                 "complex_image_available": has_complex,
                 "magnitude_storage": (
                     "derived_from_complex" if has_complex else "stored"
@@ -503,14 +502,11 @@ def build_isar_manifest(
             "aperture_mode": str(params.get("aperture_mode", "auto")),
             "scene_half_extent_m": _json_safe(params.get("scene_half_extent_m")),
             "composite_side": int(params.get("composite_side", 1024)),
-            "native_diagnostics": bool(params.get("native_diagnostics", True)),
             "length_unit": str(params["unit_name"]),
             "azimuth_target_degrees": (
                 None if target is None else np.asarray(target, dtype=float).tolist()
             ),
             "aperture_center_degrees": params.get("az_center_deg"),
-            "l1_strength": float(params["l1_strength"]),
-            "l1_iterations": int(params["l1_iters"]),
             "flip_x": bool(params["flip_x"]),
             "flip_y": bool(params["flip_y"]),
             "isar_contract_user_assumed": bool(

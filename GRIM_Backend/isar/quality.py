@@ -29,28 +29,13 @@ def cartesian_support_scale(theta, frequency_hz):
 
 def reconstruction_advisories(bands):
     """Collect visible, nonblocking quality notes, including composite looks."""
-    notes, native_checks, unchecked = [], [], []
+    notes = []
     for band in bands:
         for item in [band, *band.get('composite_look_diagnostics', [])]:
             notes.extend(item.get('isar_metadata_notes', []))
             notes.extend(item.get('accuracy_plan', {}).get('warnings', []))
-            native = item.get('native_residual', {})
-            if native.get('status') == 'computed':
-                native_checks.append(native)
-            elif 'sparse' in band.get('resolved_reconstruction', '') and native.get('status') == 'not_computed':
-                unchecked.append('Sparse image accuracy was not checked against acquired measurements: '
-                                 + native.get('reason', 'check unavailable'))
-    priority = []
-    if native_checks:
-        worst = max(native_checks, key=lambda item: item['relative_complex_l2_residual'])
-        error = worst['relative_complex_l2_residual']
-        prefix = 'ACCURACY WARNING: ' if worst.get('high_model_mismatch') else ''
-        message = (f'{prefix}sparse acquired-data check: {error:.1%} worst relative complex-field error '
-                   f'({worst["sample_count"]:,} of {worst["source_sample_count"]:,} samples in that check).')
-        if worst.get('high_model_mismatch'):
-            message += ' Solver convergence does not certify image accuracy.'
-        priority.append(message)
-    return list(dict.fromkeys(priority + unchecked + notes))
+    return list(dict.fromkeys(notes))
+
 
 
 def scene_extents(value):
@@ -89,7 +74,7 @@ def plan_isar(azimuth_degrees, frequency_hz, *, elevation_degrees=0.0,
     if not np.isfinite(elevation) or projection < 1e-6:
         raise ValueError("Azimuth ISAR is degenerate at elevation ±90°")
     mode = aperture_mode(mode)
-    if reconstruction not in {'fast', 'fft', 'accurate', 'sparse', 'auto'}:
+    if reconstruction not in {'fast', 'fft', 'accurate', 'auto'}:
         raise ValueError('Unknown ISAR reconstruction')
     span = float(np.ptp(az))
     composite = mode == "composite" or (mode == "auto" and span > 20)
@@ -143,7 +128,7 @@ def plan_isar(azimuth_degrees, frequency_hz, *, elevation_degrees=0.0,
     if not composite and span >= 90:
         raise ValueError("A coherent PFA aperture must be narrower than 90°; choose composite or a narrower sector")
     support_scale = 1.0
-    if not composite and selected in {'accurate', 'sparse'}:
+    if not composite and selected == 'accurate':
         support_scale = cartesian_support_scale(theta, freq)
         if support_scale < 1:
             warnings.append(f'Narrow-band Cartesian support reduces the cross-range spatial-frequency span '

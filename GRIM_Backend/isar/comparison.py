@@ -11,7 +11,6 @@ def hydrate_band(band, manifest, index=0):
     out.update(band)
     out['az_values'] = np.asarray(info.get('azimuth_values_degrees', []), dtype=float)
     out['composite'] = int(info.get('composite_looks', 0))
-    out.update(info.get('sparse', {}))
     out['isar_contract_undeclared_fields'] = manifest.get('formation', {}).get('isar_contract_undeclared_fields', [])
     out['isar_metadata_notes'] = manifest.get('formation', {}).get('isar_metadata_notes', [])
     return out
