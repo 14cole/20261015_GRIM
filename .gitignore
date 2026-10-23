@@ -16,8 +16,9 @@ GRIM_Backend/offline packages/*
 .venv/
 venv/
 
-# Test suites (not needed to run or set up GRIM)
+# Test suites and local validation data (not needed to run or set up GRIM)
 tests/
+/validation/
 
 # Developer audit folders and reports (mirrors release_validation exclusions)
 *_Audit/

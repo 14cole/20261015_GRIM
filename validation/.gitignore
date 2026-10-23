@@ -1,6 +1,0 @@
-.work/
-__pycache__/
-~$*
-*.inspect.ndjson
-GRIM_button_validation.xlsx
-!datasets/**/*.grim
