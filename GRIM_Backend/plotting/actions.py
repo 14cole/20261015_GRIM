@@ -3470,6 +3470,11 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         self._maybe_autoscale()
 
     def _plot_sector_stats(self) -> None:
+        controls = getattr(self, 'analysis_controls', None)
+        if controls is not None and controls.sector_boxes() == []:
+            self._show_sector_statistics_settings()
+            if not controls.sector_boxes():
+                return
         self._set_compare_sector_controls_visible(False)
         sector_stats_mode.render(self)
         self._capture_successful_python_plot("sector_stats")

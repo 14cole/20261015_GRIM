@@ -11,13 +11,13 @@ from .result_storage import copy_result
 from .work_control import checkpoint
 
 
-def _bounds(values, name):
+def _bounds(values, name, *, allow_equal=False):
     if values is None:
         return None
     bounds = np.asarray(values, dtype=float)
     if bounds.shape != (2,) or not np.all(np.isfinite(bounds)):
         raise ValueError(f'{name} bounds must contain two finite numbers.')
-    if bounds[0] == bounds[1]:
+    if bounds[0] == bounds[1] and not allow_equal:
         raise ValueError(f'{name} bounds must span a nonzero interval.')
     return bounds
 
@@ -40,7 +40,7 @@ def band_selection(dataset, *, azimuth_band=None, frequency_band=None,
             values = values[indices]
         selected[axis] = values
     az = _bounds(azimuth_band, 'Azimuth')
-    freq = _bounds(frequency_band, 'Frequency')
+    freq = _bounds(frequency_band, 'Frequency', allow_equal=True)
     if az is not None:
         unit = dataset._supported_unit('azimuth', _ANGLE_UNITS, 'deg')
         values = selected['azimuths']
@@ -75,7 +75,7 @@ def band_selection(dataset, *, azimuth_band=None, frequency_band=None,
 def band_statistics_dataset(dataset, *, statistic='percentile', percentile=90.,
                             axes=('azimuth',), azimuth_band=None, frequency_band=None,
                             interpolate=False, azimuth_closed=True,
-                            azimuth_modular=True, selection=None):
+                            azimuth_modular=True, selection=None, box_name=None):
     """Return one bounded dataset with the statistic repeated within the band.
 
     If both axes are reduced, their samples form one joint population for each
@@ -113,4 +113,6 @@ def band_statistics_dataset(dataset, *, statistic='percentile', percentile=90.,
         'azimuth_closed': bool(azimuth_closed), 'azimuth_modular': bool(azimuth_modular),
         'coordinate_semantics': 'original coordinates inside the requested bounds; repeated aggregate',
     }, allow_nan=False, sort_keys=True)
+    if box_name is not None:
+        result.extra['statistics_box_name'] = str(box_name)
     return result

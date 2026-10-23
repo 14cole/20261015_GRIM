@@ -945,8 +945,8 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             if "sector_stats" in controls:
                 controls["sector_stats"].clicked.connect(self._plot_sector_stats)
                 sector_menu = QMenu(controls['sector_stats'])
-                sector_menu.addAction('Sector settings…', self._show_sector_statistics_settings)
-                sector_menu.addAction('Create sector datasets', self._create_sector_statistics_datasets)
+                sector_menu.addAction('Box settings…', self._show_sector_statistics_settings)
+                sector_menu.addAction('Create box datasets', self._create_sector_statistics_datasets)
                 controls['sector_stats'].setMenu(sector_menu)
                 controls['sector_stats'].setPopupMode(QToolButton.MenuButtonPopup)
                 controls["sector_stats"].setContextMenuPolicy(Qt.CustomContextMenu)
@@ -1337,6 +1337,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         dialog = SectorStatisticsDialog(
             controls, reference.azimuths if reference is not None else [],
             selected_azimuths=self._selected_values(self.list_az), unit=unit,
+            frequencies=reference.frequencies if reference is not None else [],
             frequency_unit=self._plot_axis_unit(reference, "frequency") if reference is not None else "GHz",
             parent=self,
         )
@@ -1937,7 +1938,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
                 "sector_stats": (
                     "Mean, median, max, min, or a percentile of linear power inside "
                     "each azimuth sector, drawn over the sector. Right-click this "
-                    "button to edit azimuth sectors, frequency bands and percentiles, or save/load sector CSV files. Right-click the plot "
+                    "button to define boxes with paired azimuth/frequency bounds and save/load box CSV files. Right-click the plot "
                     "to copy the results table."
                 ),
                 "range_freq": (

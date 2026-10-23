@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import math
+from copy import deepcopy
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
@@ -85,6 +86,7 @@ class PlotAnalysisControls(QObject):
         self._sector_interpolate = False
         self._sector_unit = "deg"
         self._sector_use_selected_azimuths = False
+        self._sector_boxes = []  # Draft defaults are shown in the box editor before Apply.
         self._sector_frequency_mode = "individual"
         self._sector_frequency_bands = ()  # Physical bounds in Hz.
 
@@ -302,6 +304,9 @@ class PlotAnalysisControls(QObject):
     def sector_use_selected_azimuths(self) -> bool:
         return self._sector_use_selected_azimuths
 
+    def sector_boxes(self):
+        return deepcopy(self._sector_boxes)
+
     def sector_frequency_bands(self, unit="Hz"):
         return common.convert_axis_values(
             self._sector_frequency_bands, "frequency", "Hz", unit
@@ -312,8 +317,11 @@ class PlotAnalysisControls(QObject):
         interpolate: bool | None = None,
         frequency_mode: str | None = None, frequency_bands=None,
         use_selected_azimuths: bool | None = None,
+        boxes=None,
     ) -> None:
         """Commit the editor's settings together, with a single plot refresh."""
+        from GRIM_Backend.datasets.statistics_boxes import normalize_boxes
+        validated_boxes = self._sector_boxes if boxes is None else normalize_boxes(boxes)
         values = (
             str(text).strip(), str(statistic), float(percentile), unit or self._sector_unit,
             self._sector_interpolate if interpolate is None else bool(interpolate),
@@ -321,18 +329,20 @@ class PlotAnalysisControls(QObject):
             self._sector_frequency_bands if frequency_bands is None else
             tuple(tuple(float(v) for v in band) for band in frequency_bands),
             self._sector_use_selected_azimuths if use_selected_azimuths is None else bool(use_selected_azimuths),
+            validated_boxes,
         )
         current = (
             self._sector_text, self._sector_statistic, self._sector_percentile,
             self._sector_unit, self._sector_interpolate,
             self._sector_frequency_mode, self._sector_frequency_bands,
             self._sector_use_selected_azimuths,
+            self._sector_boxes,
         )
         if values != current:
             (self._sector_text, self._sector_statistic,
              self._sector_percentile, self._sector_unit, self._sector_interpolate,
              self._sector_frequency_mode, self._sector_frequency_bands,
-             self._sector_use_selected_azimuths) = values
+             self._sector_use_selected_azimuths, self._sector_boxes) = values
             self.changed.emit("sector")
 
     def range_subband_percent(self) -> float:

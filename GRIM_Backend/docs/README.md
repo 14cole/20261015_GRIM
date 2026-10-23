@@ -366,58 +366,53 @@ the reduced axes; exact requested bounds are also retained in metadata.
 No boundary samples are invented. Explicit bands include both boundaries,
 and azimuth bands can wrap across the seam. Empty bands are reported as skipped.
 
-Right-click **Sector Stats**, or use its dropdown, to open its settings. Choose uniform-width sectors
-or **Custom sectors** and enter one start/stop azimuth pair per table row.
-The default uses **all available azimuths**, regardless of the Plot Settings
-azimuth selection. Check **Use the selected azimuth range** to limit the
-statistics to selected azimuth samples. This choice applies to both sector
-layouts, plotting, and created datasets, and is retained after Apply/OK.
-Uniform sectors span the available (or selected) azimuth extent automatically;
-check **Set explicit uniform start/stop bounds** to enter different bounds.
-Custom sectors may have different widths, gaps, or overlaps; a stop below the
-start crosses the azimuth seam (for example, 170 to -170 degrees). Custom
-sectors include both endpoints. Uniform sectors count shared boundaries once.
-The window also contains Mean, Median, Min, Max, and Percentile controls; these
-settings no longer appear in Plot Settings. Apply saves the settings and
-refreshes an existing Sector Stats plot. With Hold enabled, click Sector Stats
-again to add the updated curves. Cancel discards changes made since the last
-Apply. Sector limits follow degree/radian unit changes during the session.
-**Frequency selection** defaults to **Separate selected frequencies**. Choose
-**Combine selected frequencies into one band** to calculate each sector over
-all selected frequencies, or **Custom frequency bands** to enter Start/Stop
-pairs in the displayed frequency units. Use **Add band** for multiple bands.
-Each band combines its frequency and azimuth samples into one linear-power
-population per dataset, elevation and polarization; it does not average dB
-values or separately calculated frequency statistics. Only frequencies selected
-in Plot Settings are included. Custom bands include both boundaries, may
-overlap, and report bands without selected samples as skipped. Apply/OK saves
-the bands for the session; Cancel discards unapplied edits. The sector CSV
-Load/Save buttons continue to store azimuth bounds only.
-Band labels and **Copy sector table** identify the frequency interval. For
-frequency-dependent dBke display, the aggregate is converted at the mean of
-the acquired frequencies in the band; the legend and copied table identify
-this reference frequency. Linear display shows the unconverted aggregate.
-**Interpolate between percentile samples** controls both the plotted percentile
-and the percentile column in **Copy sector table**, including when another
-statistic is plotted. It is unchecked by default to select an actual sample
-using nearest rank; check it for linear interpolation of linear-power values.
-Apply or OK commits the choice, and reopening the dialog retains it during the
-session. Mean, Median, Min, and Max are unaffected.
+Right-click **Sector Stats**, or choose **Sector Stats → Box settings…**, to
+define **Boxes**. Each row contains a box name, azimuth Start/Stop and frequency
+Start/Stop. The two bands in that row stay paired: two boxes create two outputs
+per selected input, rather than all combinations of two separate band lists.
+**Add box** starts with the full available azimuth and frequency extents; edit
+the four bounds to define the region you want. Box names must be unique.
 
-Click **Create datasets** in sector settings, or **Sector Stats → Create sector
-datasets**, to create a new dataset for each configured sector/frequency-band combination and selected
-input. This uses the chosen statistic, all azimuths (or only selected azimuths
-when the checkbox is checked), and the current frequency, elevation, and
-polarization selection. With combined/custom frequency bands, both azimuth and frequency
-are reduced and the joint statistic is repeated on the original coordinates
-inside each band. Separate-frequency mode reduces azimuth only. Generated
-datasets retain the acquired frequencies, so their dBke display uses each
-coordinate's frequency (the sector plot instead uses its labeled band reference).
-Uniform sectors retain their half-open
-boundary rule (the last sector includes its stop); custom sectors include both
-edges. The outputs store linear power with undefined coherent phase and can be
-plotted or saved normally. Creating datasets runs in the background and supports
-**Cancel Job**. Plotting or refreshing sectors alone does not add dataset rows.
+The default uses **all available azimuths** inside each box. Check **Use the
+selected azimuth range** to further restrict each box to the azimuth samples
+selected in Plot Settings. Frequency bounds always use all acquired frequencies
+inside that box, independently of the Plot Settings frequency selection.
+Elevation and polarization selections still apply. Both boundaries are included,
+boxes may overlap, and a stop azimuth below the start wraps through the seam
+(for example, 170 to -170 degrees). Equal frequency bounds select one frequency.
+Boxes with no acquired samples are reported as skipped.
+
+Choose Mean, Median, Min, Max, or Percentile. Each box combines its azimuth and
+frequency samples into one linear-power population per elevation/polarization.
+**Interpolate between percentile samples** affects the percentile statistic and
+copied percentile column; unchecked uses nearest rank. Apply/OK commits all
+settings together; Cancel discards unapplied changes. Reopening retains the
+applied boxes for the session, converting their stored degrees/Hz bounds into
+the active display units. Wheel/trackpad scrolling does not change the dialog's
+statistic dropdown or percentile value, even when those controls have focus.
+The table and dialog remain scrollable.
+
+**Load boxes…** and **Save boxes…** use CSV columns
+`name,azimuth_start_deg,azimuth_stop_deg,frequency_start_hz,frequency_stop_hz`.
+CSV files contain complete paired boxes in degrees and Hz. The former two-column
+azimuth-sector CSV format is not a box definition; supply all four bounds.
+
+Click **Create datasets**, or **Sector Stats → Create box datasets**, to create
+one dataset per box and selected input. Each output keeps only original
+coordinates inside its bounds, with the statistic repeated across its reduced
+azimuth/frequency coordinates. Its name identifies the box and both bounds;
+metadata retains the box name and exact physical bounds. The outputs store
+linear power with undefined coherent phase and can be plotted or saved normally.
+Dataset creation runs in the background and supports **Cancel Job**. Plotting,
+Apply, and OK do not create duplicate dataset rows.
+
+Legends and **Copy sector table** identify each box. For dBke, the plotted
+aggregate is converted at the mean acquired frequency inside the box, explicitly
+identified in the legend/table. Generated datasets retain their acquired
+frequencies, so their dBke display uses each coordinate's frequency. Linear
+plotting shows the unconverted aggregate. With Hold enabled, click Sector Stats
+again to add the updated curves.
+
 Bounded-statistics operations appear in the Python recorder. Single-output band
 operations also work in **Record Actions**; recordings spanning multiple output
 branches retain that recorder's existing single-chain limitation.
