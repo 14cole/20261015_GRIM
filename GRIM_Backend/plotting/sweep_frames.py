@@ -10,6 +10,7 @@ class SweepFrames:
     bounds: np.ndarray
     unit: str
     band: bool
+    step_by_width: bool = False
 
     def __len__(self):
         return len(self.spans)
@@ -24,7 +25,7 @@ class SweepFrames:
         return f"{value} {self.unit}".strip()
 
 
-def make_sweep_frames(values, *, width=None, unit="", minimum_samples=2):
+def make_sweep_frames(values, *, width=None, unit="", minimum_samples=2, step_by_width=False):
     values = np.asarray(values, dtype=float)
     if values.ndim != 1 or not len(values) or not np.all(np.isfinite(values)):
         raise ValueError("The sweep axis needs finite acquired coordinates.")
@@ -41,12 +42,24 @@ def make_sweep_frames(values, *, width=None, unit="", minimum_samples=2):
     if not np.isfinite(width) or width <= 0 or width > extent * (1 + 1.e-12):
         raise ValueError("Band width must be positive and no wider than the acquired axis.")
     width = min(width, extent)
-    # One start per acquired coordinate, plus a final band ending exactly at
-    # the upper bound. Searchsorted keeps planning linear in retained storage.
-    last = coordinates[-1] - width
-    starts = np.unique(np.r_[coordinates[coordinates < last], last])
-    ends = starts + width
     tolerance = max(np.max(np.abs(coordinates)), width) * 8 * np.finfo(float).eps
+    if step_by_width:
+        # Anchor adjacent bands to the first coordinate. Consider only bins
+        # near acquired samples, so large gaps cannot allocate billions of
+        # empty positions. Include the previous bin for shared endpoints.
+        bins = np.floor((coordinates - coordinates[0]) / width)
+        bins = np.unique(np.r_[bins, bins - 1])
+        bins = bins[bins >= 0]
+        starts = coordinates[0] + bins * width
+        keep = starts < coordinates[-1] - tolerance
+        starts, bins = starts[keep], bins[keep]
+        ends = np.minimum(coordinates[0] + (bins + 1) * width, coordinates[-1])
+    else:
+        # One start per acquired coordinate, plus a final full-width band
+        # ending at the upper bound. Preserve the existing overlapping sweep.
+        last = coordinates[-1] - width
+        starts = np.unique(np.r_[coordinates[coordinates < last], last])
+        ends = starts + width
     lower = np.searchsorted(coordinates, starts-tolerance, side="left")
     upper = np.searchsorted(coordinates, ends+tolerance, side="right")
     valid = upper-lower >= minimum_samples
@@ -55,4 +68,4 @@ def make_sweep_frames(values, *, width=None, unit="", minimum_samples=2):
     if not len(spans):
         raise ValueError(f"No band contains at least {minimum_samples} acquired samples; increase the width.")
     distinct = np.r_[True, np.any(np.diff(spans, axis=0) != 0, axis=1)]
-    return SweepFrames(order, spans[distinct], bounds[distinct], unit, True)
+    return SweepFrames(order, spans[distinct], bounds[distinct], unit, True, bool(step_by_width))

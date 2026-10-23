@@ -520,6 +520,13 @@ omitted. The slider disables the corresponding Plot Settings band/aperture
 filter to avoid clipping its own selection a second time. It does not interpolate
 missing measurements. A narrower frequency band gives coarser range resolution.
 
+For frequency bands, check **Step by bandwidth** to start each band where the
+previous one ends: a 2 GHz bandwidth gives 1–3, 3–5, 5–7 GHz, and so on.
+Shared endpoints are included in both bands. Any final remainder uses a shorter
+band ending at the highest acquired frequency; it is not shifted backward.
+Bands with fewer than two acquired samples are omitted. The option is off by
+default and applies to slider arrows, dragging, playback, and sweep exports.
+
 **Seconds / frame** sets GUI playback pacing. Playback waits for each completed
 plot, then waits the chosen interval before advancing; expensive reconstruction
 can therefore make GUI playback slower. **Export sweep…** offers a numbered PNG

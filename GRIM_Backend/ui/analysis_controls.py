@@ -391,6 +391,11 @@ class PlotSliderBar(QFrame):
         self.band_width.setRange(0.000000001, 1.e15)
         self.band_width.setKeyboardTracking(False)
         self.band_width.setToolTip("Width of the moving band in the displayed axis units. Uses acquired samples only; windows with fewer than two samples are omitted. The slider replaces the matching Plot Settings filter.")
+        self.chk_step_by_bandwidth = QCheckBox("Step by bandwidth")
+        self.chk_step_by_bandwidth.setToolTip(
+            "Start each frequency band where the previous band ends: 1–3, 3–5, 5–7. "
+            "Shared endpoints belong to both bands. The final band may be shorter; "
+            "bands with fewer than two acquired samples are omitted.")
         self.seconds = QDoubleSpinBox()
         self.seconds.setRange(.05, 3600.)
         self.seconds.setDecimals(2)
@@ -417,12 +422,14 @@ class PlotSliderBar(QFrame):
         outer.addLayout(options)
         options.addWidget(self.band_label)
         options.addWidget(self.band_width)
+        options.addWidget(self.chk_step_by_bandwidth)
         options.addStretch(1)
         options.addWidget(QLabel("Seconds / frame"))
         options.addWidget(self.seconds)
         options.addWidget(self.btn_export)
         self.band_label.hide()
         self.band_width.hide()
+        self.chk_step_by_bandwidth.hide()
         self._busy = False
 
         self._labels: list[str] = []
@@ -436,6 +443,7 @@ class PlotSliderBar(QFrame):
         self._play_timer.timeout.connect(self._play_step)
         self.seconds.valueChanged.connect(lambda value: self._play_timer.setInterval(round(value * 1000)))
         self.band_width.valueChanged.connect(self._band_changed)
+        self.chk_step_by_bandwidth.toggled.connect(self._band_changed)
         self.slider.valueChanged.connect(self._value_changed)
         self.btn_prev.clicked.connect(lambda: self.step(-1))
         self.btn_next.clicked.connect(lambda: self.step(1))

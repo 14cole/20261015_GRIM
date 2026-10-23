@@ -70,6 +70,7 @@ class PlotSliderMixin:
         band = mode in RANGE_MODES and axis in ("frequency", "azimuth")
         bar.band_label.setVisible(band)
         bar.band_width.setVisible(band)
+        bar.chk_step_by_bandwidth.setVisible(band and axis == "frequency")
         bar.band_label.setText("Bandwidth" if axis == "frequency" else "Aperture width")
         if dataset is None or widget.count() == 0:
             bar._frames = None
@@ -100,7 +101,9 @@ class PlotSliderMixin:
                 bar.band_width.setValue(max(minimum, extent/4))
             bar.band_width.blockSignals(old)
         try:
-            frames = make_sweep_frames(values, width=bar.band_width.value() if band else None, unit=unit)
+            frames = make_sweep_frames(
+                values, width=bar.band_width.value() if band else None, unit=unit,
+                step_by_width=band and axis == "frequency" and bar.chk_step_by_bandwidth.isChecked())
         except ValueError as exc:
             bar._frames = None
             bar.set_positions([], 0)

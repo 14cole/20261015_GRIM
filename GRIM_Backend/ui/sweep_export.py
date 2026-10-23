@@ -252,6 +252,7 @@ class SweepExporter(QObject):
             "datasets": self.dataset_names,
             "initial_sample_rows": {key: sorted(rows) for key, rows in self.selections.items()},
             "band_width": self.bar.band_width.value() if self.frames.band else None,
+            "band_step": ("bandwidth" if self.frames.step_by_width else "acquired") if self.frames.band else None,
             "seconds_per_frame": self.seconds, "requested_positions": self.positions,
             "frames": self.records, "video": "sweep.mp4" if self.kind == "video" and status == "complete" else None}
         (self.folder / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
