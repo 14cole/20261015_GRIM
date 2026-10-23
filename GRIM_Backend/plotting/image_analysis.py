@@ -282,7 +282,7 @@ def comparison_advisories(a, b):
         notes.append("Image ordinate quantities or units differ; select relative-peak or explicit numeric comparison.")
     if a.metadata.get("kind") == b.metadata.get("kind") == "isar":
         notes.extend(comparison_issues(a.metadata["manifest"], a.metadata["band"], b.metadata["manifest"], b.metadata["band"]))
-    for key in ("polarization", "remaining_selection", "coordinate_system", "frequency_values_hz", "peak_normalized"):
+    for key in ("polarization", "remaining_selection", "coordinate_system", "frequency_values_hz"):
         if a.metadata.get(key) != b.metadata.get(key):
             notes.append(f"Different {key.replace('_', ' ')}; images are compared as supplied.")
     return tuple(dict.fromkeys(notes))

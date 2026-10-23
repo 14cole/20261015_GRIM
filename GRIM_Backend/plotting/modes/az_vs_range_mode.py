@@ -330,14 +330,12 @@ def render(self) -> None:
 
     units_combo = getattr(self, "combo_isar_units", None)
     unit_name, unit_scale = _length_unit(units_combo.currentText() if units_combo else "in")
-    pn_widget = getattr(self, "chk_isar_peak_normalize", None)
-    peak_norm = bool(pn_widget.isChecked()) if pn_widget else False
     window_control = getattr(self, "combo_isar_window", None)
     window_options = {"window": window_control.currentText()} if window_control is not None else {
         "window_arrays": [self._isar_window(len(_frequency_plan(plan)["target"])) for plan in plans]}
     request = PlotRequest("az_vs_range", reference, tuple(plans),
         scale=self._plot_scale_mode(), options={**window_options,
-            "unit_name": unit_name, "unit_scale": unit_scale, "peak_norm": peak_norm,
+            "unit_name": unit_name, "unit_scale": unit_scale,
             "flip_y": flip_y, "skipped": skipped})
 
     def publish(result):
@@ -404,7 +402,7 @@ def _prepare_panel(request, plan, frequency_plan, index, cancel, batch_bytes):
     # One full frequency vector is unavoidable; all additional azimuth rows
     # stay within this scratch target regardless of the total image size.
     rows = max(1, int(batch_bytes) // max(1, 64 * (len(frequency) + len(target)) + 24 * n_fft))
-    any_usable, peak, missing_profiles = False, 0., 0
+    any_usable, missing_profiles = False, 0
     check_cancel(cancel)
     with operation_result_storage("auto", ram_budget_bytes=16 * 1024**2):
         display = allocate_result((len(azimuth), n_fft), np.float64)
@@ -420,18 +418,13 @@ def _prepare_panel(request, plan, frequency_plan, index, cancel, batch_bytes):
             missing_profiles += int(np.count_nonzero(~usable))
             magnitude = np.abs(image)
             display[first:first + rows] = magnitude
-            if np.any(usable):
-                peak = max(peak, float(np.nanmax(magnitude)))
             del history, uniform, weights, image, magnitude
         if not any_usable:
             raise ValueError("No azimuth row has finite, supported phase history for range processing.")
         for first in range(0, len(azimuth), rows):
             check_cancel(cancel)
-            # Match the original single-precision normalization before the
-            # double-precision intensity conversion, including tiny values.
+            # Retain formation precision before converting amplitude to intensity.
             magnitude = np.asarray(display[first:first + rows], dtype=np.float32)
-            if request.options["peak_norm"] and peak > 0.:
-                magnitude = magnitude / peak
             display[first:first + rows] = _range_display_values(dataset, magnitude,
                 linear=request.scale == "linear")
         ranges = np.fft.fftshift(np.fft.fftfreq(n_fft, d=float(np.mean(np.diff(target)))))
@@ -528,7 +521,7 @@ def _display(self, result):
 def _draw_panel(self, request, plan, panel, ax, vmin, vmax):
     dataset, reference = plan.dataset, request.reference
     elev_idx, pol_idx = int(plan.selection[1][0]), int(plan.selection[3][0])
-    unit_name, peak_norm = request.options["unit_name"], request.options["peak_norm"]
+    unit_name = request.options["unit_name"]
     source_name = plan.name
     x_edges, y_edges = panel["x_edges"], panel["y_edges"]
     display, display_for_plot = panel["display"], panel["display_for_plot"]
@@ -567,7 +560,7 @@ def _draw_panel(self, request, plan, panel, ax, vmin, vmax):
             "frequency_values_hz":freq_hz.tolist(),
             "remaining_selection":("elevation",float(dataset.elevations[elev_idx]),common.axis_unit(dataset,"elevation")),
             "source_units":compact_metadata(dataset.units),
-            "source_metadata":compact_metadata(dataset.extra), "peak_normalized":peak_norm,
+            "source_metadata":compact_metadata(dataset.extra),
             "azimuth_gap_count":panel["azimuth_gap_count"],
             "missing_profile_count":panel["missing_profile_count"],
             "range_mirrored":bool(request.options.get("flip_y", False)),

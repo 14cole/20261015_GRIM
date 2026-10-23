@@ -1,4 +1,4 @@
-"""Contextual settings pages built from each canvas's existing controls."""
+"""The single settings layout for each canvas's processing and display controls."""
 from __future__ import annotations
 
 from PySide6.QtCore import QSize
@@ -108,8 +108,6 @@ class ContextPlotSettings(QWidget):
         self.row(form, "", c.chk_isar_aperture)
         self.conditional_row(form, "Center (deg)", c.spin_isar_ap_center, when=c.chk_isar_aperture.isChecked)
         self.conditional_row(form, "Width (deg)", c.spin_isar_ap_width, when=c.chk_isar_aperture.isChecked)
-        self.conditional_row(form, "Step / play", c.btn_isar_ap_prev, c.btn_isar_ap_next, c.btn_isar_ap_play,
-                             when=c.chk_isar_aperture.isChecked)
         c.chk_isar_aperture.toggled.connect(self.refresh_conditions)
         form = self.group("Axes & color", "Image display", RANGE_IMAGES)
         self.row(form, "Dynamic range", c.spin_isar_peak_drop, c.btn_isar_peak_scale)
@@ -117,7 +115,7 @@ class ContextPlotSettings(QWidget):
         c.btn_isar_apply.setText("Apply plot settings")
         c.btn_isar_apply.setToolTip("Recompute the current image using these processing settings. Color and axis limits update directly.")
 
-        form = self.group("Advanced", "Azimuth interpolation", {"isar_image", "isar_composite"})
+        form = self.group("Advanced", "Azimuth interpolation", {"isar_image"})
         self.row(form, "", c.chk_isar_az_interp)
         for label, spin in (("Minimum (deg)", c.spin_isar_az_min), ("Maximum (deg)", c.spin_isar_az_max),
                             ("Step (deg)", c.spin_isar_az_step)):
@@ -215,11 +213,9 @@ class ContextPlotSettings(QWidget):
 
 def configure_plot_settings(context):
     popup = context.settings_frame
-    # Retain unused backing controls and their signal connections, while the
-    # visible pages reuse the very same widgets that renderers already read.
+    # Replace the empty popup placeholder with the only settings layout.
     old = popup.scroll_area.takeWidget()
-    old.setParent(popup)
-    old.hide()
+    old.deleteLater()
     popup.plot_controls = ContextPlotSettings(context)
     popup.content_widget = popup.plot_controls
     popup.scroll_area.setWidget(popup.content_widget)

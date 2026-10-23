@@ -70,7 +70,8 @@ class PlotSliderMixin:
         band = mode in RANGE_MODES and axis in ("frequency", "azimuth")
         bar.band_label.setVisible(band)
         bar.band_width.setVisible(band)
-        bar.chk_step_by_bandwidth.setVisible(band and axis == "frequency")
+        bar.step_mode.setVisible(band)
+        bar.advance.setVisible(band and bar.step_mode.currentData() == "custom")
         bar.band_label.setText("Bandwidth" if axis == "frequency" else "Aperture width")
         if dataset is None or widget.count() == 0:
             bar._frames = None
@@ -100,17 +101,35 @@ class PlotSliderMixin:
             if changed:
                 bar.band_width.setValue(max(minimum, extent/4))
             bar.band_width.blockSignals(old)
+            old = bar.advance.blockSignals(True)
+            bar.advance.setDecimals(decimals)
+            bar.advance.setSuffix(f" {unit}")
+            bar.advance.setRange(minimum, max(minimum, extent))
+            if changed:
+                bar.advance.setValue(bar.band_width.value())
+            bar.advance.blockSignals(old)
         try:
             frames = make_sweep_frames(
                 values, width=bar.band_width.value() if band else None, unit=unit,
-                step_by_width=band and axis == "frequency" and bar.chk_step_by_bandwidth.isChecked())
+                step_by_width=band and bar.step_mode.currentData() == "width",
+                advance=bar.advance.value() if band and bar.step_mode.currentData() == "custom" else None)
         except ValueError as exc:
             bar._frames = None
             bar.set_positions([], 0)
             bar.value_label.setText(str(exc))
+            bar.sequence_note.clear()
             bar.stop_play()
             return
         bar._frames = frames
+        if band:
+            preview = "; ".join(frames.label(i) for i in range(min(3, len(frames))))
+            if len(frames) > 3:
+                preview += "; …; " + frames.label(len(frames)-1)
+            bar.sequence_note.setText(
+                f"All dataset {axis} samples · {len(frames)} windows: {preview}. "
+                "Endpoints are inclusive. Final windows may be shorter; duplicate sample sets and windows with fewer than two samples are omitted.")
+        else:
+            bar.sequence_note.setText(f"All dataset {axis} samples · {len(frames)} positions.")
         rows = [widget.row(item) for item in widget.selectedItems()]
         current = bar.slider.value()
         if not band and rows:
@@ -146,9 +165,6 @@ class PlotSliderMixin:
         self._slider_dispatching = True
         self._slider_async_token = None
         bar.render_started()
-        play = getattr(self, "btn_isar_ap_play", None)
-        if play is not None:
-            play.setChecked(False)
         blocked = widget.blockSignals(True)
         try:
             widget.clearSelection()

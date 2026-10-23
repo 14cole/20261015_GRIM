@@ -14,7 +14,6 @@ import warnings
 import numpy as np
 
 from . import common
-from .azimuth_rect_mode import _plan_series
 from GRIM_Backend.datasets.statistics_boxes import normalize_boxes
 
 STATISTICS = (
@@ -53,29 +52,6 @@ def statistic_tag(statistic: str, percentile: float, interpolate: bool = False) 
     return f"P{percentile:g}{suffix}"
 
 
-def frequency_groups(frequencies, unit, mode="individual", bands=()):
-    """Return selected-frequency offsets and optional inclusive bounds in Hz.
-
-    Empty custom bands are retained so callers can report them. The selected
-    coordinates are never expanded to fill gaps or include unselected samples.
-    """
-    hz = common.convert_axis_values(frequencies, "frequency", unit, "Hz")
-    if mode == "individual":
-        return [(np.array([index]), None) for index in range(len(hz))]
-    if mode == "selected":
-        return [(np.arange(len(hz)), None)]
-    if mode != "custom" or not len(bands):
-        raise ValueError("Choose a frequency mode and at least one band for Custom frequency bands")
-    groups = []
-    for bounds in bands:
-        bounds = np.asarray(bounds, dtype=float)
-        if bounds.shape != (2,) or not np.isfinite(bounds).all() or bounds[1] <= bounds[0]:
-            raise ValueError("Frequency bands need finite Start and Stop values with Stop above Start")
-        eps = max(abs(bounds).max(), 1.) * 1e-12
-        groups.append((np.flatnonzero((hz >= bounds[0] - eps) & (hz <= bounds[1] + eps)), tuple(bounds)))
-    return groups
-
-
 def render(self) -> None:
     self.last_plot_mode = "sector_stats"
     self._start_plot_render()
@@ -93,13 +69,12 @@ def render(self) -> None:
         return
 
     controls = getattr(self, "analysis_controls", None)
-    boxes = controls.sector_boxes() if controls is not None and hasattr(controls, 'sector_boxes') else None
+    boxes = controls.sector_boxes() if controls is not None else []
     use_selected_azimuths = controls.sector_use_selected_azimuths() if controls is not None else False
     az_values = np.asarray(sorted(
         self._selected_values(self.list_az) if use_selected_azimuths else reference.azimuths
     ), dtype=float)
-    freq_values = np.asarray(sorted(reference.frequencies if boxes is not None
-                                    else self._selected_values(self.list_freq)), dtype=float)
+    freq_values = np.asarray(sorted(reference.frequencies), dtype=float)
     elev_values = np.asarray(sorted(self._selected_values(self.list_elev)), dtype=float)
     for values, axis in ((az_values, "azimuths"), (freq_values, "frequencies"),
                          (elev_values, "elevations")):
@@ -113,51 +88,34 @@ def render(self) -> None:
     statistic = controls.sector_statistic() if controls is not None else "mean"
     percentile = controls.sector_percentile() if controls is not None else 90.0
     interpolate = controls.sector_interpolate() if controls is not None else False
-    frequency_mode = controls.sector_frequency_mode() if controls is not None else "individual"
-    frequency_bands = controls.sector_frequency_bands() if controls is not None else ()
     period = float(common.convert_axis_values(
         [360.0], "azimuth", "deg", self._plot_axis_unit(reference, "azimuth")
     )[0])
     try:
-        if boxes is not None:
-            boxes = normalize_boxes(boxes)
-            sectors = []
-            for box in boxes:
-                start, stop = common.convert_axis_values(
-                    box['azimuth_band'], 'azimuth', 'deg', self._plot_axis_unit(reference, 'azimuth'))
-                sectors.append(common.parse_sectors(f'{start:.17g}:{stop:.17g}', az_values, period=period)[0])
-            frequency_mode = 'boxes'
-        else:
-            sector_text = (
-                controls.sector_text(unit=self._plot_axis_unit(reference, "azimuth"))
-                if controls is not None else "30"
-            )
-            sectors = common.parse_sectors(sector_text, az_values, period=period)
+        boxes = normalize_boxes(boxes)
+        sectors = []
+        for box in boxes:
+            start, stop = common.convert_axis_values(
+                box['azimuth_band'], 'azimuth', 'deg', self._plot_axis_unit(reference, 'azimuth'))
+            sectors.append(common.parse_sectors(f'{start:.17g}:{stop:.17g}', az_values, period=period)[0])
     except ValueError as exc:
         self.status.showMessage(f"Sector Stats blocked: {exc}.")
         return
 
-    if boxes is None:
-        plans, skipped = _plan_series(
-            self, reference, datasets, az_values, elev_values, freq_values, polarization
-        )
-    else:
-        # Each box is a physical region, not a demand that every input have
-        # the reference dataset's exact frequency/azimuth sampling grid.
-        plans, skipped = [], []
-        for name, dataset in datasets:
-            for pol in ([polarization] if isinstance(polarization, str) else polarization):
-                selection = (
-                    self._overlay_axis_selection(reference, dataset, 'azimuth', az_values)
-                    if use_selected_azimuths else np.arange(len(dataset.azimuths)),
-                    self._axis_selection_for_dataset(reference, dataset, 'elevation', elev_values),
-                    np.arange(len(dataset.frequencies)),
-                    self._indices_for_values(dataset.polarizations, [pol], tol=0.0),
-                )
-                if any(indices is None or len(indices) == 0 for indices in selection):
-                    skipped.append(f'{name} | Pol {pol}')
-                else:
-                    plans.append((name, dataset, selection))
+    plans, skipped = [], []
+    for name, dataset in datasets:
+        for pol in ([polarization] if isinstance(polarization, str) else polarization):
+            selection = (
+                self._overlay_axis_selection(reference, dataset, 'azimuth', az_values)
+                if use_selected_azimuths else np.arange(len(dataset.azimuths)),
+                self._axis_selection_for_dataset(reference, dataset, 'elevation', elev_values),
+                np.arange(len(dataset.frequencies)),
+                self._indices_for_values(dataset.polarizations, [pol], tol=0.0),
+            )
+            if any(indices is None or len(indices) == 0 for indices in selection):
+                skipped.append(f'{name} | Pol {pol}')
+            else:
+                plans.append((name, dataset, selection))
     if not plans:
         self._show_plot_status("No compatible one-to-one coordinates for the selected plot.")
         return
@@ -166,33 +124,25 @@ def render(self) -> None:
     try:
         for name, dataset, selection in plans:
             az_indices, elev_indices, freq_indices, _ = selection
-            if boxes is None:
-                groups = [(offsets, bounds, sectors, '') for offsets, bounds in frequency_groups(
-                    dataset.frequencies[freq_indices], common.axis_unit(dataset, "frequency"),
-                    frequency_mode, frequency_bands)]
-            else:
-                hz = common.convert_axis_values(dataset.frequencies[freq_indices], 'frequency',
-                                                common.axis_unit(dataset, 'frequency'), 'Hz')
-                groups = []
-                azimuths = self._plot_axis_values(reference, dataset, 'azimuth', dataset.azimuths[az_indices])
-                for box, sector in zip(boxes, sectors):
-                    lo, hi = box['frequency_band']
-                    eps = max(abs(lo), abs(hi), 1.) * 1e-12
-                    offsets = np.flatnonzero((hz >= lo - eps) & (hz <= hi + eps))
-                    if not len(offsets) or not sector.contains(azimuths).any():
-                        skipped.append(f"{name} | {box['name']} (no samples inside box)")
-                        continue
-                    groups.append((offsets, (lo, hi), [sector], box['name']))
+            hz = common.convert_axis_values(dataset.frequencies[freq_indices], 'frequency',
+                                            common.axis_unit(dataset, 'frequency'), 'Hz')
+            groups = []
+            azimuths = self._plot_axis_values(reference, dataset, 'azimuth', dataset.azimuths[az_indices])
+            for box, sector in zip(boxes, sectors):
+                lo, hi = box['frequency_band']
+                eps = max(abs(lo), abs(hi), 1.) * 1e-12
+                offsets = np.flatnonzero((hz >= lo - eps) & (hz <= hi + eps))
+                if not len(offsets) or not sector.contains(azimuths).any():
+                    skipped.append(f"{name} | {box['name']} (no samples inside box)")
+                    continue
+                groups.append((offsets, (lo, hi), [sector], box['name']))
             populated = []
             for offsets, bounds, group_sectors, box_name in groups:
                 if not len(offsets):
                     skipped.append(f"{name} | frequency band {bounds[0]:g}–{bounds[1]:g} Hz (no selected samples)")
                     continue
                 group_az_indices = np.asarray(az_indices)
-                if boxes is not None:
-                    # A box is bounded in both axes. Budget and read only its
-                    # population, not every azimuth in the source dataset.
-                    group_az_indices = group_az_indices[group_sectors[0].contains(azimuths)]
+                group_az_indices = group_az_indices[group_sectors[0].contains(azimuths)]
                 populated.append((group_az_indices, np.asarray(freq_indices)[offsets],
                                   bounds, group_sectors, box_name))
                 cells = len(group_az_indices) * len(offsets)
@@ -200,11 +150,10 @@ def render(self) -> None:
                 total_cells += cells * len(elev_indices) * len(group_sectors)
                 series_count += len(elev_indices)
             band_plans.append((name, dataset, selection, populated))
-        if frequency_mode != "individual":
-            common.validate_synchronous_plot_workload(
-                operation="Sector frequency-band statistics", peak_slice_cells=peak_cells,
-                total_cells=total_cells,
-            )
+        common.validate_synchronous_plot_workload(
+            operation="Sector frequency-band statistics", peak_slice_cells=peak_cells,
+            total_cells=total_cells,
+        )
     except ValueError as exc:
         self._show_plot_status(f"Sector Stats blocked: {exc}.")
         return
@@ -242,13 +191,10 @@ def render(self) -> None:
             native_frequency = float(np.mean(dataset.frequencies[group_indices]))
             frequency = float(self._plot_axis_values(
                 reference, dataset, "frequency", [native_frequency])[0])
-            if frequency_mode == "individual":
-                frequency_label = f"{frequency:.12g}"
-            else:
-                limits = (self._plot_axis_values(reference, dataset, "frequency",
-                          dataset.frequencies[group_indices]) if bounds is None else
-                          common.convert_axis_values(bounds, "frequency", "Hz", freq_unit))
-                frequency_label = f"{np.min(limits):.12g}–{np.max(limits):.12g}"
+            limits = (self._plot_axis_values(reference, dataset, "frequency",
+                      dataset.frequencies[group_indices]) if bounds is None else
+                      common.convert_axis_values(bounds, "frequency", "Hz", freq_unit))
+            frequency_label = f"{np.min(limits):.12g}–{np.max(limits):.12g}"
             for elev_idx in elev_indices:
                 if rendered >= common.MAX_LINE_SERIES:
                     omitted += 1
@@ -282,7 +228,7 @@ def render(self) -> None:
                             )
                     shown = {key: float(value) for key, value in zip(keys, values)}
                     table.append((
-                        name, str(pol_value), frequency if frequency_mode == "individual" else frequency_label,
+                        name, str(pol_value), frequency_label,
                         elevation, sector.label(),
                         stats["count"], shown["mean"], shown["median"], shown["min"],
                         shown["max"], shown["percentile"],
@@ -306,14 +252,14 @@ def render(self) -> None:
                 )
                 if box_name:
                     label = f'{box_name} | {label}'
-                if frequency_mode != "individual" and native_unit.lower() == "dbke":
+                if native_unit.lower() == "dbke":
                     label += f", dBke ref {frequency:.12g} {freq_unit}"
                 trace_key = (
                     "sector", statistic, percentile,
                     interpolate if statistic == "percentile" else None,
                     tuple((s.start, s.width) for s in group_sectors), box_name,
                     tuple(float(v) for v in dataset.azimuths[az_indices]),
-                    frequency_mode, bounds, tuple(float(v) for v in dataset.frequencies[group_indices]),
+                    bounds, tuple(float(v) for v in dataset.frequencies[group_indices]),
                     float(dataset.elevations[elev_idx]), str(pol_value),
                 )
                 self._plot_bounded_line(
@@ -330,10 +276,9 @@ def render(self) -> None:
         "percentile_method": "linear" if interpolate else "inverted_cdf",
         "rows": table,
         "row_units": row_units,
-        "frequency_mode": frequency_mode,
         "frequency_unit": freq_unit,
         "frequency_references": frequency_references,
-        "box_names": row_box_names if boxes is not None else [],
+        "box_names": row_box_names,
     }
     if zero_levels:
         zero_message = (
@@ -369,7 +314,7 @@ def render(self) -> None:
     self.spin_plot_xmin.blockSignals(False)
     self.spin_plot_xmax.blockSignals(False)
     self._apply_plot_limits()
-    status = f"Sector statistics ({len(sectors)} {'boxes' if boxes is not None else 'sectors'}, {tag}) plot updated."
+    status = f"Sector statistics ({len(sectors)} boxes, {tag}) plot updated."
     if skipped:
         status = f"{status[:-1]} Skipped: {', '.join(skipped)}."
     self._show_plot_status(status)
@@ -385,20 +330,16 @@ def table_text(table) -> str:
         "percentile", table["percentile"], table.get("interpolate", False)
     )
     header = (
-        "Dataset", "Pol", "Frequency", "Elevation", "Sector", "Samples",
+        "Dataset", "Pol", f"Frequency band ({table['frequency_unit']})", "Elevation", "Azimuth band", "Samples",
         f"Mean{suffix}", f"Median{suffix}", f"Min{suffix}", f"Max{suffix}",
         f"{percentile_tag}{suffix}",
     )
     if mixed_units:
         header += ("Unit",)
-    banded = table.get("frequency_mode", "individual") != "individual"
-    if banded:
-        header = (*header[:2], f"Frequency band ({table['frequency_unit']})", *header[3:])
-    show_reference = banded and any(str(value).lower() == "dbke" for value in row_units)
+    show_reference = any(str(value).lower() == "dbke" for value in row_units)
     if show_reference:
         header += (f"dBke reference frequency ({table['frequency_unit']})",)
-    if table.get('box_names'):
-        header += ('Box',)
+    header += ('Box',)
     lines = ["\t".join(header)]
     for row_index, row in enumerate(table["rows"]):
         cells = [str(value) if not isinstance(value, float) else f"{value:.6g}" for value in row]
@@ -407,7 +348,6 @@ def table_text(table) -> str:
         if show_reference:
             cells.append(f"{table['frequency_references'][row_index]:.12g}"
                          if row_units[row_index].lower() == "dbke" else "")
-        if table.get('box_names'):
-            cells.append(table['box_names'][row_index])
+        cells.append(table['box_names'][row_index])
         lines.append("\t".join(cells))
     return "\n".join(lines)

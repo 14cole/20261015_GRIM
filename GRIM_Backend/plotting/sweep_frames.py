@@ -11,6 +11,7 @@ class SweepFrames:
     unit: str
     band: bool
     step_by_width: bool = False
+    advance: float | None = None
 
     def __len__(self):
         return len(self.spans)
@@ -25,7 +26,7 @@ class SweepFrames:
         return f"{value} {self.unit}".strip()
 
 
-def make_sweep_frames(values, *, width=None, unit="", minimum_samples=2, step_by_width=False):
+def make_sweep_frames(values, *, width=None, unit="", minimum_samples=2, step_by_width=False, advance=None):
     values = np.asarray(values, dtype=float)
     if values.ndim != 1 or not len(values) or not np.all(np.isfinite(values)):
         raise ValueError("The sweep axis needs finite acquired coordinates.")
@@ -43,7 +44,17 @@ def make_sweep_frames(values, *, width=None, unit="", minimum_samples=2, step_by
         raise ValueError("Band width must be positive and no wider than the acquired axis.")
     width = min(width, extent)
     tolerance = max(np.max(np.abs(coordinates)), width) * 8 * np.finfo(float).eps
-    if step_by_width:
+    if advance is not None:
+        advance = float(advance)
+        if not np.isfinite(advance) or advance <= 0:
+            raise ValueError("Window advance must be finite and positive.")
+        count = np.ceil(extent / advance)
+        if not np.isfinite(count) or count > 100000:
+            raise ValueError("More than 100,000 windows requested; increase the advance.")
+        starts = coordinates[0] + np.arange(int(count)) * advance
+        starts = starts[starts < coordinates[-1] - tolerance]
+        ends = np.minimum(starts + width, coordinates[-1])
+    elif step_by_width:
         # Anchor adjacent bands to the first coordinate. Consider only bins
         # near acquired samples, so large gaps cannot allocate billions of
         # empty positions. Include the previous bin for shared endpoints.
@@ -68,4 +79,4 @@ def make_sweep_frames(values, *, width=None, unit="", minimum_samples=2, step_by
     if not len(spans):
         raise ValueError(f"No band contains at least {minimum_samples} acquired samples; increase the width.")
     distinct = np.r_[True, np.any(np.diff(spans, axis=0) != 0, axis=1)]
-    return SweepFrames(order, spans[distinct], bounds[distinct], unit, True, bool(step_by_width))
+    return SweepFrames(order, spans[distinct], bounds[distinct], unit, True, bool(step_by_width), advance)

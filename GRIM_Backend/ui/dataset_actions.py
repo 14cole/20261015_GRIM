@@ -3195,8 +3195,7 @@ class DatasetOpsMixin:
             return
         if not controls.sector_use_selected_azimuths():
             values['azimuth'] = np.asarray(reference.azimuths).tolist()
-        if boxes is not None:
-            values['frequency'] = np.asarray(reference.frequencies).tolist()
+        values['frequency'] = np.asarray(reference.frequencies).tolist()
         polarizations = self._overlay_polarizations()
         if not all(values.values()) or polarizations is None:
             self.status.showMessage('Select azimuths, frequencies, elevations and polarizations for sector statistics.')
@@ -3204,13 +3203,8 @@ class DatasetOpsMixin:
         if isinstance(polarizations, str):
             polarizations = [polarizations]
         try:
-            azimuths = common.convert_axis_values(values['azimuth'], 'azimuth',
-                                                  self._plot_axis_unit(reference, 'azimuth'), 'deg')
-            if boxes is not None:
-                from GRIM_Backend.datasets.statistics_boxes import box_specs
-                specs = box_specs(boxes)
-            else:
-                sectors = common.parse_sectors(controls.sector_text(unit='deg'), azimuths)
+            from GRIM_Backend.datasets.statistics_boxes import box_specs
+            specs = box_specs(boxes)
         except ValueError as exc:
             self.status.showMessage(f'Sector statistics blocked: {exc}')
             return
@@ -3219,8 +3213,7 @@ class DatasetOpsMixin:
             selection = {}
             for axis, attr in (('azimuth', 'azimuths'), ('elevation', 'elevations'), ('frequency', 'frequencies')):
                 mapper = self._overlay_axis_selection if axis == 'azimuth' else self._axis_selection_for_dataset
-                if boxes is not None and (axis == 'frequency' or
-                        (axis == 'azimuth' and not controls.sector_use_selected_azimuths())):
+                if axis == 'frequency' or (axis == 'azimuth' and not controls.sector_use_selected_azimuths()):
                     indices = np.arange(len(getattr(dataset, attr)))
                 else:
                     indices = mapper(reference, dataset, axis, values[axis])
@@ -3228,16 +3221,9 @@ class DatasetOpsMixin:
             selection['polarizations'] = [pol for pol in polarizations
                                           if self._indices_for_values(dataset.polarizations, [pol], tol=0.0)]
             selections.append(selection)
-        frequency_mode = controls.sector_frequency_mode()
-        frequency_bands = controls.sector_frequency_bands() if frequency_mode == 'custom' else [None]
-        if boxes is None:
-            specs = [dict(azimuth_band=[sector.start, sector.stop_value if sector.stop_value is not None
-                                        else sector.start + sector.width],
-                          azimuth_closed=sector.closed, azimuth_modular=sector.modular,
-                          frequency_band=band) for sector in sectors for band in frequency_bands]
         self._create_banded_statistics_datasets(
             datasets, specs, statistic=controls.sector_statistic(), percentile=controls.sector_percentile(),
-            axes=['azimuth'] if boxes is None and frequency_mode == 'individual' else ['azimuth', 'frequency'],
+            axes=['azimuth', 'frequency'],
             interpolate=controls.sector_interpolate(),
             operation_title='Sector statistics', selections=selections)
 

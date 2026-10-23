@@ -252,7 +252,6 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             session.runner.publication_failed.connect(
                 lambda error: self.status.showMessage(f"Plot publication failed: {error}"))
         generation = int(getattr(self, "_plot_render_generation", 0))
-        play_generation = int(getattr(self, "_isar_play_generation", 0))
         tab_key = self._active_plot_tab
         old_recipe = getattr(self, "last_python_plot_spec", None)
         self._record_python_plot(request.mode, emit=False)
@@ -268,17 +267,6 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
         self._ordinary_plot_slider_before = None
         self.status.showMessage(f"Preparing {request.mode.replace('_', ' ')} plot…")
 
-        def range_play_complete(ok):
-            play = getattr(self, "btn_isar_ap_play", None)
-            if (request.mode != "az_vs_range" or play is None or not play.isChecked()
-                    or getattr(self, "_isar_play_mode", None) != "az_vs_range"
-                    or play_generation != int(getattr(self, "_isar_play_generation", 0))):
-                return
-            if ok:
-                QTimer.singleShot(30, lambda: self._isar_play_step(play_generation))
-            else:
-                play.setChecked(False)
-
         def completed(result, error):
             if (session.disposed or getattr(self, "_active_plot_tab", None) != tab_key
                     or context.plot_figure is not self.plot_figure
@@ -290,7 +278,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             self._ordinary_plot_pending = False
             if error is not None:
                 self.status.showMessage(f"Plot preparation failed: {error}")
-                range_play_complete(False)
+
                 if slider_token is not None:
                     self._slider_frame_finished(False, slider_token)
                 return
@@ -303,7 +291,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
             except Exception as exc:
                 dispose_result(result)
                 self.status.showMessage(f"Plot display failed: {exc}")
-                range_play_complete(False)
+
                 if slider_token is not None:
                     self._slider_frame_finished(False, slider_token)
                 return
@@ -320,9 +308,7 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
                 self._maybe_autoscale()
                 if self._ordinary_plot_emit:
                     self._emit_last_successful_python_plot()
-                range_play_complete(True)
-            else:
-                range_play_complete(False)
+
             if slider_token is not None:
                 self._slider_frame_finished("updated" in str(self.status.currentMessage()).lower(), slider_token)
         session.runner.submit(compute, completed)
@@ -2368,91 +2354,10 @@ class PlotOpsMixin(PlotMarkersMixin, PlotSliderMixin, DatasetPlotStyleMixin):
                 # reaches a safe boundary. Resume the latest coalesced ISAR
                 # request after the queued import batches have drained.
                 self._isar_pending = pending
-            else:
-                play_btn = getattr(self, "btn_isar_ap_play", None)
-                if play_btn is not None and play_btn.isChecked():
-                    play_btn.setChecked(False)
             return
         if pending is not None:
             self._isar_submit(pending)
             return
-        # Cine mode: keep stepping while Play stays toggled and renders succeed.
-        play_btn = getattr(self, "btn_isar_ap_play", None)
-        if ok and play_btn is not None and play_btn.isChecked():
-            generation = getattr(self, "_isar_play_generation", 0)
-            QTimer.singleShot(30, lambda: self._isar_play_step(generation))
-
-    # ------------------------------------------------------------------
-    # Aperture scrubbing (center/width + step/play) and peak-relative clim
-    # ------------------------------------------------------------------
-
-    def _isar_step_aperture(self, direction: int) -> None:
-        center_spin = getattr(self, "spin_isar_ap_center", None)
-        width_spin = getattr(self, "spin_isar_ap_width", None)
-        if center_spin is None or width_spin is None:
-            return
-        mode = self.last_plot_mode if self.last_plot_mode in ("az_vs_range", "isar_composite") else "isar_image"
-        chk = getattr(self, "chk_isar_aperture", None)
-        width = float(width_spin.value())
-        step = width / 2.0 if width > 0.0 else 1.0  # 50% overlap between looks
-        new_center = float(np.mod(center_spin.value() + direction * step, 360.0))
-        # Change both controls atomically, then form exactly one image in the
-        # current mode. Their live signals would otherwise draw an intermediate
-        # aperture and used to switch a range map into full ISAR.
-        controls = [center_spin] + ([chk] if chk is not None else [])
-        blocked = [widget.blockSignals(True) for widget in controls]
-        try:
-            if chk is not None:
-                chk.setChecked(True)
-            center_spin.setValue(new_center)
-        finally:
-            for widget, previous in zip(controls, blocked):
-                widget.blockSignals(previous)
-        self._invalidate_isar_result()
-        if mode == "az_vs_range":
-            self._plot_az_vs_range()
-        else:
-            self._plot_isar_image()
-
-    def _on_isar_ap_prev(self) -> None:
-        self._isar_step_aperture(-1)
-
-    def _on_isar_ap_next(self) -> None:
-        self._isar_step_aperture(+1)
-
-    def _isar_play_step(self, generation=None) -> None:
-        if generation is not None and generation != getattr(self, "_isar_play_generation", 0):
-            return
-        play_btn = getattr(self, "btn_isar_ap_play", None)
-        if play_btn is None or not play_btn.isChecked():
-            return
-        mode = getattr(self, "_isar_play_mode", self.last_plot_mode)
-        if self.last_plot_mode != mode:
-            play_btn.setChecked(False)
-            return
-        previous_range_generation = getattr(self, "_last_az_vs_range_generation", None)
-        self._isar_step_aperture(+1)
-        # Background range maps and coherent ISAR schedule their next frame
-        # only after successful publication; small range maps finish inline.
-        if mode == "az_vs_range" and play_btn.isChecked():
-            if getattr(self, "_ordinary_plot_pending", False):
-                return
-            generation = getattr(self, "_last_az_vs_range_generation", None)
-            if generation is not None and generation != previous_range_generation:
-                play_generation = getattr(self, "_isar_play_generation", 0)
-                QTimer.singleShot(30, lambda: self._isar_play_step(play_generation))
-            else:
-                play_btn.setChecked(False)
-
-    def _on_isar_ap_play(self, checked: bool) -> None:
-        self._isar_play_generation = getattr(self, "_isar_play_generation", 0) + 1
-        if checked:
-            self._isar_play_mode = (
-                self.last_plot_mode if self.last_plot_mode in ("az_vs_range", "isar_composite") else "isar_image"
-            )
-            if self.last_plot_mode not in ("isar_image", "isar_composite", "az_vs_range"):
-                self.last_plot_mode = "isar_image"
-            self._isar_play_step()
 
     def _on_isar_peak_scale(self) -> None:
         """Set the color scale to [peak − N, peak] of the rendered image —

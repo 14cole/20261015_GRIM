@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import math
 from copy import deepcopy
 
@@ -80,15 +79,11 @@ class PlotAnalysisControls(QObject):
         self._build_cdf_dialog(parent)
         self.btn_cdf_settings.clicked.connect(self._show_cdf_dialog)
 
-        self._sector_text = "30"
         self._sector_statistic = "mean"
         self._sector_percentile = 90.0
         self._sector_interpolate = False
-        self._sector_unit = "deg"
         self._sector_use_selected_azimuths = False
         self._sector_boxes = []  # Draft defaults are shown in the box editor before Apply.
-        self._sector_frequency_mode = "individual"
-        self._sector_frequency_bands = ()  # Physical bounds in Hz.
 
         self.spin_range_subband = QDoubleSpinBox()
         self.spin_range_subband.setRange(5.0, 100.0)
@@ -116,26 +111,6 @@ class PlotAnalysisControls(QObject):
         self.combo_range_window.currentIndexChanged.connect(lambda: self.changed.emit("range"))
         self.combo_range_unit.currentIndexChanged.connect(lambda: self.changed.emit("range"))
         self.combo_cdf.currentIndexChanged.connect(self._cdf_options_changed)
-
-    def add_rows(self, grid, row: int) -> int:
-        """Add labeled rows to the Plot Settings grid; returns the next row."""
-        rows = (
-            (("Sweep statistic", self.combo_sweep_aggregation), ("Sweep percentile", self.spin_sweep_percentile)),
-            (("", self.chk_sweep_interpolate),),
-            (("CDF", self.combo_cdf), ("Details", self.btn_cdf_settings)),
-            (("Range–Freq Sub-band", self.spin_range_subband),
-             ("Window", self.combo_range_window), ("Range Unit", self.combo_range_unit)),
-        )
-        for cells in rows:
-            for column, (label, widget) in enumerate(cells):
-                if label:
-                    grid.addWidget(QLabel(label), row, 2 * column)
-                span = 5 if len(cells) == 1 else 1
-                grid.addWidget(widget, row, 2 * column + 1, 1, span)
-            row += 1
-        return row
-
-    # --- values ------------------------------------------------------------
 
     def cdf_exceedance(self) -> bool:
         return self.combo_cdf.currentData() == "exceedance"
@@ -276,19 +251,6 @@ class PlotAnalysisControls(QObject):
         finally:
             self.blockSignals(blocked)
 
-    def sector_text(self, unit: str | None = None) -> str:
-        """Return the definition in the requested azimuth units."""
-        if unit is None or unit == self._sector_unit:
-            return self._sector_text
-        parts = re.split(r"([,:;])", self._sector_text)
-        for index in range(0, len(parts), 2):
-            if parts[index].strip():
-                value = common.convert_axis_values(
-                    [float(parts[index])], "azimuth", self._sector_unit, unit
-                )[0]
-                parts[index] = f"{value:.17g}"
-        return "".join(parts)
-
     def sector_statistic(self) -> str:
         return self._sector_statistic
 
@@ -298,51 +260,28 @@ class PlotAnalysisControls(QObject):
     def sector_interpolate(self) -> bool:
         return self._sector_interpolate
 
-    def sector_frequency_mode(self) -> str:
-        return self._sector_frequency_mode
-
     def sector_use_selected_azimuths(self) -> bool:
         return self._sector_use_selected_azimuths
 
     def sector_boxes(self):
         return deepcopy(self._sector_boxes)
 
-    def sector_frequency_bands(self, unit="Hz"):
-        return common.convert_axis_values(
-            self._sector_frequency_bands, "frequency", "Hz", unit
-        ).reshape(-1, 2).tolist()
-
-    def set_sector_settings(
-        self, text: str, statistic: str, percentile: float, *, unit: str | None = None,
-        interpolate: bool | None = None,
-        frequency_mode: str | None = None, frequency_bands=None,
-        use_selected_azimuths: bool | None = None,
-        boxes=None,
-    ) -> None:
-        """Commit the editor's settings together, with a single plot refresh."""
+    def set_sector_settings(self, *, boxes, statistic="mean", percentile=90.,
+                            interpolate=False, use_selected_azimuths=False):
+        """Apply one explicit set of paired azimuth/frequency boxes."""
         from GRIM_Backend.datasets.statistics_boxes import normalize_boxes
-        validated_boxes = self._sector_boxes if boxes is None else normalize_boxes(boxes)
-        values = (
-            str(text).strip(), str(statistic), float(percentile), unit or self._sector_unit,
-            self._sector_interpolate if interpolate is None else bool(interpolate),
-            self._sector_frequency_mode if frequency_mode is None else frequency_mode,
-            self._sector_frequency_bands if frequency_bands is None else
-            tuple(tuple(float(v) for v in band) for band in frequency_bands),
-            self._sector_use_selected_azimuths if use_selected_azimuths is None else bool(use_selected_azimuths),
-            validated_boxes,
-        )
-        current = (
-            self._sector_text, self._sector_statistic, self._sector_percentile,
-            self._sector_unit, self._sector_interpolate,
-            self._sector_frequency_mode, self._sector_frequency_bands,
-            self._sector_use_selected_azimuths,
-            self._sector_boxes,
-        )
+        if statistic not in ("mean", "median", "min", "max", "percentile"):
+            raise ValueError("Unknown box statistic.")
+        percentile = float(percentile)
+        if not math.isfinite(percentile) or not 0 <= percentile <= 100:
+            raise ValueError("Percentile must be between 0 and 100.")
+        values = (normalize_boxes(boxes), statistic, percentile, bool(interpolate),
+                  bool(use_selected_azimuths))
+        current = (self._sector_boxes, self._sector_statistic, self._sector_percentile,
+                   self._sector_interpolate, self._sector_use_selected_azimuths)
         if values != current:
-            (self._sector_text, self._sector_statistic,
-             self._sector_percentile, self._sector_unit, self._sector_interpolate,
-             self._sector_frequency_mode, self._sector_frequency_bands,
-             self._sector_use_selected_azimuths, self._sector_boxes) = values
+            (self._sector_boxes, self._sector_statistic, self._sector_percentile,
+             self._sector_interpolate, self._sector_use_selected_azimuths) = values
             self.changed.emit("sector")
 
     def range_subband_percent(self) -> float:
@@ -391,11 +330,18 @@ class PlotSliderBar(QFrame):
         self.band_width.setRange(0.000000001, 1.e15)
         self.band_width.setKeyboardTracking(False)
         self.band_width.setToolTip("Width of the moving band in the displayed axis units. Uses acquired samples only; windows with fewer than two samples are omitted. The slider replaces the matching Plot Settings filter.")
-        self.chk_step_by_bandwidth = QCheckBox("Step by bandwidth")
-        self.chk_step_by_bandwidth.setToolTip(
-            "Start each frequency band where the previous band ends: 1–3, 3–5, 5–7. "
-            "Shared endpoints belong to both bands. The final band may be shorter; "
-            "bands with fewer than two acquired samples are omitted.")
+        self.step_mode = NoWheelComboBox()
+        self.step_mode.addItem("Adjacent windows (advance = width)", "width")
+        self.step_mode.addItem("Custom window advance", "custom")
+        self.step_mode.addItem("Advance one acquired sample", "acquired")
+        self.advance = NoWheelDoubleSpinBox()
+        self.advance.setRange(1.e-9, 1.e15)
+        self.advance.setDecimals(9)
+        self.advance.setKeyboardTracking(False)
+        self.advance.setToolTip("Distance between window starts, in axis units. Smaller than width overlaps; larger leaves gaps.")
+        self.sequence_note = QLabel()
+        self.sequence_note.setWordWrap(True)
+        self.sequence_note.setTextFormat(Qt.PlainText)
         self.seconds = NoWheelDoubleSpinBox()
         self.seconds.setRange(.05, 3600.)
         self.seconds.setDecimals(2)
@@ -422,14 +368,17 @@ class PlotSliderBar(QFrame):
         outer.addLayout(options)
         options.addWidget(self.band_label)
         options.addWidget(self.band_width)
-        options.addWidget(self.chk_step_by_bandwidth)
+        options.addWidget(self.step_mode)
+        options.addWidget(self.advance)
         options.addStretch(1)
         options.addWidget(QLabel("Seconds / frame"))
         options.addWidget(self.seconds)
         options.addWidget(self.btn_export)
         self.band_label.hide()
         self.band_width.hide()
-        self.chk_step_by_bandwidth.hide()
+        self.step_mode.hide()
+        self.advance.hide()
+        outer.addWidget(self.sequence_note)
         self._busy = False
 
         self._labels: list[str] = []
@@ -443,7 +392,8 @@ class PlotSliderBar(QFrame):
         self._play_timer.timeout.connect(self._play_step)
         self.seconds.valueChanged.connect(lambda value: self._play_timer.setInterval(round(value * 1000)))
         self.band_width.valueChanged.connect(self._band_changed)
-        self.chk_step_by_bandwidth.toggled.connect(self._band_changed)
+        self.step_mode.currentIndexChanged.connect(self._band_changed)
+        self.advance.valueChanged.connect(self._band_changed)
         self.slider.valueChanged.connect(self._value_changed)
         self.btn_prev.clicked.connect(lambda: self.step(-1))
         self.btn_next.clicked.connect(lambda: self.step(1))

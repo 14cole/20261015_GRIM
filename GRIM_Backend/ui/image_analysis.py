@@ -157,13 +157,6 @@ class ImageAnalysisControls(QObject):
         self._coordinate_frame = None
         self.changed.emit("heatmap")
 
-    def add_rows(self, grid, row):
-        for column, (label, widget) in enumerate((("Waterfall X", self.combo_x), ("Y", self.combo_y))):
-            grid.addWidget(QLabel(label), row, column*2)
-            grid.addWidget(widget, row, column*2+1)
-        grid.addWidget(self.combo_aggregation, row+1, 0, 1, 6)
-        return row+2
-
     def axes(self):
         return self.combo_x.currentData(), self.combo_y.currentData()
 

@@ -82,7 +82,6 @@ from GRIM_Backend.ui.palette import (
     BLUE_PALETTE,
     DEFAULT_APPLICATION_PALETTE,
     LEGACY_APPLICATION_PALETTE_NAMES,
-    RAYTHEON_TERTIARY_PPT_CHART_COLORS,
     normalize_application_palette_name,
 )
 
@@ -1122,9 +1121,8 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             # color-scale spinboxes, which only retune the existing image's
             # clim (no recompute) and so can stay live.
             # The plotting tab keeps live updates because its plots are cheap.
-            # Aperture scrubbing and peak-scaling stay live inside ISAR —
-            # stepping/playing is the point of the scrub workflow, and the
-            # async compute path coalesces bursts of requests.
+            # Numeric aperture filtering and peak scaling remain live.
+            # Playback belongs to the shared slider and waits for publication.
             if tab_key == "isar":
                 from GRIM_Backend.ui.isar_controls import sync_reconstruction_controls
                 sync_reconstruction_controls(context)
@@ -1168,9 +1166,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
                 context.btn_isar_apply.clicked.connect(self._on_isar_window_changed)
                 context.chk_colorbar.toggled.connect(self._on_waterfall_style_changed)
                 context.chk_colorbar_shared.toggled.connect(self._on_waterfall_style_changed)
-                context.btn_isar_ap_prev.clicked.connect(self._on_isar_ap_prev)
-                context.btn_isar_ap_next.clicked.connect(self._on_isar_ap_next)
-                context.btn_isar_ap_play.toggled.connect(self._on_isar_ap_play)
                 context.btn_isar_peak_scale.clicked.connect(self._on_isar_peak_scale)
                 context.spin_plot_zmin.valueChanged.connect(self._on_isar_clim_changed)
                 context.spin_plot_zmax.valueChanged.connect(self._on_isar_clim_changed)
@@ -1408,81 +1403,46 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         settings_frame.setFrameShape(QFrame.StyledPanel)
         settings_frame.setVisible(False)
         settings_frame.set_toggle_button(btn_settings)
-        settings_layout = QGridLayout(settings_frame.content_widget)
-        settings_layout.setContentsMargins(8, 8, 8, 8)
-        settings_layout.setHorizontalSpacing(8)
-        settings_layout.setVerticalSpacing(6)
-        settings_layout.setColumnStretch(1, 1)
-        settings_layout.setColumnStretch(3, 1)
-        settings_layout.setColumnStretch(5, 1)
 
-        row = 0
-        plotting_only_rows: list[int] = []
-        plotting_only_rows.append(row)
-        settings_layout.addWidget(QLabel("Plot X Min"), row, 0)
         spin_plot_xmin = PlotNumberSpin()
         spin_plot_xmin.setRange(-1e12, 1e12)
         spin_plot_xmin.setDecimals(12)
         spin_plot_xmin.setValue(-180.0)
-        settings_layout.addWidget(spin_plot_xmin, row, 1)
-        settings_layout.addWidget(QLabel("Plot X Max"), row, 2)
         spin_plot_xmax = PlotNumberSpin()
         spin_plot_xmax.setRange(-1e12, 1e12)
         spin_plot_xmax.setDecimals(12)
         spin_plot_xmax.setValue(180.0)
-        settings_layout.addWidget(spin_plot_xmax, row, 3)
-        settings_layout.addWidget(QLabel("Plot X Step"), row, 4)
         spin_plot_xstep = PlotNumberSpin()
         spin_plot_xstep.setRange(0.0, 1e9)
         spin_plot_xstep.setDecimals(6)
         spin_plot_xstep.setValue(0.0)
-        settings_layout.addWidget(spin_plot_xstep, row, 5)
-        row += 1
 
-        plotting_only_rows.append(row)
-        settings_layout.addWidget(QLabel("Plot Y Min"), row, 0)
         spin_plot_ymin = PlotNumberSpin()
         spin_plot_ymin.setRange(-1e12, 1e12)
         spin_plot_ymin.setDecimals(12)
         spin_plot_ymin.setValue(-80.0)
-        settings_layout.addWidget(spin_plot_ymin, row, 1)
-        settings_layout.addWidget(QLabel("Plot Y Max"), row, 2)
         spin_plot_ymax = PlotNumberSpin()
         spin_plot_ymax.setRange(-1e12, 1e12)
         spin_plot_ymax.setDecimals(12)
         spin_plot_ymax.setValue(0.0)
-        settings_layout.addWidget(spin_plot_ymax, row, 3)
-        settings_layout.addWidget(QLabel("Plot Y Step"), row, 4)
         spin_plot_ystep = PlotNumberSpin()
         spin_plot_ystep.setRange(0.0, 1e9)
         spin_plot_ystep.setDecimals(6)
         spin_plot_ystep.setValue(0.0)
-        settings_layout.addWidget(spin_plot_ystep, row, 5)
-        row += 1
 
-        z_label = "Color" if tab_key == "isar" else "Plot Z"
-        settings_layout.addWidget(QLabel(f"{z_label} Min"), row, 0)
         spin_plot_zmin = PlotNumberSpin()
         spin_plot_zmin.setRange(-1e9, 1e9)
         spin_plot_zmin.setDecimals(12)
         spin_plot_zmin.setValue(0.0)
-        settings_layout.addWidget(spin_plot_zmin, row, 1)
-        settings_layout.addWidget(QLabel(f"{z_label} Max"), row, 2)
         spin_plot_zmax = PlotNumberSpin()
         spin_plot_zmax.setRange(-1e9, 1e9)
         spin_plot_zmax.setDecimals(12)
         spin_plot_zmax.setValue(0.0)
-        settings_layout.addWidget(spin_plot_zmax, row, 3)
-        settings_layout.addWidget(QLabel(f"{z_label} Step"), row, 4)
         spin_plot_zstep = PlotNumberSpin()
         spin_plot_zstep.setRange(0.0, 1e9)
         spin_plot_zstep.setDecimals(6)
         spin_plot_zstep.setValue(0.0)
-        settings_layout.addWidget(spin_plot_zstep, row, 5)
-        row += 1
 
-        scale_label = "Image dB" if tab_key == "isar" else "Dataset dB unit"
-        settings_layout.addWidget(QLabel(scale_label), row, 0)
         combo_plot_scale = QComboBox()
         combo_plot_scale.addItem(
             "dB" if tab_key == "isar" else "Dataset default (dBsm / dBke / dB)",
@@ -1492,11 +1452,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         default_index = combo_plot_scale.findData("dbsm")
         if default_index >= 0:
             combo_plot_scale.setCurrentIndex(default_index)
-        settings_layout.addWidget(combo_plot_scale, row, 1, 1, 5)
-        row += 1
 
-        plotting_only_rows.append(row)
-        settings_layout.addWidget(QLabel("Polar 0° Direction"), row, 0)
         combo_polar_zero = QComboBox()
         polar_zero_options = [
             ("North", "N"),
@@ -1513,33 +1469,22 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         default_index = combo_polar_zero.findData("N")
         if default_index >= 0:
             combo_polar_zero.setCurrentIndex(default_index)
-        settings_layout.addWidget(combo_polar_zero, row, 1, 1, 5)
-        row += 1
 
-        settings_layout.addWidget(QLabel("Plot Colormap"), row, 0)
         combo_colormap = QComboBox()
         for name in ("viridis", "plasma", "inferno", "magma", "cividis", "turbo"):
             combo_colormap.addItem(name, name)
         combo_colormap.setCurrentText("turbo")
-        settings_layout.addWidget(combo_colormap, row, 1)
         chk_colorbar = QCheckBox("Show Colorbar")
         chk_colorbar.setChecked(True)
-        settings_layout.addWidget(chk_colorbar, row, 2)
         chk_colorbar_shared = QCheckBox("Shared Colorbar")
         chk_colorbar_shared.setChecked(True)
-        settings_layout.addWidget(chk_colorbar_shared, row, 3)
-        row += 1
 
-        # ISAR formation controls live in their own nested section.  The
-        # section is only inserted into the ISAR popup; the PlotContext still
-        # owns compatible widgets so its public API remains unchanged.
+        # Build controls once; ContextPlotSettings supplies their presentation.
         analysis_controls = None
         image_analysis_controls = None
         if tab_key == "plotting":
             analysis_controls = PlotAnalysisControls(settings_frame)
-            row = analysis_controls.add_rows(settings_layout, row)
             image_analysis_controls = ImageAnalysisControls(settings_frame)
-            row = image_analysis_controls.add_rows(settings_layout, row)
             try:
                 settings = getattr(self, "_settings", None)
                 saved_options = settings.value("plotting/analysis-options-v1", "{}") if settings is not None else "{}"
@@ -1550,20 +1495,7 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             except (TypeError, ValueError, KeyError):
                 pass  # Invalid saved preferences leave the usable defaults.
 
-        common_settings_layout = settings_layout
-        common_row = row
-        isar_settings_section = QWidget(settings_frame.content_widget)
-        isar_settings_section.setObjectName("isarSettingsSection")
-        settings_layout = QGridLayout(isar_settings_section)
-        settings_layout.setContentsMargins(0, 0, 0, 0)
-        settings_layout.setHorizontalSpacing(8)
-        settings_layout.setVerticalSpacing(6)
-        settings_layout.setColumnStretch(1, 1)
-        settings_layout.setColumnStretch(3, 1)
-        settings_layout.setColumnStretch(5, 1)
-        row = 0
 
-        settings_layout.addWidget(QLabel("ISAR Window"), row, 0)
         combo_isar_window = QComboBox()
         combo_isar_window.addItems([
             "Hanning",
@@ -1573,13 +1505,9 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "Kaiser β=15",
             "Rectangular",
         ])
-        settings_layout.addWidget(combo_isar_window, row, 1)
-        settings_layout.addWidget(QLabel("ISAR Units"), row, 2)
         combo_isar_units = QComboBox()
         combo_isar_units.addItems(["m", "in", "ft"])
         combo_isar_units.setCurrentText("in")
-        settings_layout.addWidget(combo_isar_units, row, 3)
-        row += 1
 
         chk_isar_az_interp = QCheckBox("Interp Az")
         chk_isar_az_interp.setToolTip(
@@ -1587,29 +1515,24 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "(360°-wrapping) when the source covers ≥359°; otherwise linear "
             "with zero-fill outside the source support."
         )
-        settings_layout.addWidget(chk_isar_az_interp, row, 0)
         spin_isar_az_min = PlotNumberSpin()
         spin_isar_az_min.setRange(-3600.0, 3600.0)
         spin_isar_az_min.setDecimals(4)
         spin_isar_az_min.setSingleStep(1.0)
         spin_isar_az_min.setValue(0.0)
         spin_isar_az_min.setToolTip("Lower azimuth limit (deg) for the uniform target grid.")
-        settings_layout.addWidget(spin_isar_az_min, row, 1)
         spin_isar_az_max = PlotNumberSpin()
         spin_isar_az_max.setRange(-3600.0, 3600.0)
         spin_isar_az_max.setDecimals(4)
         spin_isar_az_max.setSingleStep(1.0)
         spin_isar_az_max.setValue(360.0)
         spin_isar_az_max.setToolTip("Upper azimuth limit (deg) for the uniform target grid.")
-        settings_layout.addWidget(spin_isar_az_max, row, 2)
         spin_isar_az_step = PlotNumberSpin()
         spin_isar_az_step.setRange(1.0e-4, 90.0)
         spin_isar_az_step.setDecimals(4)
         spin_isar_az_step.setSingleStep(0.1)
         spin_isar_az_step.setValue(1.0)
         spin_isar_az_step.setToolTip("Azimuth step (deg) for the uniform target grid.")
-        settings_layout.addWidget(spin_isar_az_step, row, 3)
-        row += 1
 
         chk_isar_freq_band = QCheckBox("Freq Band")
         chk_isar_freq_band.setToolTip(
@@ -1617,24 +1540,19 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "(dataset frequency units, typically GHz). Lets you sweep sub-bands "
             "numerically instead of re-selecting thousands of list entries."
         )
-        settings_layout.addWidget(chk_isar_freq_band, row, 0)
         spin_isar_freq_min = PlotNumberSpin()
         spin_isar_freq_min.setRange(0.0, 1.0e100)
         spin_isar_freq_min.setDecimals(4)
         spin_isar_freq_min.setSingleStep(0.5)
         spin_isar_freq_min.setValue(0.0)
         spin_isar_freq_min.setToolTip("Lower frequency limit for ISAR imaging.")
-        settings_layout.addWidget(spin_isar_freq_min, row, 1)
         spin_isar_freq_max = PlotNumberSpin()
         spin_isar_freq_max.setRange(0.0, 1.0e100)
         spin_isar_freq_max.setDecimals(4)
         spin_isar_freq_max.setSingleStep(0.5)
         spin_isar_freq_max.setValue(18.0)
         spin_isar_freq_max.setToolTip("Upper frequency limit for ISAR imaging.")
-        settings_layout.addWidget(spin_isar_freq_max, row, 2)
-        row += 1
 
-        settings_layout.addWidget(QLabel("Recon"), row, 0)
         combo_isar_recon = QComboBox()
         combo_isar_recon.addItems([
             "Fast PFA (FFT)",
@@ -1654,7 +1572,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "history. Slower (iterative); intended for sub-aperture/sub-band "
             "looks. The taper window only applies to PFA modes."
         )
-        settings_layout.addWidget(combo_isar_recon, row, 1)
         spin_isar_l1_strength = PlotNumberSpin()
         spin_isar_l1_strength.setRange(0.001, 0.9)
         spin_isar_l1_strength.setDecimals(3)
@@ -1666,7 +1583,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "lower retains more pixels. This is not a calibrated noise bound "
             "and does not select a physical contaminant component."
         )
-        settings_layout.addWidget(spin_isar_l1_strength, row, 2)
         spin_isar_l1_iters = PlotNumberSpin()
         spin_isar_l1_iters.setRange(10, 1000)
         spin_isar_l1_iters.setDecimals(0)
@@ -1678,7 +1594,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "the primal/dual-gap convergence test passed; reaching this limit "
             "means the solution is not certified."
         )
-        settings_layout.addWidget(spin_isar_l1_iters, row, 3)
         combo_isar_recon.addItem("Recommended PFA (scene-aware)")
         chk_isar_flip_x = QCheckBox("Flip X")
         chk_isar_flip_x.setToolTip(
@@ -1688,7 +1603,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "opposite azimuth rotation-direction convention. Validate once "
             "against a known asymmetric geometry, then leave it set."
         )
-        settings_layout.addWidget(chk_isar_flip_x, row, 4)
         chk_isar_flip_y = QCheckBox("Flip Y")
         chk_isar_flip_y.setToolTip(
             "ISAR and Az vs D.R.: mirror range about y=0 (swap up/down). Use when the range "
@@ -1697,17 +1611,12 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "ISAR needs both flips; Az vs D.R. needs only Flip Y. Validate "
             "against a known target before changing the range direction."
         )
-        settings_layout.addWidget(chk_isar_flip_y, row, 5)
-        row += 1
 
         chk_isar_aperture = QCheckBox("Aperture")
         chk_isar_aperture.setToolTip(
-            "Scrub mode: image only the selected azimuths within ±width/2 of the "
-            "center look angle (wraps at 0/360°). Drive the center numerically or "
-            "with the ◀ ▶ step buttons (half-aperture steps) — changes render "
-            "live, no Apply needed."
+            "Filter selected azimuths to center ± half the width (wraps at 0/360°). "
+            "Use Slider for playback and export; it replaces this filter."
         )
-        settings_layout.addWidget(chk_isar_aperture, row, 0)
         spin_isar_ap_center = PlotNumberSpin()
         spin_isar_ap_center.setRange(0.0, 360.0)
         spin_isar_ap_center.setDecimals(3)
@@ -1715,35 +1624,18 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         spin_isar_ap_center.setValue(0.0)
         spin_isar_ap_center.setWrapping(True)
         spin_isar_ap_center.setToolTip("Aperture center look angle (deg).")
-        settings_layout.addWidget(spin_isar_ap_center, row, 1)
         spin_isar_ap_width = PlotNumberSpin()
         spin_isar_ap_width.setRange(0.01, 360.0)
         spin_isar_ap_width.setDecimals(3)
         spin_isar_ap_width.setSingleStep(1.0)
         spin_isar_ap_width.setValue(5.0)
         spin_isar_ap_width.setToolTip("Aperture width (deg).")
-        settings_layout.addWidget(spin_isar_ap_width, row, 2)
-        btn_isar_ap_prev = QToolButton(text="◀")
-        btn_isar_ap_prev.setToolTip("Step the aperture center back by half a width.")
-        settings_layout.addWidget(btn_isar_ap_prev, row, 3)
-        btn_isar_ap_next = QToolButton(text="▶")
-        btn_isar_ap_next.setToolTip("Step the aperture center forward by half a width.")
-        settings_layout.addWidget(btn_isar_ap_next, row, 4)
-        btn_isar_ap_play = QToolButton(text="Play")
-        btn_isar_ap_play.setCheckable(True)
-        btn_isar_ap_play.setToolTip(
-            "Auto-step the aperture around the target, rendering each look as "
-            "fast as it computes. Click again to stop."
-        )
-        settings_layout.addWidget(btn_isar_ap_play, row, 5)
-        row += 1
 
         btn_isar_peak_scale = QToolButton(text="Peak −")
         btn_isar_peak_scale.setToolTip(
             "Set the color scale to [peak − N, peak] of the current ISAR image — "
             "the standard dynamic-range convention. Instant (no recompute)."
         )
-        settings_layout.addWidget(btn_isar_peak_scale, row, 0)
         spin_isar_peak_drop = PlotNumberSpin()
         spin_isar_peak_drop.setRange(1.0, 200.0)
         spin_isar_peak_drop.setDecimals(1)
@@ -1751,8 +1643,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
         spin_isar_peak_drop.setValue(40.0)
         spin_isar_peak_drop.setSuffix(" dB")
         spin_isar_peak_drop.setToolTip("Dynamic range below the image peak.")
-        settings_layout.addWidget(spin_isar_peak_drop, row, 1)
-        row += 1
 
         chk_isar_square = QCheckBox("Square Aspect")
         chk_isar_square.setChecked(True)
@@ -1763,61 +1653,25 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             "fills the box and the geometry is undistorted. Off uses 'fill the axes' "
             "scaling, which packs more data on screen but stretches the geometry."
         )
-        settings_layout.addWidget(chk_isar_square, row, 0, 1, 2)
         btn_isar_apply = QToolButton(text="Apply ISAR Settings")
         btn_isar_apply.setToolTip(
             "Re-render the ISAR image with the current settings. On the ISAR tab, "
             "settings changes are deferred until you click here so typing into "
             "spinboxes doesn't trigger a re-image per keystroke."
         )
-        settings_layout.addWidget(btn_isar_apply, row, 2, 1, 4)
-        row += 1
 
         from GRIM_Backend.ui.isar_controls import AdvancedIsarControls
-        isar_advanced = AdvancedIsarControls(isar_settings_section)
-        settings_layout.addWidget(isar_advanced, row, 0, 1, 6)
-        row += 1
+        isar_advanced = AdvancedIsarControls(settings_frame)
 
-        isar_settings_layout = settings_layout
-        settings_layout = common_settings_layout
-        row = common_row
-        if tab_key == "isar":
-            settings_layout.addWidget(isar_settings_section, row, 0, 1, 6)
-            row += 1
-        else:
-            isar_settings_section.setVisible(False)
 
         chk_plot_grid_visible = QCheckBox("Show Grid")
         chk_plot_grid_visible.setChecked(True)
-        settings_layout.addWidget(chk_plot_grid_visible, row, 0)
         chk_colormap_invert = QCheckBox("Invert Colormap")
         chk_colormap_invert.setChecked(False)
-        settings_layout.addWidget(chk_colormap_invert, row, 1)
-        row += 1
 
-        settings_layout.addWidget(QLabel("Plot Colors"), row, 0)
         btn_plot_bg = QToolButton(text="BG")
         btn_plot_grid = QToolButton(text="Grid")
         btn_plot_text = QToolButton(text="Text")
-        settings_layout.addWidget(btn_plot_bg, row, 1)
-        settings_layout.addWidget(btn_plot_grid, row, 2)
-        settings_layout.addWidget(btn_plot_text, row, 3)
-
-        if tab_key == "isar":
-            # X/Y limits are managed by the ISAR Fit/Zoom/Pan tools and polar-
-            # zero direction does not participate in ISAR formation.  Keep
-            # the backing widgets for PlotContext API compatibility, but do
-            # not present those inert Plotting-only rows. Image dB remains
-            # visible because ISAR honors its dBsm/linear selection on Apply.
-            for plotting_only_row in plotting_only_rows:
-                seen: set[int] = set()
-                for column in range(settings_layout.columnCount()):
-                    item = settings_layout.itemAtPosition(plotting_only_row, column)
-                    widget = item.widget() if item is not None else None
-                    if widget is None or id(widget) in seen:
-                        continue
-                    seen.add(id(widget))
-                    widget.setVisible(False)
 
         plot_frame = QFrame()
         plot_frame.setFrameShape(QFrame.StyledPanel)
@@ -2039,9 +1893,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             chk_isar_aperture=chk_isar_aperture,
             spin_isar_ap_center=spin_isar_ap_center,
             spin_isar_ap_width=spin_isar_ap_width,
-            btn_isar_ap_prev=btn_isar_ap_prev,
-            btn_isar_ap_next=btn_isar_ap_next,
-            btn_isar_ap_play=btn_isar_ap_play,
             btn_isar_peak_scale=btn_isar_peak_scale,
             spin_isar_peak_drop=spin_isar_peak_drop,
             chk_isar_square=chk_isar_square,
@@ -2580,9 +2431,6 @@ class GrimCutWindow(PlotWorkspaceMixin, DatasetOpsMixin, PlotOpsMixin, QMainWind
             event.ignore()
             return
         if bool(getattr(self, "_isar_busy", False)):
-            play_button = getattr(self, "btn_isar_ap_play", None)
-            if play_button is not None:
-                play_button.setChecked(False)
             current_cancel = getattr(self, "_isar_cancel_event", None)
             if current_cancel is not None:
                 current_cancel.set()

@@ -159,7 +159,7 @@ def render(self, *, composite=False) -> None:
         return
 
     az_interp_widget = getattr(self, "chk_isar_az_interp", None)
-    az_interp_on = bool(az_interp_widget.isChecked()) if az_interp_widget is not None else False
+    az_interp_on = not composite and az_interp_widget is not None and az_interp_widget.isChecked()
     az_target_deg: np.ndarray | None = None
     if az_interp_on:
         az_min = float(self.spin_isar_az_min.value())

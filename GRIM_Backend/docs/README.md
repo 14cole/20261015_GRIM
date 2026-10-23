@@ -542,24 +542,34 @@ is entered in the dataset's frequency units. Azimuth moves an **Aperture width**
 in degrees; Elevation steps individual acquired elevations. Other plots retain
 single-coordinate stepping. The sweep covers the entire available parameter
 list, replaces that axis's selection, and retains the other axis selections.
-Band starts follow acquired coordinates, with a final band ending at the upper
-bound. Duplicate sample masks and windows with fewer than two samples are
-omitted. The slider disables the corresponding Plot Settings band/aperture
-filter to avoid clipping its own selection a second time. It does not interpolate
-missing measurements. A narrower frequency band gives coarser range resolution.
+The slider is the single playback system for range images. Its window advance
+selector applies equally to azimuth and frequency:
 
-For frequency bands, check **Step by bandwidth** to start each band where the
-previous one ends: a 2 GHz bandwidth gives 1–3, 3–5, 5–7 GHz, and so on.
-Shared endpoints are included in both bands. Any final remainder uses a shorter
-band ending at the highest acquired frequency; it is not shifted backward.
-Bands with fewer than two acquired samples are omitted. The option is off by
-default and applies to slider arrows, dragging, playback, and sweep exports.
+- **Adjacent windows (advance = width)** is the default: width 15° produces
+  0–15°, 15–30°, 30–45° on a dataset starting at 0°.
+- **Custom window advance** specifies the distance between starts in degrees
+  or the dataset's frequency units. Width 15° and advance 7.5° gives overlapping
+  windows; an advance larger than the width leaves gaps.
+- **Advance one acquired sample** uses each acquired coordinate as a start,
+  followed by a final full-width window ending at the upper bound.
+
+Adjacent and custom windows start at the dataset's lowest coordinate and clip
+at its highest coordinate; final windows may be shorter. Endpoints are inclusive.
+Duplicate sample sets and windows with fewer than two acquired samples are
+omitted. The sequence preview shows the first windows, final window, and count.
+Arrows, dragging, playback, and export all use this same plan. Windows do not
+wrap across the end of the dataset. The numeric Plot Settings aperture remains
+available for a single circular window across 0°/360°.
+
+The slider replaces its axis selection and disables the corresponding Plot
+Settings band/aperture filter. Other axis selections remain unchanged. It does
+not interpolate missing measurements. A narrower frequency band gives coarser
+range resolution.
 
 **Seconds / frame** sets GUI playback pacing. Playback waits for each completed
 plot, then waits the chosen interval before advancing; expensive reconstruction
 can therefore make GUI playback slower. **Export sweep…** offers a numbered PNG
-image sequence, MP4 video, or animated GIF, a separate **Seconds per frame**, and a **Position
-step** to export every Nth position (including the final one). Video timing is
+image sequence, MP4 video, or animated GIF, a separate **Seconds per frame**, and an **Export every Nth position** control to skip positions (including the final one). Video timing is
 independent of computation speed. Export uses the current plotting settings and
 requires Hold to be off. Set fixed axis/color limits in Plot Settings if needed
 for comparisons across frames.
@@ -1629,3 +1639,11 @@ From the repository root:
 ```powershell
 py -m unittest discover -s GRIM_Backend/tests -p "test*.py" -v
 ```
+
+### Settings simplification
+
+Azimuth interpolation is available for coherent ISAR only; Composite ignores
+any previously selected coherent interpolation grid. Range images retain their
+formation amplitude; no hidden peak-normalization option is applied.
+Sector statistics use explicit paired azimuth/frequency boxes exclusively;
+the former sector-text and separate frequency-group settings are removed.

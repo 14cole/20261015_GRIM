@@ -75,7 +75,7 @@ class SweepExportDialog(QDialog):
         self.stride = NoWheelSpinBox()
         self.stride.setRange(1, max(1, len(bar._frames)))
         self.stride.setToolTip("Export every Nth slider position; always include the final position.")
-        form.addRow("Position step", self.stride)
+        form.addRow("Export every Nth position", self.stride)
         self.summary = QLabel()
         form.addRow(self.summary)
         def update_summary():
@@ -189,7 +189,6 @@ class SweepExporter(QObject):
         timer = getattr(self.window, "_autoplot_timer", None)
         if timer is not None:
             timer.stop()
-        self.window.btn_isar_ap_play.setChecked(False)
         self.progress.show()
         QTimer.singleShot(0, self._next_frame)
 
@@ -272,7 +271,8 @@ class SweepExporter(QObject):
             "datasets": self.dataset_names,
             "initial_sample_rows": {key: sorted(rows) for key, rows in self.selections.items()},
             "band_width": self.bar.band_width.value() if self.frames.band else None,
-            "band_step": ("bandwidth" if self.frames.step_by_width else "acquired") if self.frames.band else None,
+            "band_step": ("custom" if self.frames.advance is not None else "bandwidth" if self.frames.step_by_width else "acquired") if self.frames.band else None,
+            "window_advance": self.frames.advance if self.frames.advance is not None else (self.bar.band_width.value() if self.frames.step_by_width else None),
             "seconds_per_frame": self.seconds, "requested_positions": self.positions,
             "frames": self.records, "video": "sweep.mp4" if self.kind == "video" and status == "complete" else None,
             "gif": "sweep.gif" if self.kind == "gif" and status == "complete" else None}

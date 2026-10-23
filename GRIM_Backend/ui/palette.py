@@ -114,16 +114,6 @@ LEGACY_APPLICATION_PALETTE_NAMES = {
     "Raytheon": "Dark",
     "Raytheon-inspired": "Dark",
 }
-# Official tertiary colors are intentionally not part of application chrome
-# or embedded-tool plots. They are reserved for optional PowerPoint charts
-# with enough series to require additional differentiation.
-RAYTHEON_TERTIARY_PPT_CHART_COLORS = (
-    "#7ba7bc",
-    "#b7a99a",
-    "#908cc2",
-    "#9abeaa",
-    "#efb661",
-)
 # Compatibility export for extensions/tests that used GRIM's former one fixed
 # palette. It remains the exact default Dark palette.
 BLUE_PALETTE = APPLICATION_PALETTES[DEFAULT_APPLICATION_PALETTE]

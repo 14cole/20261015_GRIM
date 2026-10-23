@@ -252,7 +252,7 @@ class SectorStatisticsDialog(QDialog):
             self._show_error(str(exc))
             return False
         self.controls.set_sector_settings(
-            self.controls.sector_text(), str(self.combo_statistic.currentData()), self.spin_percentile.value(),
+            statistic=str(self.combo_statistic.currentData()), percentile=self.spin_percentile.value(),
             interpolate=self.chk_interpolate.isChecked(),
             use_selected_azimuths=self.check_selected_range.isChecked(), boxes=boxes)
         self._clear_error()

@@ -56,9 +56,6 @@ class PlotContext:
     chk_isar_aperture: QCheckBox
     spin_isar_ap_center: QDoubleSpinBox
     spin_isar_ap_width: QDoubleSpinBox
-    btn_isar_ap_prev: QToolButton
-    btn_isar_ap_next: QToolButton
-    btn_isar_ap_play: QToolButton
     btn_isar_peak_scale: QToolButton
     spin_isar_peak_drop: QDoubleSpinBox
     chk_isar_square: QCheckBox
